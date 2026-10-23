@@ -7,6 +7,7 @@ import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Selection;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Function;
 
 /**
@@ -51,6 +52,8 @@ public final class BuiltQuery<M> {
     /** The source's {@code maxDepth}, or 0 for a query that reads no recursive source (R-SRC-07). */
     private final int maxDepth;
     private final List<String> sourceKeyColumns;
+    /** The source join whose walk the checks read, or {@code null} when they read the query's own source (D-187). */
+    private final String recursionJoin;
 
     BuiltQuery(CriteriaQuery<Tuple> query, JoinContext joins, RowSelection selection, Function<Row, M> mapping) {
         this(query, joins, selection, mapping, null, List.of(), 0, List.of());
@@ -58,6 +61,12 @@ public final class BuiltQuery<M> {
 
     BuiltQuery(CriteriaQuery<Tuple> query, JoinContext joins, RowSelection selection, Function<Row, M> mapping,
             Expression<?> parentKey, List<Selection<?>> recursionChecks, int maxDepth, List<String> sourceKeyColumns) {
+        this(query, joins, selection, mapping, parentKey, recursionChecks, maxDepth, sourceKeyColumns, null);
+    }
+
+    BuiltQuery(CriteriaQuery<Tuple> query, JoinContext joins, RowSelection selection, Function<Row, M> mapping,
+            Expression<?> parentKey, List<Selection<?>> recursionChecks, int maxDepth, List<String> sourceKeyColumns,
+            String recursionJoin) {
         this.query = query;
         this.joins = joins;
         this.selection = selection;
@@ -66,6 +75,7 @@ public final class BuiltQuery<M> {
         this.recursionChecks = List.copyOf(recursionChecks);
         this.maxDepth = maxDepth;
         this.sourceKeyColumns = List.copyOf(sourceKeyColumns);
+        this.recursionJoin = recursionJoin;
     }
 
     /** The Criteria query, selecting {@link Tuple}s. */
@@ -109,6 +119,17 @@ public final class BuiltQuery<M> {
     @Incubating
     public List<String> sourceKeyColumns() {
         return sourceKeyColumns;
+    }
+
+    /**
+     * The source join whose recursive walk {@link #recursionChecks()} read, as {@code join 'nodes' of CategoryNode},
+     * for the check site's messages to name; empty when they read the query's own source, or there are none
+     * (R-SRC-14, D-187).
+     */
+    @EngineFacing
+    @Incubating
+    public Optional<String> recursionJoin() {
+        return Optional.ofNullable(recursionJoin);
     }
 
     /**

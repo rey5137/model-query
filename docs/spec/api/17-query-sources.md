@@ -1,16 +1,20 @@
 # 17 — Query Sources
 
 **Covers:** `@SourceModel`, `SourceQuery` and its `Builder`, `TableField.source`, `ColumnField.over`, `@Discriminator`,
-and the outer `@QueryModel` that reads a source.
-**Read when:** declaring a source model, reading one from an outer model, or changing what the processor generates for
-either. Windows and set operations are RFC 0013 §3–§6; recursion is RFC 0013 §5, and §6 below.
+the outer `@QueryModel` that reads a source, and `SourceJoin` with `joinSource`, which joins one to an entity-rooted
+query.
+**Read when:** declaring a source model, reading one from an outer model or joining one to an entity-rooted query, or
+changing what the processor generates for either. Windows and set operations are RFC 0013 §3–§6; recursion is
+RFC 0013 §5, and §6 below.
 **Owns:** `R-SRC-*`, `AC-SRC-*`. Rows `R-SRC-05`..`R-SRC-06` and `R-SRC-09` land with M25.4; `R-SRC-07`..`R-SRC-08`
 land with M25.5; `R-SRC-04` lands with M25.3; the run-time half of `R-SRC-03` and all of `R-SRC-11`..`R-SRC-12` land
 with M25.2. The M26.1 additions to `R-SRC-02`, `R-SRC-08` and `R-SRC-11` — a composite id as the source key, the one
 check site, the grouped count and the composite node key — land with M26.1, as AC-SRC-21's H2 half and AC-SRC-25 do.
 `R-SRC-13`..`R-SRC-14`, AC-SRC-21's composite-key check and AC-SRC-24 land with M26.2. M26.3 makes tree sources
 unique, completes AC-SRC-18 and AC-SRC-22 for every statement kind, and adds `R-SRC-15` and AC-SRC-17, AC-SRC-19,
-AC-SRC-20 and AC-SRC-23. A plain `recursive(...)` source keeps R-SRC-09's non-unique refusals.
+AC-SRC-20 and AC-SRC-23. A plain `recursive(...)` source keeps R-SRC-09's non-unique refusals. M32.6 adds `R-SRC-21`
+and `R-SRC-22` with AC-SRC-42 to AC-SRC-50 (D-185 Part A, D-187), and names the joined source in `R-SRC-08`,
+`R-SRC-11`, `R-SRC-12`, `R-SRC-14`, `R-SRC-15` and `R-SRC-18`; `@JoinSource` and `@SourceColumn` land with M32.7.
 
 ---
 
@@ -328,11 +332,12 @@ SourceQuery<CategoryNode> tree = QCategoryNode.source()
   field carrying the level. A `@Window` or `@Aggregate` over a recursive result uses a source over that source
   (R-SRC-16, D-150).
 - **The depth limit is loud.** The `with recursive` CTE steps to level `maxDepth + 1` and the cycle clause marks the
-  row that closes a cycle; the outer query filters on `level <= maxDepth and not mark`, so neither reaches a result.
-  Every statement over the source (R-SRC-15) carries depth and cycle scalar sub-selects over the same CTE — the
-  smallest key of the rows past `maxDepth` and the smallest marked key — read from the statement's first row. A row
-  past `maxDepth` is `MQ2701` and a marked row is `MQ2702`, each naming the model and the first offending key.
-  A too-deep tree and a cyclic graph are refused whole rather than returned in part (INV-5). An empty result
+  row that closes a cycle; the outer query filters on `level <= maxDepth and not mark` (a statement that joins the
+  walk puts that filter in the join's `on`, R-SRC-22), so neither reaches a result.
+  Every statement that reads or joins the source (R-SRC-15) carries depth and cycle scalar sub-selects over the same
+  CTE — the smallest key of the rows past `maxDepth` and the smallest marked key — read from the statement's first
+  row. A row past `maxDepth` is `MQ2701` and a marked row is `MQ2702`, each naming the model and the first offending
+  key. A too-deep tree and a cyclic graph are refused whole rather than returned in part (INV-5). An empty result
   carries no row to read, so the checks see nothing there. Under READ COMMITTED a concurrent write can deepen a tree
   after the statement read it; REPEATABLE READ around the call is the full guarantee (`engine/21`).
 - **One check site.** Every `Tuple` read in `model-query-jpa` goes through the `BuiltQuery` overloads of `rows`,
@@ -386,8 +391,10 @@ SourceQuery<CategoryNode> tree = QCategoryNode.source()
   `MQ2703` names the model and the first column of the smallest duplicated key, says that it names the first column
   for a composite key, and suggests narrowing the seeds or using `recursive(...)` for a graph.
 - **No row, no check.** An empty result carries no check value and raises nothing. A plain count always returns a
-  row and is checked, even when it counts zero. A count over groups over a source counts client-side through the
-  check site (R-SRC-08): it is checked when a group is returned, and returns `0` unchecked when there is no group.
+  row and is checked, even when it counts zero. Under a `LEFT` join to a walk (R-SRC-22) an outer row the walk never
+  reached is still a row, and is checked; an `INNER` join that keeps no row returns empty, unchecked. A count over
+  groups over a source counts client-side through the check site (R-SRC-08): it is checked when a group is returned,
+  and returns `0` unchecked when there is no group.
 - **Canonical constructors only.** `RecursiveSpec` and `RecursiveCte` have only their canonical constructors;
   a recursive source passes `tree = false` and `duplicateKey = null` explicitly. A `recursive(...)`
   source selects and reads no duplicate check, even if its renderer returns one, so its SQL stays unchanged.
@@ -402,7 +409,11 @@ SourceQuery<CategoryNode> tree = QCategoryNode.source()
 - **Every read.** The content query, plain count, count over groups, both `one(query)` and `one(q, key)`, each
   `byKeys` chunk, each keyset page, both primary-key-first steps, a deep offset page, each offset or keyset export
   page and a fetch plan's parent read carry and read the source's checks through R-SRC-08's check site. A
-  primary-key-first read's second step re-walks the source with its `IN` list; it checks that whole walk too.
+  primary-key-first read's second step re-walks the source with its `IN` list; it checks that whole walk too. A query
+  that joins a walk (R-SRC-22) carries them on the same statements, and on two more: the root-id count of a query with
+  a treated path (`ModelQuery#buildRootIdCount`, which selects the checks beside its count) and a `through` child load
+  whose child query joins the walk. A grouped entity query that joins a walk counts its groups client-side through the
+  check site, as a count over groups over a source does.
 - **Before using a row.** The check site reads depth, cycle and duplicate-key checks before mapping, taking a key,
   deduping or delivering a row. `MQ2703` therefore precedes a keyset page or export's `MQ2202` or `MQ2205`,
   `byKeys`'s `MQ2005` or `MQ2003`, a primary-key-first second step's dedupe, and either `one` call's `MQ2003`.
@@ -413,8 +424,10 @@ SourceQuery<CategoryNode> tree = QCategoryNode.source()
   row. Pages already delivered stay delivered, as with the depth check. No check state is kept between statements;
   REPEATABLE READ or a snapshot around the call is the full guarantee (`engine/21` R-PAG-01).
 - **Fetch children.** Child rounds read the child entity, not the source, so they carry no recursive CTE or check.
-  A child model rooted at a source is `MQ3039` at compile time. The checked parent keys identify the rows children
-  attach to (R-FCH-05); a write between parent and child reads is the same race as a table-rooted fetch plan.
+  A child model rooted at a source, or one that joins a source, is `MQ3039` at compile time. A hand-written
+  `ChildField` whose `query()` joins a walk is the one child round that carries it: its load joins the walk and reads
+  its checks as any other statement. The checked parent keys identify the rows children attach to (R-FCH-05); a
+  write between parent and child reads is the same race as a table-rooted fetch plan.
 
 ## 7. Building the CTE, and what a source needs to run
 
@@ -422,29 +435,34 @@ SourceQuery<CategoryNode> tree = QCategoryNode.source()
 
 - **The provider's support.** `ProviderSupport#sources()` returns the factory's `SourceRenderer`. Empty — the default,
   and the only answer where the factory's provider has no `ProviderSupport` at all — is `MQ4014`, before any statement,
-  the same fail-safe as `ProviderSupport#inserts()` (R-VND-14). `SourceRenderer`'s default `recursive`, `window` and
-  `combine` methods also refuse with `MQ4014`: the provider lacks that renderer, rather than the vendor lacking a
-  feature (D-150). `model-query-hibernate` serves Hibernate on both lines.
+  the same fail-safe as `ProviderSupport#inserts()` (R-VND-14). `SourceRenderer`'s default `recursive`, `window`,
+  `join` and `combine` methods also refuse with `MQ4014`: the provider lacks that renderer, rather than the vendor
+  lacking a feature (D-150), so a provider without the `join` hook refuses a query that joins a source (R-SRC-22).
+  `model-query-hibernate` serves Hibernate on both lines.
 - **The vendor's features.** `VendorProfile#sources(SourceFeature)` answers for each feature the source uses, `false`
   by default so a profile written before a constant was added fails safe. A `false` is `MQ4015`, before any statement,
   naming the feature and the vendor. `RECURSIVE_COMPOSITE_KEY` is one of them, answered `false` by H2 alone, so a
   recursive source over a composite node key is the one source feature refused on a Tier-1 vendor (M26.1, D-149;
   AC-SRC-21). The refusals are database facts (R-VND-11, INV-6); `PortabilityCheck` reports `MQ4014` and `MQ4015` per
-  declared target, with no database (AC-SRC-16), an H2 target's composite-key refusal included.
-- **A row lock.** `withLock(...)` over a source is `MQ1903`: the source's rows come from a common table expression,
-  which a locking clause cannot follow. Q-16 stays open.
+  declared target, with no database (AC-SRC-16), an H2 target's composite-key refusal included. A joined source
+  (R-SRC-21) needs the same features as a source root: `CTE`, `false` on `OTHER` and so `MQ4015` there, and for a
+  joined walk `RECURSIVE`, `RECURSIVE_COMPOSITE_KEY` and the `maxRecursionDepth()` ceiling of R-SRC-08, checked as its
+  chain registers; `PortabilityCheck` reports each per target (AC-SRC-47, AC-SRC-50).
+- **A row lock.** `withLock(...)` over a source, or on a query that joins one (R-SRC-21), is `MQ1903` before any
+  statement: the source's rows come from a common table expression, which a locking clause cannot follow. Q-16 stays
+  open.
 
 **R-SRC-12** The engine (`core`) builds the source's body, as a standard `CriteriaQuery<Tuple>` whose elements are the
 source's fields, aliased by the engine-given column name `mq_<property>` (`SourceQuery.columnName`, D-146: no field name
 can collide with a vendor reserved word, INV-6), filtered by its `where` and `having` and grouped by its `groupKeys`
 (R-SRC-03, D-143). It reaches the provider only through `SourceRenderer#cte(outer, body)`, which registers the body as
 `outer`'s CTE and returns the root the outer statement reads by those names (`ColumnField.over` uses the same `columnName`), so no provider type leaks into `jpa`
-(INV-7). The CTE is registered on **every** statement built over the source: the content query, the count, both
-primary-key-first steps, each export page, `byKeys` (every chunk) and the parent reads of a fetch plan. A statement
-that reaches the database without its CTE is therefore a bug in the engine, not a state the user can hold: the body is
-built per statement from the immutable `SourceQuery`, which itself carries no Criteria object (INV-9). The body's
-parameters, its `where`'s and `having`'s values with an `Expr.value` included, are bound by the statement that registers
-it, under either value-handling setting (`api/12` R-FLT-08, D-179).
+(INV-7). The CTE is registered on **every** statement built over the source or joining it (R-SRC-22): the content
+query, the count, both primary-key-first steps, each export page, `byKeys` (every chunk) and the parent reads of a
+fetch plan. A statement that reaches the database without its CTE is therefore a bug in the engine, not a state the
+user can hold: the body is built per statement from the immutable `SourceQuery`, which itself carries no Criteria
+object (INV-9). The body's parameters, its `where`'s and `having`'s values with an `Expr.value` included, are bound by
+the statement that registers it, under either value-handling setting (`api/12` R-FLT-08, D-179).
 
 ## 8. Sources over sources
 
@@ -525,6 +543,10 @@ In a chain over a `recursive(...)` or `tree(...)` source:
 - **Key predicates stay in the top statement.** `byKeys`' `IN`, the keyset cursor, `primaryKeyFirst`'s step 2 and
   `one(q, key)` apply only to the top statement, never inside a CTE body with a window or aggregate, so ranks and
   counts are computed over the full source.
+- **A chain under a join.** A joined source's chain (R-SRC-21) registers on the top statement the same way, innermost
+  first, and the join reads its outermost level. A walk inside the chain keeps the next-body filter above; a joined
+  source that is itself the walk is filtered in the join's `on` instead (R-SRC-22). Its checks stay in the top
+  statement either way.
 
 **R-SRC-19** *(D-150)* A correlated column renders as a scalar sub-query in every position: select, where and
 order. There is no join lowering and no `VendorProfile` fact for choosing a different rendering. Index the
@@ -555,7 +577,69 @@ and index advice.
 - **Which form to use.** A base model reads one polymorphic statement, with NULL in fields that don't apply; a union
   maps each subtype's own attributes into one shape, one table read per branch.
 
-## 9. Acceptance criteria
+## 9. Joining a source to an entity-rooted query
+
+**R-SRC-21** *(D-185, D-187; `@Incubating`)* **A unique source, on its full key.** A query rooted at an entity joins a
+source with `ModelQuery.Builder#joinSource(SourceJoin<M, S>, SourceQuery<S>)` (RFC 0020 A.1, A.2). `@JoinSource`,
+`@SourceColumn` and the generated `query(...)` that takes each joined source land with M32.7; this rule is the runtime
+API they generate against.
+
+- **`SourceJoin`.** `SourceJoin<M, S>` (`core`) is immutable (INV-9): a name, the source model, a `JoinKind` (`LEFT`,
+  or `INNER` to keep only the outer rows a source row matches; no other kind) and the key pairs
+  `SourceJoin.on(outer column, source key field)`. `join.root()` is a table field of the *joined source* kind, keyed
+  by the join's name and source model, so two joins of one source model stay apart; it resolves to that join in the
+  statement's `JoinContext`. `ColumnField.over(model, join.root(), field)` reads a joined column by its `mq_<property>`
+  name (R-SRC-12), so filters, orders and `Row.get` treat it as any column. A joined column is nullable under `LEFT`;
+  a keyset over one follows the nullable-key rules of R-COL-12 and R-PAG-* unchanged. Every builder copy carries the
+  bindings, as it carries a source.
+- **The full key, once.** The pairs name every key field of the source once (R-SRC-02), so the join adds at most one
+  row per outer row: the outer key, cursors, counts and export pages keep R-PAG-*'s guarantees.
+- **A unique source.** The join is allowed exactly when `SourceQuery#unique()` holds (R-SRC-09, R-SRC-13): a plain or
+  grouped source, a `tree(...)` source, an ungrouped source over a tree and a grouped source over any walk. A set
+  operation R-SRC-09 treats as non-unique, a plain `recursive(...)` source and an ungrouped source over one are not
+  joined, since a node reached by two paths would repeat its outer row in content, count and offset pages with no
+  check to see it.
+- **One walk per statement.** A statement reads one walk's checks (R-SRC-22), so a query whose joined chains walk more
+  than once, a combined source's branches counted, is refused.
+- **`MQ1910`** when the query is built, before any statement: a partial key, an extra pair or a key field paired
+  twice; a non-unique source, whose message names `tree(...)` when it recurses; a join bound twice, by name; a source
+  of another model bound through a raw type; a second walk. `joinSource` on a query rooted at a source is `MQ1905`:
+  joining a source to a source-rooted model is not supported, and `MQ3035` (a `@Join` on such a model) is unchanged.
+  A `join.root()` passed as the root of `ModelQuery.builder` or `SourceQuery.builder` is `MQ1203`. A query that joins
+  a source, `INNER` or `LEFT`, is no returning query: `MQ1809` before any statement (`api/14` R-WRT-48). A fetch plan
+  may key a child or an enricher by a joined column, which R-FCH-02's to-many check passes, since it is read through
+  no join. A column over the root of a join the query does not bind is `MQ1003`, raised at first resolution; the
+  generated `query(...)` takes every joined source, so only hand-written code reaches it.
+- **`Agg.count` over a joined source.** Over a `LEFT` join it renders `count(x.mq_<first key field>)`, so an outer row
+  the source does not match counts `0`; over an `INNER` join it is the row count where R-AGG-19's eligibility holds,
+  an `INNER` join reached through a `LEFT` one excluded (R-AGG-19). A filtered count counts the key under its filter
+  (R-AGG-17).
+
+**R-SRC-22** *(D-185, D-187)* **Rendering.** The engine builds the joined source's body as R-SRC-12 does, registers it
+(and its chain, R-SRC-18) on the top statement with `SourceRenderer#register` or `#registerRecursive`, and joins it
+with `SourceRenderer#join(outer, handle, type, on)` (`@Incubating`, default `MQ4014`): `core` builds the key predicate
+over standard Criteria and the provider applies it to the join it creates, since the type a provider joins a CTE with
+need not be a `Join` (RFC 0020 A.3, A.5). `model-query-hibernate` joins through `JpaFrom#join(JpaCteCriteria,
+SqmJoinType)` on both lines, looked up by reflection; a line without it, or without `on(Predicate...)` on the join it
+returns, refuses a joined source with `MQ4014` and still renders every other source.
+
+- **Every statement.** The join is on every statement of R-SRC-12's list, even a `LEFT` join no filter reads, and on
+  the root-id count of a query with a treated path and a `through` child load (R-SRC-15). Each statement binds the
+  body's parameters once (`api/12` R-FLT-08, D-179).
+- **Inlining.** Hibernate inlines a joined non-recursive CTE as a derived table on H2, which evaluates it once per
+  outer row; an index on the join key keeps that usable on a test database. A recursive CTE is never inlined: H2, too,
+  receives a joined walk's `with recursive`.
+- **A joined walk.** When the joined source is itself a walk, its filter `level <= maxDepth and not mark` goes into
+  the join's `on`, which is the same as joining the filtered walk: a `LEFT` join keeps an outer row whose node is past
+  the limit, marked or never reached, with NULL columns, where the outer `where` would drop it. A walk inside the
+  joined chain is filtered in the next body (R-SRC-18). The walk's depth, cycle and, for a tree, duplicate-key checks
+  are uncorrelated sub-selects over the whole walk in the top statement's selection, read by the one check site in
+  R-SRC-14's order; the message names the join (`join 'nodes' of FolderNode`). An outer row is checked whether or not
+  the walk reached it; only an empty result is not (R-SRC-14).
+- **Locks, children, writes.** A lock is `MQ1903` (R-SRC-11); a `@Child` whose child model joins a source is `MQ3039`
+  (M32.7); `ModelUpdate`, `ModelDelete`, `InsertColumns` and `ModelInsert.select` take no source.
+
+## 10. Acceptance criteria
 
 | ID | Criterion |
 |---|---|
@@ -600,3 +684,12 @@ and index advice.
 | AC-SRC-39 | Per strategy, treated and `@Subtype` fields in a source body read as AC-COL-44 and AC-COL-49, with the root id selected in the body (R-SRC-20, D-162). |
 | AC-SRC-40 | Per strategy, a `unionAll` of card and bank branches by `@Discriminator` returns each `(kind, id)` once with `reference` from `number` or `iban`; without the discriminator it is non-unique (`MQ2212` on export) (R-SRC-20). |
 | AC-SRC-41 | Branches rooted at `CardPayment` and `PremiumCardPayment` return a premium row twice with two `kind` values and unique keys (R-SRC-20). |
+| AC-SRC-42 | On every Tier-1 vendor and both Hibernate lines, two `LEFT` joins of one grouped source model return the hand-written SQL's rows, an outer row with no source row reading NULL and the joins staying apart; `Agg.count` over a `LEFT`-joined source is `0` for an unmatched row (R-SRC-21, AC-AGG-29). |
+| AC-SRC-43 | The join is in every statement of R-SRC-12's list (content, count, both primary-key-first steps, keyset page, `byKeys`, `one(q, key)`, every export page) with each body's parameters bound once per statement; a provider without `SourceRenderer#join`, or a Hibernate line without `JpaFrom#join(JpaCteCriteria, SqmJoinType)`, is `MQ4014` before any statement; a fetch plan whose enricher reads a joined column runs (R-SRC-21, R-SRC-22). |
+| AC-SRC-44 | `INNER` drops an unmatched outer row in content and count alike; keyset pages and a keyset export ordered by a joined column lose no row (R-SRC-21). |
+| AC-SRC-45 | `MQ1910` for a partial key, an extra pair, a key field paired twice, a join bound twice, a non-unique source and a plain `recursive(...)` source (naming `tree(...)`), before any statement; the same join over a `tree(...)` source builds; a `join.root()` as a `ModelQuery` or `SourceQuery` builder root is `MQ1203`, and a returning query that joins a source, `INNER` or `LEFT`, is `MQ1809` before any statement (R-SRC-21, R-WRT-48). `MQ3044` lands with M32.7. |
+| AC-SRC-46 | `withLock(...)` on a query that joins a source is `MQ1903` before any statement (R-SRC-11). `MQ3039` for a child model that joins a source lands with M32.7. |
+| AC-SRC-47 | A profile without `SourceFeature.CTE` is `MQ4015` before any statement, and `PortabilityCheck` reports `MQ4015` on an `OTHER` target alone (R-SRC-11). |
+| AC-SRC-48 | Per vendor and Hibernate line, a SQL snapshot of a `LEFT`-joined tree: `with recursive` on H2 too, the walk filter in the join's `on`, the depth, cycle and duplicate-key sub-selects in the selection, and every outer row kept (R-SRC-22). |
+| AC-SRC-49 | Through a joined tree, `MQ2701`, `MQ2702` and `MQ2703` name the join on content, count, count over groups, offset, primary-key-first and keyset pages, both `one` calls, `byKeys`, every export, a stream, a fetch plan's parent read and a `through` child load; an unreached `LEFT` row still raises, an empty `INNER` read returns empty; `MQ2703` precedes `MQ2003`, `MQ2005` and `MQ2202`; `Agg.count` over the `LEFT` join is `0` for an unreached node (R-SRC-14, R-SRC-15, R-SRC-22). |
+| AC-SRC-50 | A grouped source over a `recursive(...)` walk, joined, aggregates levels 0 to `maxDepth` with its filter in the grouped body and raises `MQ2701` and `MQ2702`; a second walk is `MQ1910`; a joined tree over a composite node key is `MQ4015` on H2 and read on PostgreSQL and MySQL, and `PortabilityCheck` reports it and MySQL's `maxDepth` 999 ceiling per target (R-SRC-11, R-SRC-18, R-SRC-21). |

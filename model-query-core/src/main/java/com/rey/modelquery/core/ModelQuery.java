@@ -1,6 +1,7 @@
 package com.rey.modelquery.core;
 
 import com.rey.modelquery.annotations.Incubating;
+import com.rey.modelquery.annotations.JoinKind;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
@@ -19,6 +20,7 @@ import jakarta.persistence.metamodel.PluralAttribute;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -122,6 +124,8 @@ public final class ModelQuery<E, K, M> {
     private final RowLock lock;
     /** The source this query reads, or {@code null} when it is rooted at an entity (R-SRC-10). */
     private final SourceQuery<E> source;
+    /** The sources this query joins, in binding order; empty for most queries (R-SRC-21). */
+    private final List<JoinedSource> joinedSources;
 
     private ModelQuery(Builder<E, K, M> b, SelectSet<M> columns, List<ColumnField<M, ?, ?>> needed, boolean grouped,
             ModelQuery<E, K, M> definition) {
@@ -149,6 +153,7 @@ public final class ModelQuery<E, K, M> {
         this.grouped = grouped;
         this.lock = b.lock;
         this.source = b.source;
+        this.joinedSources = b.joinedSources;
         this.spec = new Spec(root.rootEntity(), List.copyOf(columns.fields()),
                 Optional.ofNullable(primaryKey), List.copyOf(orderBy), keyset, List.copyOf(groupBy), grouped);
         this.modelColumns = List.copyOf(selected());
@@ -171,7 +176,7 @@ public final class ModelQuery<E, K, M> {
                     "builder(...) takes a TableField.root(...), not the " + root.describe());
         }
         return new Builder<>(root, mapper, null, null, List.of(), false, null, null, null, null, List.of(), List.of(),
-                null, null, null, null);
+                null, null, null, null, List.of());
     }
 
     /**
@@ -180,7 +185,8 @@ public final class ModelQuery<E, K, M> {
      * {@link SourceQuery} the generated {@code query(SourceQuery<S>)} took (R-SRC-10, R-GEN-37). Everything else is as
      * {@link #builder(TableField, RowMapper)}.
      *
-     * @throws ModelQueryDefinitionException {@code MQ1203} when {@code root} is a join or an entity root
+     * @throws ModelQueryDefinitionException {@code MQ1203} when {@code root} is a join, an entity root or a joined
+     *     source's {@link SourceJoin#root()}
      */
     @Incubating
     public static <E, M> Builder<E, Object, M> builder(
@@ -188,12 +194,12 @@ public final class ModelQuery<E, K, M> {
         Objects.requireNonNull(root, "root");
         Objects.requireNonNull(mapper, "mapper");
         Objects.requireNonNull(source, "source");
-        if (root.rootEntity() == null || !root.isSource()) {
+        if (root.rootEntity() == null || !root.isSource() || root.isJoinedSource()) {
             throw new ModelQueryDefinitionException(MqCode.MQ1203,
                     "builder(root, mapper, source) takes a TableField.source(...), not the " + root.describe());
         }
         return new Builder<>(root, mapper, null, null, List.of(), false, null, null, null, null, List.of(), List.of(),
-                null, null, null, source);
+                null, null, null, source, List.of());
     }
 
     /** The entity the query is rooted at, or the source model a query over a source is rooted at. */
@@ -208,6 +214,17 @@ public final class ModelQuery<E, K, M> {
     @Incubating
     public Optional<SourceQuery<E>> source() {
         return Optional.ofNullable(source);
+    }
+
+    /**
+     * Whether the query joins a source ({@link Builder#joinSource}): every statement it builds then reads that
+     * source's common table expression, which a locking clause cannot follow, as for a query rooted at a source
+     * (R-SRC-11, R-SRC-22).
+     */
+    @EngineFacing
+    @Incubating
+    public boolean joinsSource() {
+        return !joinedSources.isEmpty();
     }
 
     /**
@@ -565,7 +582,9 @@ public final class ModelQuery<E, K, M> {
         JoinContext parent = JoinContext.readOf(query.from(through.pathRoot()), cb, query, options);
         From<?, ?> join = through.resolve(parent);
         Expression<?> key = parentKey.path(parent);
-        BuiltQuery<M> built = assemble(query, parent.rootedAt(join, root.rootEntity()), Phase.MODEL, key);
+        JoinContext child = parent.rootedAt(join, root.rootEntity());
+        Walk walk = joinSources(query, child, join);
+        BuiltQuery<M> built = assemble(query, child, Phase.MODEL, key, List.of(), walk);
         if (customizer != null) {
             customize(built, cb, Phase.MODEL);
         }
@@ -581,11 +600,71 @@ public final class ModelQuery<E, K, M> {
         CriteriaQuery<Tuple> query = cb.createTupleQuery();
         if (source != null) {
             SourceStatement statement = sourceStatement(query, cb, options);
-            return assemble(query, statement.joins(), phase, null, statement.guards(), statement.checks());
+            return assemble(query, statement.joins(), phase, null, statement.guards(),
+                    new Walk(statement.checks(), source, null));
         }
         Root<E> from = query.from(root.rootEntity());
-        return assemble(query, JoinContext.readOf(from, cb, query, options), phase, null);
+        JoinContext joins = JoinContext.readOf(from, cb, query, options);
+        return assemble(query, joins, phase, null, List.of(), joinSources(query, joins, from));
     }
+
+    /**
+     * Joins each source this query binds to {@code outer}, the statement's root or a {@code through} child's join:
+     * the source's CTE chain is registered on {@code query} as a source root's is, then joined on the binding's
+     * pairs, so every statement this query builds carries the join, even one no column reads (R-SRC-21, R-SRC-22,
+     * D-185). The bodies' parameters are bound by {@code query}, once (R-FLT-08).
+     *
+     * <p>A joined source that is itself the walk has its walk filter ({@code level <= maxDepth and not mark}) ANDed
+     * into the join's {@code on}, so a {@code LEFT} join keeps its unmatched outer rows, and an inner walk's filter
+     * stays in the next CTE body (R-SRC-18). The returned walk's checks are for {@code query} to select: the build
+     * allows one walk across the joined chains (D-187).
+     *
+     * @throws ModelQueryConfigurationException {@code MQ4014} when no {@link SourceRenderer} is configured, or the
+     *     provider's renderer joins no CTE
+     */
+    private Walk joinSources(CriteriaQuery<Tuple> query, JoinContext joins, From<?, ?> outer) {
+        if (joinedSources.isEmpty()) {
+            return Walk.NONE;
+        }
+        CriteriaBuilder cb = joins.cb();
+        RenderOptions options = joins.renderOptions();
+        SourceRenderer renderer = options.sourceRenderer()
+                .orElseThrow(() -> new ModelQueryConfigurationException(MqCode.MQ4014, modelName()
+                        + ": this query joins a source, and the factory's persistence provider has no "
+                        + "SourceRenderer (ProviderSupport#sources()); model-query-hibernate serves Hibernate"));
+        Walk walk = Walk.NONE;
+        for (JoinedSource bound : joinedSources) {
+            SourceJoin<?, ?> join = bound.join();
+            SourceQuery<?> source = bound.source();
+            var bodies = new ArrayList<JoinContext>();
+            var checks = new ArrayList<Selection<?>>();
+            SourceRenderer.CteHandle handle = source.register(query, cb, options, renderer, modelName(), checks,
+                    bodies);
+            if (!checks.isEmpty()) {
+                walk = new Walk(checks, source, "join '" + join.name() + "' of " + join.source().getSimpleName());
+            }
+            // The outer columns resolve first, so a to-one join they make precedes the join to the CTE.
+            var outerPaths = new ArrayList<Expression<?>>();
+            join.on().forEach(pair -> outerPaths.add(pair.column().path(joins)));
+            JoinType type = join.kind() == JoinKind.INNER ? JoinType.INNER : JoinType.LEFT;
+            From<?, Tuple> joined = renderer.join(outer, handle, type, cte -> {
+                var equal = new ArrayList<Predicate>();
+                for (int i = 0; i < outerPaths.size(); i++) {
+                    equal.add(cb.equal(cte.get(join.on().get(i).alias()), outerPaths.get(i)));
+                }
+                if (source.recurses()) {
+                    equal.addAll(source.walkGuards(cb, cte));
+                }
+                return cb.and(equal.toArray(Predicate[]::new));
+            });
+            joins.joinSource(join.root().key(), joined, outer, type == JoinType.INNER, source.keyColumns().get(0));
+            bodies.forEach(joins::addBodyParameters);
+        }
+        return walk;
+    }
+
+    /** A {@link SourceJoin} and the {@link SourceQuery} {@code joinSource} bound to it (R-SRC-21). */
+    private record JoinedSource(SourceJoin<?, ?> join, SourceQuery<?> source) {}
 
     /**
      * The joins of {@code query}, a statement over {@link #source}: every CTE in the source chain is registered on it
@@ -613,13 +692,13 @@ public final class ModelQuery<E, K, M> {
             SourceRenderer.CteHandle handle = source.register(query, cb, options, renderer, modelName(), checks,
                     bodies);
             JoinContext joins = JoinContext.sourceOf(
-                    renderer.from(query, handle), source.model(), cb, query, options);
+                    renderer.from(query, handle), source.model(), source.keyColumns(), cb, query, options);
             bodies.forEach(joins::addBodyParameters);
             return new SourceStatement(joins, List.of(), checks);
         }
         if (!source.recurses()) {
             JoinContext joins = JoinContext.sourceOf(renderer.cte(query, source.body(cb, options, renderer, bodies)),
-                    source.model(), cb, query, options);
+                    source.model(), source.keyColumns(), cb, query, options);
             bodies.forEach(joins::addBodyParameters);
             return new SourceStatement(joins, List.of(), List.of());
         }
@@ -627,7 +706,8 @@ public final class ModelQuery<E, K, M> {
         RecursiveCte cte = renderer.recursive(query, spec);
         List<Selection<?>> checks = SourceQuery.recursionChecks(
                 modelName(), source, spec, cte.depthKey(), cte.cycleKey(), cte.duplicateKey());
-        JoinContext joins = JoinContext.sourceOf(cte.root(), source.model(), cb, query, options);
+        JoinContext joins = JoinContext.sourceOf(cte.root(), source.model(), source.keyColumns(), cb, query,
+                options);
         bodies.forEach(joins::addBodyParameters);
         // The extra level the recursion produced and the row that closed a cycle are both hidden here, in the same
         // statement that produced them (RFC 0013 §5, R-SRC-07).
@@ -638,21 +718,24 @@ public final class ModelQuery<E, K, M> {
     private record SourceStatement(JoinContext joins, List<Predicate> guards, List<Selection<?>> checks) {}
 
     /**
-     * {@link #assemble(CriteriaBuilder, Phase, RenderOptions)} on {@code query}, resolving through {@code joins};
-     * {@code parentKey}, when not {@code null}, is selected after the model's columns.
+     * The recursive walk a statement checks, in its root source's chain or a joined source's ({@code source}, whose
+     * chain holds it), the check columns the statement selects for it, and for a joined one the join that reads it
+     * (R-SRC-07, R-SRC-14, D-187). {@link #NONE} is a statement over no source; a root source over no walk has no
+     * checks.
      */
-    private BuiltQuery<M> assemble(CriteriaQuery<Tuple> query, JoinContext joins, Phase phase,
-            Expression<?> parentKey) {
-        return assemble(query, joins, phase, parentKey, List.of(), List.of());
+    private record Walk(List<Selection<?>> checks, SourceQuery<?> source, String join) {
+        static final Walk NONE = new Walk(List.of(), null, null);
     }
 
     /**
-     * {@link #assemble(CriteriaQuery, JoinContext, Phase, Expression)} over a source's statement: {@code guards} are
-     * ANDed to its predicate, and {@code checks} are selected after the model's columns, for the executor to read
-     * from the statement's first row (R-SRC-07). Both are empty for a statement over no recursive source.
+     * {@link #assemble(CriteriaBuilder, Phase, RenderOptions)} on {@code query}, resolving through {@code joins}:
+     * {@code parentKey}, when not {@code null}, is selected after the model's columns, {@code guards} are ANDed to
+     * the predicate, and {@code walk}'s checks are selected after the model's columns, for the executor to read from
+     * the statement's first row (R-SRC-07). Guards and checks are empty for a statement over no recursive source.
      */
     private BuiltQuery<M> assemble(CriteriaQuery<Tuple> query, JoinContext joins, Phase phase,
-            Expression<?> parentKey, List<Predicate> guards, List<Selection<?>> checks) {
+            Expression<?> parentKey, List<Predicate> guards, Walk walk) {
+        List<Selection<?>> checks = walk.checks();
         CriteriaBuilder cb = joins.cb();
         joins.customized(customizer != null); // before any count is built (R-AGG-19)
         // Joins resolve in one order in every phase: selection, ordering and grouping first, then every filter
@@ -706,11 +789,18 @@ public final class ModelQuery<E, K, M> {
         if (!predicates.get(1).isEmpty()) {
             query.having(predicates.get(1).toArray(Predicate[]::new));
         }
-        SourceQuery<?> recursive = source == null ? null : source.recursiveSource();
-        SourceQuery<?> keyed = recursive != null ? recursive : source;
-        return new BuiltQuery<>(query, joins, selection, mapping, parentKey, checks,
+        return built(query, joins, selection, parentKey, walk);
+    }
+
+    /** The {@link BuiltQuery} of {@code query}, carrying {@code walk}'s checks, limit, key and join (R-SRC-14). */
+    private BuiltQuery<M> built(CriteriaQuery<Tuple> query, JoinContext joins, RowSelection selection,
+            Expression<?> parentKey, Walk walk) {
+        SourceQuery<?> recursive = walk.source() == null ? null : walk.source().recursiveSource();
+        SourceQuery<?> keyed = recursive != null ? recursive : walk.source();
+        return new BuiltQuery<>(query, joins, selection, mapping, parentKey, walk.checks(),
                 recursive == null ? 0 : recursive.maxDepth(),
-                keyed == null ? List.of() : keyed.key().columns().stream().map(ColumnField::name).toList());
+                keyed == null ? List.of() : keyed.key().columns().stream().map(ColumnField::name).toList(),
+                walk.join());
     }
 
     /**
@@ -762,6 +852,7 @@ public final class ModelQuery<E, K, M> {
         Subquery<Integer> sub = query.subquery(Integer.class);
         Root<E> inner = sub.from(root.rootEntity());
         JoinContext innerJoins = JoinContext.readOf(inner, cb, sub, joins.renderOptions());
+        innerJoins.adoptJoinedSources(joins);
         var restrictions = new ArrayList<Predicate>();
         // Entity equality, not key columns: a read need not declare a primary key, and an embedded id compares whole.
         restrictions.add(cb.equal(inner, joins.root()));
@@ -777,6 +868,7 @@ public final class ModelQuery<E, K, M> {
         CriteriaBuilder cb = joins.cb();
         Subquery<Integer> scratch = cb.createQuery().subquery(Integer.class);
         JoinContext probe = JoinContext.readOf(scratch.from(root.rootEntity()), cb, scratch, joins.renderOptions());
+        probe.adoptJoinedSources(joins);
         ConditionGroup.toPredicates(clause, probe);
         return probe;
     }
@@ -805,7 +897,8 @@ public final class ModelQuery<E, K, M> {
      * to-many join no selected column reads repeats a root (a customizer's, or one R-EXE-16 leaves in the statement),
      * and counts rows when a selected column is read through a to-many join,
      * as {@code list} returns it (R-EXE-04). The customizer runs on it as on
-     * {@code MODEL}, before the count replaces its selection. Only for an ungrouped query over an entity root.
+     * {@code MODEL}, before the count replaces its selection. A joined source's walk checks are selected after the
+     * count, which stays the first column (D-187). Only for an ungrouped query over an entity root.
      */
     @EngineFacing
     @Incubating
@@ -818,6 +911,7 @@ public final class ModelQuery<E, K, M> {
         CriteriaQuery<Tuple> query = cb.createTupleQuery();
         Root<E> from = query.from(root.rootEntity());
         JoinContext joins = JoinContext.readOf(from, cb, query, options);
+        Walk walk = joinSources(query, joins, from);
         Path<?> id = from.get(TreatChecks.rootId(from.getModel(), modelName()));
         boolean readsToMany = false;
         var counted = new ArrayList<SelectField<M, ?>>(modelColumns);
@@ -836,14 +930,17 @@ public final class ModelQuery<E, K, M> {
         if (!restrictions.isEmpty()) {
             query.where(restrictions.toArray(Predicate[]::new));
         }
-        query.multiselect(List.of(id));
-        BuiltQuery<M> built = new BuiltQuery<>(query, joins, RowSelection.of(List.of()), mapping, null, List.of(),
-                0, List.of());
+        // A joined walk's checks are selected beside the id and then the count, which is the statement that reads them.
+        var selections = new ArrayList<Selection<?>>(List.of(id));
+        selections.addAll(walk.checks());
+        query.multiselect(selections);
+        BuiltQuery<M> built = built(query, joins, RowSelection.of(List.of()), null, walk);
         if (customizer != null) {
             customize(built, cb, Phase.MODEL);
         }
         query.orderBy(List.<Order>of());
-        query.multiselect(List.of(!readsToMany && hasToManyJoin(from) ? cb.countDistinct(id) : cb.count(id)));
+        selections.set(0, !readsToMany && hasToManyJoin(from) ? cb.countDistinct(id) : cb.count(id));
+        query.multiselect(selections);
         return built;
     }
 
@@ -984,6 +1081,9 @@ public final class ModelQuery<E, K, M> {
         CriteriaQuery<Tuple> query = cb.createTupleQuery();
         JoinContext joins = JoinContext.of(query.from(root.rootEntity()), cb, query, scratchRenderers(options));
         for (ColumnField<M, ?, ?> column : needed) {
+            if (column.table().isJoinedSource()) {
+                continue; // a joined source's column is its CTE's element, read through no join (R-SRC-21)
+            }
             for (Path<?> path = column.path(joins); path != null; path = path.getParentPath()) {
                 if (path instanceof Join<?, ?> join && join.getAttribute() instanceof PluralAttribute<?, ?, ?> many) {
                     throw new ModelQueryDefinitionException(MqCode.MQ1702, column + ": the fetch plan needs it, but "
@@ -1043,6 +1143,9 @@ public final class ModelQuery<E, K, M> {
         }
         if (lock != null) {
             clauses.add("a lock");
+        }
+        if (!joinedSources.isEmpty()) {
+            clauses.add("joinSource(...)");
         }
         if (!clauses.isEmpty()) {
             throw new ModelQueryDefinitionException(MqCode.MQ1809, modelName() + ": persist returning a model takes "
@@ -1286,12 +1389,15 @@ public final class ModelQuery<E, K, M> {
         private final RowLock lock;
         /** The source the query reads, or {@code null} when it is rooted at an entity (R-SRC-10). */
         private final SourceQuery<E> source;
+        /** The sources the query joins, in binding order (R-SRC-21). */
+        private final List<JoinedSource> joinedSources;
 
         private Builder(TableField<E, E> root, RowMapper<M> mapper, SelectSet<M> columns,
                 PrimaryKey<M, K> primaryKey, List<OrderField<M, ?>> orderBy, boolean keyset,
                 PrimaryKeyFirst primaryKeyFirst, BiConsumer<M, Row> afterMap, UnaryOperator<M> finisher,
                 QueryCustomizer customizer, List<Filter> where, List<ScalarField<M, ?>> groupBy,
-                HavingGroup.Clause having, FetchPlan<M> fetch, RowLock lock, SourceQuery<E> source) {
+                HavingGroup.Clause having, FetchPlan<M> fetch, RowLock lock, SourceQuery<E> source,
+                List<JoinedSource> joinedSources) {
             this.root = root;
             this.mapper = mapper;
             this.columns = columns;
@@ -1308,6 +1414,23 @@ public final class ModelQuery<E, K, M> {
             this.fetch = fetch;
             this.lock = lock;
             this.source = source;
+            this.joinedSources = joinedSources;
+        }
+
+        /**
+         * Joins {@code source} to every statement this query builds, as {@code join} declares: a join to the source's
+         * CTE on its full key, whose columns {@code ColumnField.over(model, join.root(), field)} reads (R-SRC-21,
+         * R-SRC-22). The generated {@code query(...)} of a model with a {@code @JoinSource} takes each source it joins
+         * and calls this; the bindings are checked when the query is built.
+         *
+         * @see #build()
+         */
+        @Incubating
+        public <S> Builder<E, K, M> joinSource(SourceJoin<M, S> join, SourceQuery<S> source) {
+            var bound = new ArrayList<>(joinedSources);
+            bound.add(new JoinedSource(Objects.requireNonNull(join, "join"), Objects.requireNonNull(source, "source")));
+            return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
+                    finisher, customizer, where, groupBy, having, fetch, lock, this.source, List.copyOf(bound));
         }
 
         /**
@@ -1322,7 +1445,7 @@ public final class ModelQuery<E, K, M> {
                         + "its FetchPlan.of(...)", modelName(fetch.select(), root.rootEntity()));
             }
             return new Builder<>(root, mapper, select, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
-                    finisher, customizer, where, groupBy, having, null, lock, source);
+                    finisher, customizer, where, groupBy, having, null, lock, source, joinedSources);
         }
 
         /**
@@ -1332,7 +1455,8 @@ public final class ModelQuery<E, K, M> {
         @Incubating
         public Builder<E, K, M> fetch(FetchPlan<M> plan) {
             return new Builder<>(root, mapper, null, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
-                    finisher, customizer, where, groupBy, having, Objects.requireNonNull(plan, "plan"), lock, source);
+                    finisher, customizer, where, groupBy, having, Objects.requireNonNull(plan, "plan"), lock,
+                    source, joinedSources);
         }
 
         /**
@@ -1342,14 +1466,14 @@ public final class ModelQuery<E, K, M> {
          */
         Builder<E, K, M> forChildren(FetchPlan<M> plan, List<Filter> where, List<OrderField<M, ?>> orderBy) {
             return new Builder<>(root, mapper, null, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
-                    finisher, customizer, where, groupBy, having, plan, null, source);
+                    finisher, customizer, where, groupBy, having, plan, null, source, joinedSources);
         }
 
         /** The primary key; required for {@link #keyset()} and {@link #primaryKeyFirst}. */
         public <K2> Builder<E, K2, M> primaryKey(PrimaryKey<M, K2> primaryKey) {
             return new Builder<>(root, mapper, columns, Objects.requireNonNull(primaryKey, "primaryKey"), orderBy,
                     keyset, primaryKeyFirst, afterMap, finisher, customizer, where, groupBy, having, fetch, lock,
-                    source);
+                    source, joinedSources);
         }
 
         /** The ordering keys, replacing any set before. */
@@ -1360,7 +1484,7 @@ public final class ModelQuery<E, K, M> {
                 copy.add(Objects.requireNonNull(order, "orderBy element"));
             }
             return new Builder<>(root, mapper, columns, primaryKey, List.copyOf(copy), keyset, primaryKeyFirst,
-                    afterMap, finisher, customizer, where, groupBy, having, fetch, lock, source);
+                    afterMap, finisher, customizer, where, groupBy, having, fetch, lock, source, joinedSources);
         }
 
         /**
@@ -1369,7 +1493,7 @@ public final class ModelQuery<E, K, M> {
          */
         public Builder<E, K, M> keyset() {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, true, primaryKeyFirst, afterMap,
-                    finisher, customizer, where, groupBy, having, fetch, lock, source);
+                    finisher, customizer, where, groupBy, having, fetch, lock, source, joinedSources);
         }
 
         /**
@@ -1379,7 +1503,7 @@ public final class ModelQuery<E, K, M> {
         public Builder<E, K, M> primaryKeyFirst(PrimaryKeyFirst primaryKeyFirst) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset,
                     Objects.requireNonNull(primaryKeyFirst, "primaryKeyFirst"), afterMap, finisher, customizer,
-                    where, groupBy, having, fetch, lock, source);
+                    where, groupBy, having, fetch, lock, source, joinedSources);
         }
 
         /**
@@ -1390,28 +1514,29 @@ public final class ModelQuery<E, K, M> {
         public Builder<E, K, M> afterMap(BiConsumer<M, Row> afterMap) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst,
                     Objects.requireNonNull(afterMap, "afterMap"), finisher, customizer, where, groupBy, having, fetch,
-                    lock, source);
+                    lock, source, joinedSources);
         }
 
         /** Replaces each mapped model with {@code finisher}'s result, after {@code afterMap}; for records. */
         public Builder<E, K, M> finisher(UnaryOperator<M> finisher) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
                     Objects.requireNonNull(finisher, "finisher"), customizer, where, groupBy, having, fetch, lock,
-                    source);
+                    source, joinedSources);
         }
 
         /** Raw Criteria access for each phase; see {@link QueryCustomizer}. Replaces any customizer set before. */
         public Builder<E, K, M> customize(QueryCustomizer customizer) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
                     finisher, Objects.requireNonNull(customizer, "customizer"), where, groupBy, having, fetch, lock,
-                    source);
+                    source, joinedSources);
         }
 
         /** The row lock every read of this query takes, replacing any set before (R-QRY-17). */
         @Incubating
         public Builder<E, K, M> lock(RowLock lock) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
-                    finisher, customizer, where, groupBy, having, fetch, Objects.requireNonNull(lock, "lock"), source);
+                    finisher, customizer, where, groupBy, having, fetch, Objects.requireNonNull(lock, "lock"),
+                    source, joinedSources);
         }
 
         /**
@@ -1423,7 +1548,7 @@ public final class ModelQuery<E, K, M> {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
                     finisher, customizer,
                     FilterGroup.collect(root.rootEntity(), Objects.requireNonNull(filters, "filters")), groupBy,
-                    having, fetch, lock, source);
+                    having, fetch, lock, source, joinedSources);
         }
 
         /**
@@ -1467,7 +1592,8 @@ public final class ModelQuery<E, K, M> {
 
         private Builder<E, K, M> groupBy(List<ScalarField<M, ?>> keys) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
-                    finisher, customizer, where, List.copyOf(new LinkedHashSet<>(keys)), having, fetch, lock, source);
+                    finisher, customizer, where, List.copyOf(new LinkedHashSet<>(keys)), having, fetch, lock,
+                    source, joinedSources);
         }
 
         /**
@@ -1479,7 +1605,8 @@ public final class ModelQuery<E, K, M> {
         public Builder<E, K, M> having(UnaryOperator<Having<M>> filters) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
                     finisher, customizer, where, groupBy,
-                    HavingGroup.collect(Objects.requireNonNull(filters, "filters")), fetch, lock, source);
+                    HavingGroup.collect(Objects.requireNonNull(filters, "filters")), fetch, lock,
+                    source, joinedSources);
         }
 
         /**
@@ -1494,6 +1621,9 @@ public final class ModelQuery<E, K, M> {
          *     a grouped query
          * @throws ModelQueryDefinitionException {@code MQ1901} for {@code keyset()} or {@code primaryKeyFirst(...)}
          *     over a non-unique source (R-SRC-09)
+         * @throws ModelQueryDefinitionException {@code MQ1905} for {@link #joinSource} on a query rooted at a source
+         * @throws ModelQueryDefinitionException {@code MQ1910} for a {@link #joinSource} binding whose {@code on}
+         *     pairs miss or exceed the source's key, over a non-unique or recursive source, or a join bound twice
          * @throws ModelQueryDefinitionException {@code MQ1201} for {@code keyset()} or {@code primaryKeyFirst(...)}
          *     without a primary key
          * @throws ModelQueryDefinitionException {@code MQ1206} for a primary-key column of array type
@@ -1518,7 +1648,7 @@ public final class ModelQuery<E, K, M> {
         /** This builder with {@code orderBy}, an immutable list, as its ordering keys. */
         private Builder<E, K, M> ordered(List<OrderField<M, ?>> orderBy) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
-                    finisher, customizer, where, groupBy, having, fetch, lock, source);
+                    finisher, customizer, where, groupBy, having, fetch, lock, source, joinedSources);
         }
 
         /** Checks and builds; {@code definition} is the query this one is a re-ordered copy of, or null. */
@@ -1543,6 +1673,7 @@ public final class ModelQuery<E, K, M> {
                 }
             }
             String model = modelName(selection, root.rootEntity());
+            checkJoinedSources(model);
             boolean grouped = isGrouped(selection);
             if (!grouped && having != null) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1407, model + ": having(...) needs a grouped query; "
@@ -1618,6 +1749,35 @@ public final class ModelQuery<E, K, M> {
                 LOG.log(System.Logger.Level.DEBUG, built.describe());
             }
             return built;
+        }
+
+        /**
+         * The {@code MQ1905} and {@code MQ1910} checks of the {@link #joinSource} bindings, one recursive walk across
+         * all their chains included (R-SRC-21, D-187).
+         */
+        private void checkJoinedSources(String model) {
+            if (joinedSources.isEmpty()) {
+                return;
+            }
+            if (root.isSource()) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1905, model + ": joinSource(...) takes a query "
+                        + "rooted at an entity; " + root.describe() + " is a source root, which joins nothing");
+            }
+            var names = new HashSet<String>();
+            for (JoinedSource bound : joinedSources) {
+                if (!names.add(bound.join().name())) {
+                    throw new ModelQueryDefinitionException(MqCode.MQ1910, model + ": the source join '"
+                            + bound.join().name() + "' is bound twice; bind each join once");
+                }
+                SourceJoin.check(model, bound.join(), bound.source());
+            }
+            // A statement selects one walk's checks under fixed aliases, read by the one check site (R-SRC-14, D-187).
+            int walks = joinedSources.stream().mapToInt(bound -> bound.source().walks()).sum();
+            if (walks > 1) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1910, model + ": the joined sources walk " + walks
+                        + " recursive sources, and a statement carries one walk's depth and cycle checks; join one "
+                        + "recursive source per query");
+            }
         }
 
         /**

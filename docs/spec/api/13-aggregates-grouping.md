@@ -171,8 +171,9 @@ stays allowed as a group key; `@GroupBy` on the whole-entity form is `MQ3028` at
 **R-AGG-16** *(D-185, `@Incubating`)* **The first value in a group.** `Agg.firstBy(value, order, more...)` returns an
 `AggregateField<M, C>` of the value's own type (R-AGG-03): the `value` of the first row of each group in the order
 given, `NULL` for a group with no row. The engine appends the root's id ascending after the caller's keys (every id
-component, by attribute name, as R-COL-32 does for `Correlated.first`), so ties pick the same row on every vendor; the
-id is appended for an entity root only. Null precedence follows R-COL-12, so say `nullsFirst()` or `nullsLast()`.
+component, by attribute name, as R-COL-32 does for `Correlated.first`), so ties pick the same row on every vendor.
+Over a source root it appends the source's key fields ascending instead, in key order (R-SRC-02). Null precedence
+follows R-COL-12, so say `nullsFirst()` or `nullsLast()`.
 The value is read, not compared: its `ColumnConverter` (if any) is applied to the result as for any column read, with
 no converter restriction. Equality and `hashCode` include the orders, so two `firstBy` over one value in different
 orders are two fields (give them an `as(...)` name, since both render the same default name). An order key that is

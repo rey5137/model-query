@@ -244,6 +244,27 @@ class RowCountEligibilityTest {
     }
 
     @Test
+    void ac_agg_29_a_joined_source_counts_rows_only_through_an_inner_join_from_an_eligible_outer() {
+        // The join node stands in for a CTE join: a joined source is classified by its recorded kind and outer From,
+        // never by the node's type (HibernateSourceJoinTest runs the real CTE joins).
+        From<?, ?> stand = ctx.root().join("customer", JoinType.LEFT);
+        // An INNER join's id, which the entity rule alone would count as rows: the LEFT kind keeps the column.
+        From<?, ?> innerStand = ctx.root().join("payment", JoinType.INNER);
+        JoinKey inner = JoinKey.joinedSource(Customer.class, "inner");
+        JoinKey left = JoinKey.joinedSource(Customer.class, "left");
+        JoinKey overLeft = JoinKey.joinedSource(Customer.class, "overLeft");
+        ctx.joinSource(inner, stand, ctx.root(), true, "name");
+        ctx.joinSource(left, innerStand, ctx.root(), false, "id");
+        ctx.joinSource(overLeft, stand, LEFT_CUSTOMER.resolve(ctx), true, "region");
+
+        assertThat(RowCounts.eligible(ctx, ctx.joinedSourceKey(inner, "count"))).isTrue();
+        assertThat(RowCounts.eligible(ctx, ctx.joinedSourceKey(left, "count"))).isFalse();
+        assertThat(RowCounts.eligible(ctx, ctx.joinedSourceKey(overLeft, "count"))).isFalse();
+        ctx.customized(true);
+        assertThat(RowCounts.eligible(ctx, ctx.joinedSourceKey(inner, "count"))).isFalse();
+    }
+
+    @Test
     void ac_agg_27_a_composite_id_table_counts_as_one_identity_and_its_id_parts_do_not() {
         CriteriaQuery<Object> lines = cb.createQuery();
         JoinContext lineCtx = JoinContext.readOf(lines.from(Line.class), cb, lines, RenderOptions.portable());

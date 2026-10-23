@@ -38,6 +38,8 @@ public final class TableField<P, T> {
     private final String property;
     /** Whether this root is a source's, read by field name from a CTE rather than from an entity (R-SRC-10). */
     private final boolean source;
+    /** The name of the join a joined source's table is, or {@code null} for every other node (R-SRC-21). */
+    private final String joinName;
     private final JoinKey key;
     private final Class<T> subtype;
     private final TableField<?, ?> treatOrigin;
@@ -56,12 +58,12 @@ public final class TableField<P, T> {
             PrimaryKey<?, ?> presenceKey,
             String property,
             boolean source) {
-        this(rootEntity, parent, attribute, type, alias, condition, presenceKey, property, source, null, null);
+        this(rootEntity, parent, attribute, type, alias, condition, presenceKey, property, source, null, null, null);
     }
 
     private TableField(Class<T> rootEntity, TableField<?, P> parent, String attribute, JoinType type, String alias,
             BiFunction<From<?, T>, CriteriaBuilder, Predicate> condition, PrimaryKey<?, ?> presenceKey,
-            String property, boolean source, Class<T> subtype, TableField<?, ?> treatOrigin) {
+            String property, boolean source, Class<T> subtype, TableField<?, ?> treatOrigin, String joinName) {
         this.rootEntity = rootEntity;
         this.parent = parent;
         this.attribute = attribute;
@@ -73,8 +75,9 @@ public final class TableField<P, T> {
         this.source = source;
         this.subtype = subtype;
         this.treatOrigin = treatOrigin;
-        this.key = rootEntity != null
-                ? JoinKey.root(rootEntity)
+        this.joinName = joinName;
+        this.key = joinName != null ? JoinKey.joinedSource(rootEntity, joinName)
+                : rootEntity != null ? JoinKey.root(rootEntity)
                 : new JoinKey(parent.key, subtype == null ? attribute : subtype.getName(), type, alias);
     }
 
@@ -99,7 +102,7 @@ public final class TableField<P, T> {
         if (rootEntity != null) {
             requireStrictSubtype(rootEntity, subtype);
         }
-        return new TableField<>(null, this, null, null, "", null, presenceKey, property, false, subtype, this);
+        return new TableField<>(null, this, null, null, "", null, presenceKey, property, false, subtype, this, null);
     }
 
     /**
@@ -110,6 +113,15 @@ public final class TableField<P, T> {
     @Incubating
     public static <S> TableField<S, S> source(Class<S> model) {
         return new TableField<>(Objects.requireNonNull(model, "model"), null, null, null, "", null, null, null, true);
+    }
+
+    /**
+     * The table of the columns of the source joined as {@code name}, a source model's fields read by field name from
+     * the join to its CTE (R-SRC-21). {@link SourceJoin#root()} returns it; it resolves to the join the statement
+     * made for {@code name}, never to the query's root.
+     */
+    static <S> TableField<S, S> joinedSource(String name, Class<S> model) {
+        return new TableField<>(model, null, null, null, "", null, null, null, true, null, null, name);
     }
 
     /**
@@ -174,7 +186,7 @@ public final class TableField<P, T> {
         Objects.requireNonNull(key, "key");
         requireJoin("presentBy(...)");
         return new TableField<>(rootEntity, parent, attribute, type, alias, condition, key, property, false,
-                subtype, treatOrigin);
+                subtype, treatOrigin, null);
     }
 
     /**
@@ -189,7 +201,7 @@ public final class TableField<P, T> {
         Objects.requireNonNull(property, "property");
         requireUntreated("named(...)");
         return new TableField<>(rootEntity, parent, attribute, type, alias, condition, presenceKey, property,
-                source, subtype, treatOrigin);
+                source, subtype, treatOrigin, joinName);
     }
 
     /**
@@ -202,7 +214,7 @@ public final class TableField<P, T> {
         }
         return new TableField<>(
                 null, Objects.requireNonNull(newParent, "newParent"), attribute, type, alias, condition, presenceKey,
-                property, false, subtype, treatOrigin);
+                property, false, subtype, treatOrigin, null);
     }
 
     /**
@@ -250,6 +262,9 @@ public final class TableField<P, T> {
             From<?, ?> reached = parent.rootEntity != null ? ctx.root() : parent.resolve(ctx, owner, false);
             return ctx.treat(key, reached, subtype, prefix(owner) + describe(), read);
         }
+        if (joinName != null) {
+            return (From<?, T>) ctx.joinedSource(key, prefix(owner) + describe());
+        }
         if (key.equals(ctx.rootKey())) {
             return (From<?, T>) ctx.root();
         }
@@ -285,6 +300,11 @@ public final class TableField<P, T> {
      */
     boolean isSource() {
         return source;
+    }
+
+    /** Whether this node is the table of a joined source's columns (R-SRC-21), rather than the query's root. */
+    boolean isJoinedSource() {
+        return joinName != null;
     }
 
     JoinKey key() {
@@ -425,6 +445,9 @@ public final class TableField<P, T> {
         if (subtype != null) {
             return parent + ".treat(" + subtype.getSimpleName() + ".class)";
         }
+        if (joinName != null) {
+            return rootEntity.getSimpleName() + " (joined as '" + joinName + "')";
+        }
         if (rootEntity != null) {
             return rootEntity.getSimpleName();
         }
@@ -435,6 +458,9 @@ public final class TableField<P, T> {
     String describe() {
         if (subtype != null) {
             return parent.describe() + ".treat(" + subtype.getSimpleName() + ".class)";
+        }
+        if (joinName != null) {
+            return "joined source '" + joinName + "' (" + rootEntity.getSimpleName() + ")";
         }
         if (rootEntity != null) {
             return "root " + rootEntity.getSimpleName();

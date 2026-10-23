@@ -227,6 +227,11 @@ The RFC 0018 members (D-177, M30) are `@Incubating` through 1.0: `CountMode.INLI
 `ModelInsert#buildConflictUpdate`'s parameter sink are `@EngineFacing`, so they are not API; `ValueOperands`,
 `ParameterSink` and `ChildLoad` also carry `@Incubating`, which marks a change to them breaking (R-REL-08).
 
+The RFC 0020 Part A members (D-185, D-187, M32.6) are `@Incubating` through 1.0: `SourceJoin` with its nested `On`,
+`ModelQuery.Builder#joinSource`, `SourceRenderer#join` and `MqCode.MQ1910` (`api/17` R-SRC-21, R-SRC-22).
+`ModelQuery#joinsSource()` and `BuiltQuery#recursionJoin()`, which names a joined walk in its check messages, are
+`@EngineFacing`, so they are not API; they also carry `@Incubating`, which marks a change to them breaking (R-REL-08).
+
 **R-REL-08** Tag → GitHub Actions → Maven Central through the Central Portal
 (`central-publishing-maven-plugin`), GPG-signed, with `-sources` and `-javadoc` jars. The changelog is generated from
 Conventional Commits. A commit that breaks an `@Incubating` type is still marked breaking (`!` and a

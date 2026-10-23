@@ -755,7 +755,8 @@ root to-one read by its id (`api/10` R-COL-29, D-136), which a returning write (
 path through it to the target's id (`referrer.id`), the foreign-key column, refused with `MQ1809` where the foreign key
 does not reference the target's primary key. The root
 is fixed by `E`, so a query on another entity does not compile. A query with `where`, `having`, `groupBy`, a fetch plan,
-`customize`, `orderBy`, `keyset`, `primaryKeyFirst` or a lock (`api/11` R-QRY-17), or a selected column it cannot fill
+`customize`, `orderBy`, `keyset`, `primaryKeyFirst`, a lock (`api/11` R-QRY-17) or a `joinSource(...)`, `INNER` or
+`LEFT` (`api/17` R-SRC-21), or a selected column it cannot fill
 from the entity alone (a join beyond a to-one id, a join with `on(...)`, an expression, an aggregate, a collection
 attribute, or an association attribute itself, whose message says to select the target's id), is `MQ1809` on its first
 execution per factory, before any statement; there is no silent fallback to a select. A `where` or `having` counts only

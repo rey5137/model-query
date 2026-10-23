@@ -9,15 +9,19 @@ import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.NullOrdering;
 import com.rey.modelquery.core.Op;
 import com.rey.modelquery.core.SelectSet;
+import com.rey.modelquery.core.SourceJoin;
 import com.rey.modelquery.core.SourceQuery;
 import com.rey.modelquery.core.SubSelect;
 import com.rey.modelquery.core.TableField;
+import com.rey.modelquery.annotations.JoinKind;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import com.rey.modelquery.jpa.spi.SourceFeature;
 import com.rey.modelquery.jpa.spi.VendorProfile;
 import com.rey.modelquery.portability.PortabilityCheck;
 import com.rey.modelquery.portability.Target;
+import com.rey.modelquery.tck.col.CompositeNodeEntity;
+import com.rey.modelquery.tck.col.FolderNodeEntity;
 import com.rey.modelquery.tck.col.OrderEntity;
 import com.rey.modelquery.tck.src.CompositeNode;
 import com.rey.modelquery.tck.src.CompositeNodeRow;
@@ -53,6 +57,12 @@ import org.junit.jupiter.api.Test;
 class SourcePortabilityTest {
 
     record FirstValue(Long value) {}
+
+    record JoinedStatus(Long id, String status) {}
+
+    record JoinedLevel(Long id, Integer level) {}
+
+    record JoinedNode(Long id, Integer level) {}
 
     static final class FirstRows {}
 
@@ -119,6 +129,81 @@ class SourcePortabilityTest {
         assertThat(lines).anySatisfy(line -> assertThat(line)
                 .startsWith("FEED on " + MARIADB + ": REFUSED MQ4015")
                 .contains("SourceFeature.CTE"));
+    }
+
+    @Test
+    void ac_src_47_a_query_that_joins_a_source_reports_mq4015_on_an_other_target_alone() {
+        var root = TableField.root(OrderEntity.class);
+        var id = ColumnField.of(JoinedStatus.class, root, "id", Long.class);
+        var join = SourceJoin.of("feed", OrderSource.class, JoinKind.LEFT, List.of(SourceJoin.on(id, QOrderSource.ID)));
+        var status = ColumnField.over(JoinedStatus.class, join.root(), QOrderSource.STATUS);
+        var query = ModelQuery.builder(root, row -> new JoinedStatus(row.get(id), row.get(status)))
+                .joinSource(join, QOrderSource.source().build()).select(SelectSet.of(id, status))
+                .orderBy(id.asc()).build();
+        List<String> lines = report(check(ModelQueryConfig.defaults()).targets(H2, POSTGRESQL, MYSQL, MARIADB)
+                .call("JOINED", OrderEntity.class, x -> x.list(query, Limit.of(10))));
+
+        assertThat(lines).hasSize(5);
+        for (Target target : List.of(H2, POSTGRESQL, MYSQL)) {
+            assertThat(lines).anySatisfy(line -> assertThat(line)
+                    .startsWith("JOINED on " + target + ": REACHED")
+                    .contains("orders"));
+        }
+        assertThat(lines).anySatisfy(line -> assertThat(line)
+                .startsWith("JOINED on " + MARIADB + ": REFUSED MQ4015")
+                .contains("SourceFeature.CTE"));
+    }
+
+    @Test
+    void ac_src_50_a_joined_tree_past_the_recursion_ceiling_reports_mq4015_on_mysql_alone() {
+        var root = TableField.root(FolderNodeEntity.class);
+        var id = ColumnField.of(JoinedLevel.class, root, "id", Long.class);
+        var join = SourceJoin.of("walk", FolderNode.class, JoinKind.LEFT, List.of(SourceJoin.on(id, QFolderNode.ID)));
+        var level = ColumnField.over(JoinedLevel.class, join.root(), QFolderNode.LEVEL);
+        SourceQuery<FolderNode> walk = QFolderNode.source().where(f -> f.eq(QFolderNode.ID, 1L))
+                .tree(step -> step.childKey(QFolderNode.PARENT_ID).parentKey(QFolderNode.ID), 999).build();
+        var query = ModelQuery.builder(root, row -> new JoinedLevel(row.get(id), row.get(level)))
+                .joinSource(join, walk).select(SelectSet.of(id, level)).orderBy(id.asc()).build();
+        List<String> lines = report(check(ModelQueryConfig.defaults()).targets(H2, POSTGRESQL, MYSQL)
+                .call("JOINED-999", FolderNodeEntity.class, x -> x.list(query, Limit.of(10))));
+
+        assertThat(lines).hasSize(4);
+        for (Target target : List.of(H2, POSTGRESQL)) {
+            assertThat(lines).anySatisfy(line -> assertThat(line)
+                    .startsWith("JOINED-999 on " + target + ": REACHED")
+                    .contains("with recursive"));
+        }
+        // The joined chain's walk goes through the checking renderer's registerRecursive, as a root source's does.
+        assertThat(lines).anySatisfy(line -> assertThat(line)
+                .startsWith("JOINED-999 on " + MYSQL + ": REFUSED MQ4015")
+                .contains("maxRecursionDepth"));
+    }
+
+    @Test
+    void ac_src_50_h2_reports_mq4015_for_a_joined_tree_over_a_composite_node_key() {
+        var root = TableField.root(CompositeNodeEntity.class);
+        var tenant = ColumnField.of(JoinedNode.class, root, "tenantId", Integer.class);
+        var id = ColumnField.of(JoinedNode.class, root, "id", Long.class);
+        var join = SourceJoin.of("walk", CompositeNode.class, JoinKind.LEFT,
+                List.of(SourceJoin.on(tenant, QCompositeNode.TENANT_ID), SourceJoin.on(id, QCompositeNode.ID)));
+        var level = ColumnField.over(JoinedNode.class, join.root(), QCompositeNode.LEVEL);
+        SourceQuery<CompositeNode> walk = QCompositeNode.source().where(f -> f.eq(QCompositeNode.ID, 1L))
+                .tree(step -> step.childKey(QCompositeNode.PARENT_ID).parentKey(QCompositeNode.ID), 3).build();
+        var query = ModelQuery.builder(root, row -> new JoinedNode(row.get(id), row.get(level)))
+                .joinSource(join, walk).select(SelectSet.of(tenant, id, level)).orderBy(id.asc()).build();
+        List<String> lines = report(check(ModelQueryConfig.defaults()).targets(H2, POSTGRESQL, MYSQL)
+                .call("JOINED-COMPOSITE", CompositeNodeEntity.class, x -> x.list(query, Limit.of(10))));
+
+        assertThat(lines).hasSize(4);
+        // The joined walk's node key is two columns: H2's profile refuses it, as for a source-rooted walk (AC-SRC-21).
+        assertThat(lines).anySatisfy(line -> assertThat(line)
+                .startsWith("JOINED-COMPOSITE on " + H2 + ": REFUSED MQ4015")
+                .contains("SourceFeature.RECURSIVE_COMPOSITE_KEY"));
+        for (Target target : List.of(POSTGRESQL, MYSQL)) {
+            assertThat(lines).anySatisfy(line -> assertThat(line)
+                    .startsWith("JOINED-COMPOSITE on " + target + ": REACHED")
+                    .contains("with recursive"));
+        }
     }
 
     @Test

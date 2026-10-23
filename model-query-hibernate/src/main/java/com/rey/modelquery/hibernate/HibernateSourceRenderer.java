@@ -10,25 +10,39 @@ import jakarta.persistence.criteria.AbstractQuery;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.From;
+import jakarta.persistence.criteria.JoinType;
 import jakarta.persistence.criteria.Order;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Optional;
+import java.util.function.Function;
 import org.hibernate.query.criteria.HibernateCriteriaBuilder;
 import org.hibernate.query.criteria.JpaCriteriaQuery;
 import org.hibernate.query.criteria.JpaCteCriteria;
 import org.hibernate.query.criteria.JpaCteCriteriaAttribute;
+import org.hibernate.query.criteria.JpaFrom;
 import org.hibernate.query.criteria.JpaRoot;
 import org.hibernate.query.criteria.JpaSelectCriteria;
 import org.hibernate.query.criteria.JpaSubQuery;
 import org.hibernate.query.criteria.JpaWindow;
+import org.hibernate.query.sqm.tree.SqmJoinType;
 
 /**
  * Hibernate's {@link SourceRenderer}: {@code JpaCriteriaQuery#with} registers the source's body as the statement's
  * common table expression and {@code JpaSelectCriteria#from(JpaCteCriteria)} reads it, identical on Hibernate 6.6 and
  * 7.4 (R-SRC-12, R-SRC-18, D-143, D-150). Every CTE in a chain is registered on the top statement and carries no
  * cross-statement state.
+ *
+ * <p>A joined source is {@code JpaFrom#join(JpaCteCriteria, SqmJoinType)} with the engine's {@code on} applied to the
+ * join it returns (R-SRC-21, R-SRC-22). That join is a {@code JpaJoinedFrom} on 6.6, which is no Criteria
+ * {@code Join}, and a {@code JpaJoin} on 7.4, where {@code JpaJoinedFrom} does not exist (RFC 0020 A.5): both methods
+ * are looked up once by reflection, so one class links on either line, and a line without them refuses a joined
+ * source with {@code MQ4014} while every other source still renders.
  *
  * <p>A window is {@code createWindow()} with the partition, order and frame terms, handed to a function: the typed
  * {@code rowNumber}, {@code rank}, {@code denseRank}, {@code sum} and {@code firstValue} carry the function's result
@@ -37,11 +51,32 @@ import org.hibernate.query.criteria.JpaWindow;
  */
 final class HibernateSourceRenderer implements SourceRenderer {
 
-    static final HibernateSourceRenderer INSTANCE = new HibernateSourceRenderer();
+    static final HibernateSourceRenderer INSTANCE = new HibernateSourceRenderer(CteJoin.of(JpaFrom.class));
+
+    /** How this line joins a CTE, or empty when it cannot: a joined source is then {@code MQ4014}, no other source. */
+    private final Optional<CteJoin> cteJoin;
 
     private record HibernateCteHandle(JpaCteCriteria<Tuple> cte) implements CteHandle {}
 
-    private HibernateSourceRenderer() {
+    /**
+     * {@code join(JpaCteCriteria, SqmJoinType)} on a {@code JpaFrom} type, whose return type differs per line (RFC 0020
+     * A.5), and {@code on(Predicate...)} of the type it returns.
+     */
+    record CteJoin(Method join, Method on) {
+
+        /** Both methods on {@code from}, or empty when either is missing, so a missing one fails no class init. */
+        static Optional<CteJoin> of(Class<?> from) {
+            try {
+                Method join = from.getMethod("join", JpaCteCriteria.class, SqmJoinType.class);
+                return Optional.of(new CteJoin(join, join.getReturnType().getMethod("on", Predicate[].class)));
+            } catch (NoSuchMethodException e) {
+                return Optional.empty();
+            }
+        }
+    }
+
+    HibernateSourceRenderer(Optional<CteJoin> cteJoin) {
+        this.cteJoin = cteJoin;
     }
 
     @Override
@@ -64,6 +99,41 @@ final class HibernateSourceRenderer implements SourceRenderer {
             throw new IllegalArgumentException("Expected a Hibernate CteHandle, got: " + inner);
         }
         return ((JpaSelectCriteria<?>) query).from(handle.cte());
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public From<?, Tuple> join(From<?, ?> outer, CteHandle source, JoinType type,
+            Function<From<?, Tuple>, Predicate> on) {
+        if (cteJoin.isEmpty()) {
+            return SourceRenderer.super.join(outer, source, type, on); // MQ4014, naming joined sources
+        }
+        if (!(source instanceof HibernateCteHandle handle)) {
+            throw new IllegalArgumentException("Expected a Hibernate CteHandle, got: " + source);
+        }
+        SqmJoinType joinType = switch (type) {
+            case INNER -> SqmJoinType.INNER;
+            case LEFT -> SqmJoinType.LEFT;
+            case RIGHT -> throw new IllegalArgumentException("A source joins INNER or LEFT, not RIGHT");
+        };
+        // jpa builds the statement with the provider's own CriteriaBuilder, so every From is Hibernate's.
+        CteJoin methods = cteJoin.get();
+        JpaFrom<?, Tuple> joined = (JpaFrom<?, Tuple>) invoke(methods.join(), outer, handle.cte(), joinType);
+        invoke(methods.on(), joined, (Object) new Predicate[] {on.apply(joined)});
+        return joined;
+    }
+
+    private static Object invoke(Method method, Object target, Object... arguments) {
+        try {
+            return method.invoke(target, arguments);
+        } catch (InvocationTargetException e) {
+            if (e.getCause() instanceof RuntimeException cause) {
+                throw cause;
+            }
+            throw new IllegalStateException(method + " failed", e.getCause());
+        } catch (IllegalAccessException e) {
+            throw new IllegalStateException(method + " is not accessible", e);
+        }
     }
 
     /**

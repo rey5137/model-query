@@ -345,7 +345,7 @@ class SourceQueryExecutionTest {
      * answers {@code sources(...)} with {@code false} and delegates the interface's abstract methods, every optional
      * hook being the interface's default (R-VND-21, R-SRC-11).
      */
-    private static VendorProfile withoutSources(TckDatabase db) {
+    static VendorProfile withoutSources(TckDatabase db) {
         return sources(db, feature -> false);
     }
 

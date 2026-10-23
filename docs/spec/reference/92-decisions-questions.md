@@ -2906,6 +2906,24 @@ places `AggregateFeature` in `jpa.spi`. `AggregateField` renders in `core` and `
 of a filtered aggregate (R-AGG-17), so no vendor or provider combination refuses it. `AggregateField.Kind` is public
 `@Incubating` so a renderer sees which function it renders. → `api/13` R-AGG-17, `vendor/40` R-VND-29, R-VND-30, D-185.
 
+**D-187 — A joined source may walk if it is unique; its checks ride every statement; an unbound join's column is
+`MQ1003` (M32.6, 2026-10-23).** RFC 0020 A.1 lets a joined source be a source over a source and is silent on
+recursion. The join decides by `SourceQuery#unique()` alone (R-SRC-09, R-SRC-13): a `tree(...)`, an ungrouped source
+over one, and a grouped source over any walk join; a plain `recursive(...)` and an ungrouped source over one stay
+`MQ1910`, since a node reached by two paths would repeat its outer row in content, count and offset pages with no
+check to see it, and the message names `tree(...)`. The walk is registered by `registerRecursive` on the top statement
+and joined by `SourceRenderer#join`, both unchanged. Its filter `level <= maxDepth and not mark` goes into the join's
+`on` when the joined source is the walk (the same as joining the filtered walk, so a LEFT join keeps its unmatched
+outer rows; the outer `WHERE` would drop them), and into the next CTE body when the walk is inner (R-SRC-18). Its
+depth, cycle and, for a tree, duplicate-key checks are uncorrelated sub-selects over the whole walk, selected by every
+statement of R-SRC-15, the treated row count and a `through` child load included, and read by the one check site in
+R-SRC-14's order; the message names the join (`BuiltQuery#recursionJoin`). An outer row a LEFT join matched to no node
+is a row and is checked; only an empty result is not. A statement reads one walk's checks, so a query whose joined
+chains walk more than once (a combined source's branches counted) is `MQ1910`. A source bound to a join of another
+source model (through a raw type) is `MQ1910`. A column over a `SourceJoin.root()` whose join the query does not bind
+is `MQ1003`, raised at first resolution; the generated `query(...)` takes every joined source, so only hand-written
+code reaches it. → `api/17` R-SRC-08, R-SRC-14, R-SRC-15, R-SRC-18, R-SRC-21, R-SRC-22; D-185, D-147.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
