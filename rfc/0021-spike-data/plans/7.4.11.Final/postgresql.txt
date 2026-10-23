@@ -1,0 +1,1108 @@
+### POSTGRESQL | A.4/page of 20 | native | hierarchy 1
+-- SELECT r.id, r.hierarchy_id, r.node_id, c.first_name, ct.name, r.start_vertex, p.first_name, pt.name, r.created_at FROM (SELECT hn.id, hn.hierarchy_id, hn.node_id, e.start_vertex, e.created_at FROM hierarchy_node hn LEFT JOIN hierarchy h ON h.id = hn.hierarchy_id LEFT JOIN hierarchy_edge e ON e.hierarchy_id = h.id AND e.end_vertex = hn.node_id AND e.hops = 2 AND e.is_deleted = false WHERE 1 = 1 AND h.id = 1 AND hn.is_deleted = false) r LEFT JOIN profile c ON c.id = r.node_id AND c.is_deleted = false LEFT JOIN profile_type ct ON ct.id = c.type_id LEFT JOIN profile p ON p.id = r.start_vertex AND p.is_deleted = false LEFT JOIN profile_type pt ON pt.id = p.type_id ORDER BY r.id fetch first ? rows only || 20
+Limit  (cost=1.58..43.75 rows=20 width=66) (actual time=0.024..0.082 rows=20 loops=1)
+  Buffers: shared hit=171
+  ->  Nested Loop Left Join  (cost=1.58..9989.03 rows=4736 width=66) (actual time=0.024..0.081 rows=20 loops=1)
+        Buffers: shared hit=171
+        ->  Nested Loop Left Join  (cost=1.43..9874.77 rows=4736 width=67) (actual time=0.022..0.074 rows=20 loops=1)
+              Buffers: shared hit=167
+              ->  Nested Loop Left Join  (cost=1.14..9213.68 rows=4736 width=53) (actual time=0.019..0.065 rows=20 loops=1)
+                    Buffers: shared hit=161
+                    ->  Nested Loop Left Join  (cost=0.99..9099.41 rows=4736 width=54) (actual time=0.016..0.054 rows=20 loops=1)
+                          Buffers: shared hit=141
+                          ->  Nested Loop Left Join  (cost=0.70..7795.13 rows=4736 width=40) (actual time=0.012..0.035 rows=20 loops=1)
+                                Buffers: shared hit=81
+                                ->  Nested Loop  (cost=0.29..609.02 rows=4736 width=32) (actual time=0.008..0.014 rows=20 loops=1)
+                                      Buffers: shared hit=4
+                                      ->  Index Scan using hierarchy_node_pkey on hierarchy_node hn  (cost=0.29..548.78 rows=4736 width=24) (actual time=0.005..0.006 rows=20 loops=1)
+                                            Filter: ((NOT is_deleted) AND (hierarchy_id = 1))
+                                            Rows Removed by Filter: 2
+                                            Buffers: shared hit=3
+                                      ->  Materialize  (cost=0.00..1.04 rows=1 width=8) (actual time=0.000..0.000 rows=1 loops=20)
+                                            Buffers: shared hit=1
+                                            ->  Seq Scan on hierarchy h  (cost=0.00..1.04 rows=1 width=8) (actual time=0.001..0.001 rows=1 loops=1)
+                                                  Filter: (id = 1)
+                                                  Rows Removed by Filter: 2
+                                                  Buffers: shared hit=1
+                                ->  Index Scan using hierarchy_edge_hierarchy_id_end_vertex_hops_key on hierarchy_edge e  (cost=0.42..1.51 rows=1 width=32) (actual time=0.001..0.001 rows=1 loops=20)
+                                      Index Cond: ((hierarchy_id = 1) AND (end_vertex = hn.node_id) AND (hops = 2))
+                                      Filter: (NOT is_deleted)
+                                      Buffers: shared hit=77
+                          ->  Memoize  (cost=0.29..0.36 rows=1 width=22) (actual time=0.001..0.001 rows=1 loops=20)
+                                Cache Key: hn.node_id
+                                Cache Mode: logical
+                                Hits: 0  Misses: 20  Evictions: 0  Overflows: 0  Memory Usage: 3kB
+                                Buffers: shared hit=60
+                                ->  Index Scan using profile_pkey on profile c  (cost=0.28..0.35 rows=1 width=22) (actual time=0.001..0.001 rows=1 loops=20)
+                                      Index Cond: (id = hn.node_id)
+                                      Filter: (NOT is_deleted)
+                                      Buffers: shared hit=60
+                    ->  Memoize  (cost=0.15..0.17 rows=1 width=15) (actual time=0.000..0.000 rows=1 loops=20)
+                          Cache Key: c.type_id
+                          Cache Mode: logical
+                          Hits: 10  Misses: 10  Evictions: 0  Overflows: 0  Memory Usage: 2kB
+                          Buffers: shared hit=20
+                          ->  Index Scan using profile_type_pkey on profile_type ct  (cost=0.14..0.16 rows=1 width=15) (actual time=0.001..0.001 rows=1 loops=10)
+                                Index Cond: (id = c.type_id)
+                                Buffers: shared hit=20
+              ->  Memoize  (cost=0.29..0.36 rows=1 width=22) (actual time=0.000..0.000 rows=1 loops=20)
+                    Cache Key: e.start_vertex
+                    Cache Mode: logical
+                    Hits: 17  Misses: 3  Evictions: 0  Overflows: 0  Memory Usage: 1kB
+                    Buffers: shared hit=6
+                    ->  Index Scan using profile_pkey on profile p  (cost=0.28..0.35 rows=1 width=22) (actual time=0.001..0.001 rows=1 loops=3)
+                          Index Cond: (id = e.start_vertex)
+                          Filter: (NOT is_deleted)
+                          Buffers: shared hit=6
+        ->  Memoize  (cost=0.15..0.17 rows=1 width=15) (actual time=0.000..0.000 rows=1 loops=20)
+              Cache Key: p.type_id
+              Cache Mode: logical
+              Hits: 17  Misses: 3  Evictions: 0  Overflows: 0  Memory Usage: 1kB
+              Buffers: shared hit=4
+              ->  Index Scan using profile_type_pkey on profile_type pt  (cost=0.14..0.16 rows=1 width=15) (actual time=0.001..0.001 rows=1 loops=3)
+                    Index Cond: (id = p.type_id)
+                    Buffers: shared hit=4
+Planning:
+  Buffers: shared hit=28
+Planning Time: 0.476 ms
+Execution Time: 0.143 ms
+
+### POSTGRESQL | A.4/page of 20 | lib: entity join, referenced (Details) | hierarchy 1
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.hierarchy_id=? and he1_0.is_deleted<>? group by 1,2) select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,n1_0.first_name,t1_0.name,var_1_11_0.mq_startVertex,p1_0.first_name,t2_0.name,var_1_11_0.mq_createdAt from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id left join profile p1_0 on p1_0.id=var_1_11_0.mq_startVertex and p1_0.is_deleted<>? left join profile n1_0 on n1_0.id=hn1_0.node_id and n1_0.is_deleted<>? left join profile_type t1_0 on t1_0.id=n1_0.type_id left join profile_type t2_0 on t2_0.id=p1_0.type_id where hn1_0.hierarchy_id=? and hn1_0.is_deleted<>? order by 1 fetch first ? rows only || 2, 1, true, true, true, 1, true, 20
+Limit  (cost=2729.99..2730.04 rows=20 width=66) (actual time=6.192..6.194 rows=20 loops=1)
+  Buffers: shared hit=567
+  ->  Sort  (cost=2729.99..2741.83 rows=4736 width=66) (actual time=6.191..6.193 rows=20 loops=1)
+        Sort Key: hn1_0.id
+        Sort Method: top-N heapsort  Memory: 29kB
+        Buffers: shared hit=567
+        ->  Hash Left Join  (cost=2480.92..2603.96 rows=4736 width=66) (actual time=3.302..5.783 rows=4734 loops=1)
+              Hash Cond: (n1_0.type_id = t1_0.id)
+              Buffers: shared hit=567
+              ->  Hash Left Join  (cost=2479.69..2585.03 rows=4736 width=67) (actual time=3.296..5.386 rows=4734 loops=1)
+                    Hash Cond: (hn1_0.node_id = n1_0.id)
+                    Buffers: shared hit=566
+                    ->  Hash Right Join  (cost=2328.13..2421.03 rows=4736 width=53) (actual time=2.700..4.363 rows=4734 loops=1)
+                          Hash Cond: (he1_0.end_vertex = hn1_0.node_id)
+                          Buffers: shared hit=524
+                          ->  Hash Left Join  (cost=1976.46..2060.94 rows=3204 width=45) (actual time=1.997..3.206 rows=4903 loops=1)
+                                Hash Cond: (p1_0.type_id = t2_0.id)
+                                Buffers: shared hit=466
+                                ->  Hash Left Join  (cost=1975.24..2047.74 rows=3204 width=46) (actual time=1.983..2.820 rows=4903 loops=1)
+                                      Hash Cond: ((max(he1_0.start_vertex)) = p1_0.id)
+                                      Buffers: shared hit=465
+                                      ->  HashAggregate  (cost=1823.68..1855.72 rows=3204 width=32) (actual time=1.401..1.752 rows=4903 loops=1)
+                                            Group Key: he1_0.end_vertex
+                                            Batches: 1  Memory Usage: 721kB
+                                            Buffers: shared hit=423
+                                            ->  Bitmap Heap Scan on hierarchy_edge he1_0  (cost=884.26..1786.37 rows=4974 width=32) (actual time=0.420..0.783 rows=4903 loops=1)
+                                                  Recheck Cond: ((hierarchy_id = '1'::bigint) AND (hops = 2))
+                                                  Filter: (NOT is_deleted)
+                                                  Rows Removed by Filter: 93
+                                                  Heap Blocks: exact=276
+                                                  Buffers: shared hit=423
+                                                  ->  Bitmap Index Scan on hierarchy_edge_hierarchy_id_end_vertex_hops_key  (cost=0.00..883.02 rows=5074 width=0) (actual time=0.410..0.411 rows=4996 loops=1)
+                                                        Index Cond: ((hierarchy_id = '1'::bigint) AND (hops = 2))
+                                                        Buffers: shared hit=147
+                                      ->  Hash  (cost=92.00..92.00 rows=4765 width=22) (actual time=0.572..0.572 rows=4765 loops=1)
+                                            Buckets: 8192  Batches: 1  Memory Usage: 325kB
+                                            Buffers: shared hit=42
+                                            ->  Seq Scan on profile p1_0  (cost=0.00..92.00 rows=4765 width=22) (actual time=0.002..0.271 rows=4765 loops=1)
+                                                  Filter: (NOT is_deleted)
+                                                  Rows Removed by Filter: 235
+                                                  Buffers: shared hit=42
+                                ->  Hash  (cost=1.10..1.10 rows=10 width=15) (actual time=0.011..0.011 rows=10 loops=1)
+                                      Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                                      Buffers: shared hit=1
+                                      ->  Seq Scan on profile_type t2_0  (cost=0.00..1.10 rows=10 width=15) (actual time=0.001..0.001 rows=10 loops=1)
+                                            Buffers: shared hit=1
+                          ->  Hash  (cost=292.47..292.47 rows=4736 width=24) (actual time=0.694..0.694 rows=4734 loops=1)
+                                Buckets: 8192  Batches: 1  Memory Usage: 323kB
+                                Buffers: shared hit=58
+                                ->  Bitmap Heap Scan on hierarchy_node hn1_0  (cost=118.97..292.47 rows=4736 width=24) (actual time=0.074..0.384 rows=4734 loops=1)
+                                      Recheck Cond: (hierarchy_id = '1'::bigint)
+                                      Filter: (NOT is_deleted)
+                                      Rows Removed by Filter: 266
+                                      Heap Blocks: exact=37
+                                      Buffers: shared hit=58
+                                      ->  Bitmap Index Scan on hierarchy_node_hierarchy_id_node_id_key  (cost=0.00..117.78 rows=5000 width=0) (actual time=0.069..0.069 rows=5000 loops=1)
+                                            Index Cond: (hierarchy_id = '1'::bigint)
+                                            Buffers: shared hit=21
+                    ->  Hash  (cost=92.00..92.00 rows=4765 width=22) (actual time=0.586..0.586 rows=4765 loops=1)
+                          Buckets: 8192  Batches: 1  Memory Usage: 325kB
+                          Buffers: shared hit=42
+                          ->  Seq Scan on profile n1_0  (cost=0.00..92.00 rows=4765 width=22) (actual time=0.001..0.252 rows=4765 loops=1)
+                                Filter: (NOT is_deleted)
+                                Rows Removed by Filter: 235
+                                Buffers: shared hit=42
+              ->  Hash  (cost=1.10..1.10 rows=10 width=15) (actual time=0.003..0.003 rows=10 loops=1)
+                    Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                    Buffers: shared hit=1
+                    ->  Seq Scan on profile_type t1_0  (cost=0.00..1.10 rows=10 width=15) (actual time=0.001..0.001 rows=10 loops=1)
+                          Buffers: shared hit=1
+Planning:
+  Buffers: shared hit=24
+Planning Time: 0.355 ms
+Execution Time: 6.308 ms
+
+### POSTGRESQL | A.4/page of 20 | lib: no manager columns, entity join attached (3 columns read) | hierarchy 1
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.hierarchy_id=? and he1_0.is_deleted<>? group by 1,2) select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,var_1_11_0.mq_startVertex,var_1_11_0.mq_createdAt from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id left join profile p1_0 on p1_0.id=var_1_11_0.mq_startVertex and p1_0.is_deleted<>? where hn1_0.hierarchy_id=? and hn1_0.is_deleted<>? order by 1 fetch first ? rows only || 2, 1, true, true, 1, true, 20
+Limit  (cost=2373.87..2373.92 rows=20 width=40) (actual time=3.139..3.141 rows=20 loops=1)
+  Buffers: shared hit=481
+  ->  Sort  (cost=2373.87..2385.71 rows=4736 width=40) (actual time=3.138..3.140 rows=20 loops=1)
+        Sort Key: hn1_0.id
+        Sort Method: top-N heapsort  Memory: 27kB
+        Buffers: shared hit=481
+        ->  Hash Right Join  (cost=2175.34..2247.85 rows=4736 width=40) (actual time=2.075..2.852 rows=4734 loops=1)
+              Hash Cond: (he1_0.end_vertex = hn1_0.node_id)
+              Buffers: shared hit=481
+              ->  HashAggregate  (cost=1823.68..1855.72 rows=3204 width=32) (actual time=1.370..1.702 rows=4903 loops=1)
+                    Group Key: he1_0.end_vertex
+                    Batches: 1  Memory Usage: 721kB
+                    Buffers: shared hit=423
+                    ->  Bitmap Heap Scan on hierarchy_edge he1_0  (cost=884.26..1786.37 rows=4974 width=32) (actual time=0.415..0.752 rows=4903 loops=1)
+                          Recheck Cond: ((hierarchy_id = '1'::bigint) AND (hops = 2))
+                          Filter: (NOT is_deleted)
+                          Rows Removed by Filter: 93
+                          Heap Blocks: exact=276
+                          Buffers: shared hit=423
+                          ->  Bitmap Index Scan on hierarchy_edge_hierarchy_id_end_vertex_hops_key  (cost=0.00..883.02 rows=5074 width=0) (actual time=0.404..0.404 rows=4996 loops=1)
+                                Index Cond: ((hierarchy_id = '1'::bigint) AND (hops = 2))
+                                Buffers: shared hit=147
+              ->  Hash  (cost=292.47..292.47 rows=4736 width=24) (actual time=0.696..0.697 rows=4734 loops=1)
+                    Buckets: 8192  Batches: 1  Memory Usage: 323kB
+                    Buffers: shared hit=58
+                    ->  Bitmap Heap Scan on hierarchy_node hn1_0  (cost=118.97..292.47 rows=4736 width=24) (actual time=0.075..0.371 rows=4734 loops=1)
+                          Recheck Cond: (hierarchy_id = '1'::bigint)
+                          Filter: (NOT is_deleted)
+                          Rows Removed by Filter: 266
+                          Heap Blocks: exact=37
+                          Buffers: shared hit=58
+                          ->  Bitmap Index Scan on hierarchy_node_hierarchy_id_node_id_key  (cost=0.00..117.78 rows=5000 width=0) (actual time=0.071..0.071 rows=5000 loops=1)
+                                Index Cond: (hierarchy_id = '1'::bigint)
+                                Buffers: shared hit=21
+Planning:
+  Buffers: shared hit=2
+Planning Time: 0.064 ms
+Execution Time: 3.207 ms
+
+### POSTGRESQL | A.4/page of 20 | lib: unreferenced, no entity join | hierarchy 1
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.hierarchy_id=? and he1_0.is_deleted<>? group by 1,2) select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,var_1_11_0.mq_startVertex,var_1_11_0.mq_createdAt from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id where hn1_0.hierarchy_id=? and hn1_0.is_deleted<>? order by 1 fetch first ? rows only || 2, 1, true, 1, true, 20
+Limit  (cost=2373.87..2373.92 rows=20 width=40) (actual time=3.147..3.150 rows=20 loops=1)
+  Buffers: shared hit=481
+  ->  Sort  (cost=2373.87..2385.71 rows=4736 width=40) (actual time=3.147..3.148 rows=20 loops=1)
+        Sort Key: hn1_0.id
+        Sort Method: top-N heapsort  Memory: 27kB
+        Buffers: shared hit=481
+        ->  Hash Right Join  (cost=2175.34..2247.85 rows=4736 width=40) (actual time=2.083..2.867 rows=4734 loops=1)
+              Hash Cond: (he1_0.end_vertex = hn1_0.node_id)
+              Buffers: shared hit=481
+              ->  HashAggregate  (cost=1823.68..1855.72 rows=3204 width=32) (actual time=1.384..1.714 rows=4903 loops=1)
+                    Group Key: he1_0.end_vertex
+                    Batches: 1  Memory Usage: 721kB
+                    Buffers: shared hit=423
+                    ->  Bitmap Heap Scan on hierarchy_edge he1_0  (cost=884.26..1786.37 rows=4974 width=32) (actual time=0.413..0.741 rows=4903 loops=1)
+                          Recheck Cond: ((hierarchy_id = '1'::bigint) AND (hops = 2))
+                          Filter: (NOT is_deleted)
+                          Rows Removed by Filter: 93
+                          Heap Blocks: exact=276
+                          Buffers: shared hit=423
+                          ->  Bitmap Index Scan on hierarchy_edge_hierarchy_id_end_vertex_hops_key  (cost=0.00..883.02 rows=5074 width=0) (actual time=0.404..0.404 rows=4996 loops=1)
+                                Index Cond: ((hierarchy_id = '1'::bigint) AND (hops = 2))
+                                Buffers: shared hit=147
+              ->  Hash  (cost=292.47..292.47 rows=4736 width=24) (actual time=0.690..0.691 rows=4734 loops=1)
+                    Buckets: 8192  Batches: 1  Memory Usage: 323kB
+                    Buffers: shared hit=58
+                    ->  Bitmap Heap Scan on hierarchy_node hn1_0  (cost=118.97..292.47 rows=4736 width=24) (actual time=0.082..0.379 rows=4734 loops=1)
+                          Recheck Cond: (hierarchy_id = '1'::bigint)
+                          Filter: (NOT is_deleted)
+                          Rows Removed by Filter: 266
+                          Heap Blocks: exact=37
+                          Buffers: shared hit=58
+                          ->  Bitmap Index Scan on hierarchy_node_hierarchy_id_node_id_key  (cost=0.00..117.78 rows=5000 width=0) (actual time=0.078..0.078 rows=5000 loops=1)
+                                Index Cond: (hierarchy_id = '1'::bigint)
+                                Buffers: shared hit=21
+Planning:
+  Buffers: shared hit=2
+Planning Time: 0.058 ms
+Execution Time: 3.214 ms
+
+### POSTGRESQL | A.4/page of 20 | lib: Details without the manager (no entity join, null columns) | hierarchy 1
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.hierarchy_id=? and he1_0.is_deleted<>? group by 1,2) select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,n1_0.first_name,t1_0.name,var_1_11_0.mq_startVertex,null,null,var_1_11_0.mq_createdAt from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id left join profile n1_0 on n1_0.id=hn1_0.node_id and n1_0.is_deleted<>? left join profile_type t1_0 on t1_0.id=n1_0.type_id where hn1_0.hierarchy_id=? and hn1_0.is_deleted<>? order by 1 fetch first ? rows only || 2, 1, true, true, 1, true, 20
+Limit  (cost=2556.81..2556.86 rows=20 width=117) (actual time=4.622..4.624 rows=20 loops=1)
+  Buffers: shared hit=524
+  ->  Sort  (cost=2556.81..2568.65 rows=4736 width=117) (actual time=4.622..4.624 rows=20 loops=1)
+        Sort Key: hn1_0.id
+        Sort Method: top-N heapsort  Memory: 29kB
+        Buffers: shared hit=524
+        ->  Hash Left Join  (cost=2328.13..2430.78 rows=4736 width=117) (actual time=2.582..4.215 rows=4734 loops=1)
+              Hash Cond: (n1_0.type_id = t1_0.id)
+              Buffers: shared hit=524
+              ->  Hash Left Join  (cost=2326.91..2411.85 rows=4736 width=54) (actual time=2.575..3.826 rows=4734 loops=1)
+                    Hash Cond: (hn1_0.node_id = n1_0.id)
+                    Buffers: shared hit=523
+                    ->  Hash Right Join  (cost=2175.34..2247.85 rows=4736 width=40) (actual time=1.975..2.785 rows=4734 loops=1)
+                          Hash Cond: (he1_0.end_vertex = hn1_0.node_id)
+                          Buffers: shared hit=481
+                          ->  HashAggregate  (cost=1823.68..1855.72 rows=3204 width=32) (actual time=1.304..1.641 rows=4903 loops=1)
+                                Group Key: he1_0.end_vertex
+                                Batches: 1  Memory Usage: 721kB
+                                Buffers: shared hit=423
+                                ->  Bitmap Heap Scan on hierarchy_edge he1_0  (cost=884.26..1786.37 rows=4974 width=32) (actual time=0.391..0.712 rows=4903 loops=1)
+                                      Recheck Cond: ((hierarchy_id = '1'::bigint) AND (hops = 2))
+                                      Filter: (NOT is_deleted)
+                                      Rows Removed by Filter: 93
+                                      Heap Blocks: exact=276
+                                      Buffers: shared hit=423
+                                      ->  Bitmap Index Scan on hierarchy_edge_hierarchy_id_end_vertex_hops_key  (cost=0.00..883.02 rows=5074 width=0) (actual time=0.381..0.382 rows=4996 loops=1)
+                                            Index Cond: ((hierarchy_id = '1'::bigint) AND (hops = 2))
+                                            Buffers: shared hit=147
+                          ->  Hash  (cost=292.47..292.47 rows=4736 width=24) (actual time=0.663..0.663 rows=4734 loops=1)
+                                Buckets: 8192  Batches: 1  Memory Usage: 323kB
+                                Buffers: shared hit=58
+                                ->  Bitmap Heap Scan on hierarchy_node hn1_0  (cost=118.97..292.47 rows=4736 width=24) (actual time=0.070..0.369 rows=4734 loops=1)
+                                      Recheck Cond: (hierarchy_id = '1'::bigint)
+                                      Filter: (NOT is_deleted)
+                                      Rows Removed by Filter: 266
+                                      Heap Blocks: exact=37
+                                      Buffers: shared hit=58
+                                      ->  Bitmap Index Scan on hierarchy_node_hierarchy_id_node_id_key  (cost=0.00..117.78 rows=5000 width=0) (actual time=0.066..0.066 rows=5000 loops=1)
+                                            Index Cond: (hierarchy_id = '1'::bigint)
+                                            Buffers: shared hit=21
+                    ->  Hash  (cost=92.00..92.00 rows=4765 width=22) (actual time=0.592..0.592 rows=4765 loops=1)
+                          Buckets: 8192  Batches: 1  Memory Usage: 325kB
+                          Buffers: shared hit=42
+                          ->  Seq Scan on profile n1_0  (cost=0.00..92.00 rows=4765 width=22) (actual time=0.002..0.264 rows=4765 loops=1)
+                                Filter: (NOT is_deleted)
+                                Rows Removed by Filter: 235
+                                Buffers: shared hit=42
+              ->  Hash  (cost=1.10..1.10 rows=10 width=15) (actual time=0.003..0.004 rows=10 loops=1)
+                    Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                    Buffers: shared hit=1
+                    ->  Seq Scan on profile_type t1_0  (cost=0.00..1.10 rows=10 width=15) (actual time=0.001..0.001 rows=10 loops=1)
+                          Buffers: shared hit=1
+Planning:
+  Buffers: shared hit=16
+Planning Time: 0.153 ms
+Execution Time: 4.705 ms
+
+### POSTGRESQL | A.4/count | native | hierarchy 1
+-- SELECT count(*) FROM (SELECT hn.id, hn.hierarchy_id, hn.node_id, e.start_vertex, e.created_at FROM hierarchy_node hn LEFT JOIN hierarchy h ON h.id = hn.hierarchy_id LEFT JOIN hierarchy_edge e ON e.hierarchy_id = h.id AND e.end_vertex = hn.node_id AND e.hops = 2 AND e.is_deleted = false WHERE 1 = 1 AND h.id = 1 AND hn.is_deleted = false) r LEFT JOIN profile c ON c.id = r.node_id AND c.is_deleted = false LEFT JOIN profile_type ct ON ct.id = c.type_id LEFT JOIN profile p ON p.id = r.start_vertex AND p.is_deleted = false LEFT JOIN profile_type pt ON pt.id = p.type_id
+Aggregate  (cost=352.71..352.72 rows=1 width=8) (actual time=0.643..0.643 rows=1 loops=1)
+  Buffers: shared hit=59
+  ->  Nested Loop  (cost=118.97..340.87 rows=4736 width=0) (actual time=0.066..0.512 rows=4734 loops=1)
+        Buffers: shared hit=59
+        ->  Seq Scan on hierarchy h  (cost=0.00..1.04 rows=1 width=8) (actual time=0.001..0.002 rows=1 loops=1)
+              Filter: (id = 1)
+              Rows Removed by Filter: 2
+              Buffers: shared hit=1
+        ->  Bitmap Heap Scan on hierarchy_node hn  (cost=118.97..292.47 rows=4736 width=16) (actual time=0.064..0.290 rows=4734 loops=1)
+              Recheck Cond: (hierarchy_id = 1)
+              Filter: (NOT is_deleted)
+              Rows Removed by Filter: 266
+              Heap Blocks: exact=37
+              Buffers: shared hit=58
+              ->  Bitmap Index Scan on hierarchy_node_hierarchy_id_node_id_key  (cost=0.00..117.78 rows=5000 width=0) (actual time=0.061..0.061 rows=5000 loops=1)
+                    Index Cond: (hierarchy_id = 1)
+                    Buffers: shared hit=21
+Planning Time: 0.050 ms
+Execution Time: 0.656 ms
+
+### POSTGRESQL | A.4/count | lib: count, entity join attached unreferenced | hierarchy 1
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.hierarchy_id=? and he1_0.is_deleted<>? group by 1,2) select count(hn1_0.id) from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id left join profile p1_0 on p1_0.id=var_1_11_0.mq_startVertex and p1_0.is_deleted<>? where hn1_0.hierarchy_id=? and hn1_0.is_deleted<>? || 2, 1, true, true, 1, true
+Aggregate  (cost=2247.25..2247.26 rows=1 width=8) (actual time=2.700..2.700 rows=1 loops=1)
+  Buffers: shared hit=481
+  ->  Hash Right Join  (cost=2162.91..2235.41 rows=4736 width=8) (actual time=1.873..2.559 rows=4734 loops=1)
+        Hash Cond: (he1_0.end_vertex = hn1_0.node_id)
+        Buffers: shared hit=481
+        ->  HashAggregate  (cost=1811.24..1843.28 rows=3204 width=32) (actual time=1.268..1.547 rows=4903 loops=1)
+              Group Key: he1_0.end_vertex
+              Batches: 1  Memory Usage: 721kB
+              Buffers: shared hit=423
+              ->  Bitmap Heap Scan on hierarchy_edge he1_0  (cost=884.26..1786.37 rows=4974 width=24) (actual time=0.385..0.696 rows=4903 loops=1)
+                    Recheck Cond: ((hierarchy_id = '1'::bigint) AND (hops = 2))
+                    Filter: (NOT is_deleted)
+                    Rows Removed by Filter: 93
+                    Heap Blocks: exact=276
+                    Buffers: shared hit=423
+                    ->  Bitmap Index Scan on hierarchy_edge_hierarchy_id_end_vertex_hops_key  (cost=0.00..883.02 rows=5074 width=0) (actual time=0.377..0.377 rows=4996 loops=1)
+                          Index Cond: ((hierarchy_id = '1'::bigint) AND (hops = 2))
+                          Buffers: shared hit=147
+        ->  Hash  (cost=292.47..292.47 rows=4736 width=24) (actual time=0.599..0.599 rows=4734 loops=1)
+              Buckets: 8192  Batches: 1  Memory Usage: 323kB
+              Buffers: shared hit=58
+              ->  Bitmap Heap Scan on hierarchy_node hn1_0  (cost=118.97..292.47 rows=4736 width=24) (actual time=0.061..0.325 rows=4734 loops=1)
+                    Recheck Cond: (hierarchy_id = '1'::bigint)
+                    Filter: (NOT is_deleted)
+                    Rows Removed by Filter: 266
+                    Heap Blocks: exact=37
+                    Buffers: shared hit=58
+                    ->  Bitmap Index Scan on hierarchy_node_hierarchy_id_node_id_key  (cost=0.00..117.78 rows=5000 width=0) (actual time=0.058..0.058 rows=5000 loops=1)
+                          Index Cond: (hierarchy_id = '1'::bigint)
+                          Buffers: shared hit=21
+Planning:
+  Buffers: shared hit=2
+Planning Time: 0.039 ms
+Execution Time: 2.754 ms
+
+### POSTGRESQL | A.4/count | lib: count, no entity join | hierarchy 1
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.hierarchy_id=? and he1_0.is_deleted<>? group by 1,2) select count(hn1_0.id) from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id where hn1_0.hierarchy_id=? and hn1_0.is_deleted<>? || 2, 1, true, 1, true
+Aggregate  (cost=2234.82..2234.83 rows=1 width=8) (actual time=2.666..2.667 rows=1 loops=1)
+  Buffers: shared hit=481
+  ->  Hash Right Join  (cost=2150.47..2222.98 rows=4736 width=8) (actual time=1.834..2.495 rows=4734 loops=1)
+        Hash Cond: (he1_0.end_vertex = hn1_0.node_id)
+        Buffers: shared hit=481
+        ->  HashAggregate  (cost=1798.81..1830.85 rows=3204 width=32) (actual time=1.179..1.442 rows=4903 loops=1)
+              Group Key: he1_0.end_vertex
+              Batches: 1  Memory Usage: 465kB
+              Buffers: shared hit=423
+              ->  Bitmap Heap Scan on hierarchy_edge he1_0  (cost=884.26..1786.37 rows=4974 width=16) (actual time=0.391..0.685 rows=4903 loops=1)
+                    Recheck Cond: ((hierarchy_id = '1'::bigint) AND (hops = 2))
+                    Filter: (NOT is_deleted)
+                    Rows Removed by Filter: 93
+                    Heap Blocks: exact=276
+                    Buffers: shared hit=423
+                    ->  Bitmap Index Scan on hierarchy_edge_hierarchy_id_end_vertex_hops_key  (cost=0.00..883.02 rows=5074 width=0) (actual time=0.384..0.384 rows=4996 loops=1)
+                          Index Cond: ((hierarchy_id = '1'::bigint) AND (hops = 2))
+                          Buffers: shared hit=147
+        ->  Hash  (cost=292.47..292.47 rows=4736 width=24) (actual time=0.648..0.648 rows=4734 loops=1)
+              Buckets: 8192  Batches: 1  Memory Usage: 323kB
+              Buffers: shared hit=58
+              ->  Bitmap Heap Scan on hierarchy_node hn1_0  (cost=118.97..292.47 rows=4736 width=24) (actual time=0.064..0.359 rows=4734 loops=1)
+                    Recheck Cond: (hierarchy_id = '1'::bigint)
+                    Filter: (NOT is_deleted)
+                    Rows Removed by Filter: 266
+                    Heap Blocks: exact=37
+                    Buffers: shared hit=58
+                    ->  Bitmap Index Scan on hierarchy_node_hierarchy_id_node_id_key  (cost=0.00..117.78 rows=5000 width=0) (actual time=0.061..0.061 rows=5000 loops=1)
+                          Index Cond: (hierarchy_id = '1'::bigint)
+                          Buffers: shared hit=21
+Planning:
+  Buffers: shared hit=2
+Planning Time: 0.035 ms
+Execution Time: 2.718 ms
+
+### POSTGRESQL | A.4/full export | native | hierarchy 1
+-- SELECT r.id, r.hierarchy_id, r.node_id, c.first_name, ct.name, r.start_vertex, p.first_name, pt.name, r.created_at FROM (SELECT hn.id, hn.hierarchy_id, hn.node_id, e.start_vertex, e.created_at FROM hierarchy_node hn LEFT JOIN hierarchy h ON h.id = hn.hierarchy_id LEFT JOIN hierarchy_edge e ON e.hierarchy_id = h.id AND e.end_vertex = hn.node_id AND e.hops = 2 AND e.is_deleted = false WHERE 1 = 1 AND h.id = 1 AND hn.is_deleted = false) r LEFT JOIN profile c ON c.id = r.node_id AND c.is_deleted = false LEFT JOIN profile_type ct ON ct.id = c.type_id LEFT JOIN profile p ON p.id = r.start_vertex AND p.is_deleted = false LEFT JOIN profile_type pt ON pt.id = p.type_id ORDER BY r.id
+Sort  (cost=2856.85..2868.69 rows=4736 width=66) (actual time=6.052..6.158 rows=4734 loops=1)
+  Sort Key: hn.id
+  Sort Method: quicksort  Memory: 631kB
+  Buffers: shared hit=568
+  ->  Hash Left Join  (cost=2273.09..2567.73 rows=4736 width=66) (actual time=2.753..5.505 rows=4734 loops=1)
+        Hash Cond: (p.type_id = pt.id)
+        Buffers: shared hit=568
+        ->  Hash Left Join  (cost=2271.87..2548.80 rows=4736 width=67) (actual time=2.746..5.092 rows=4734 loops=1)
+              Hash Cond: (e.start_vertex = p.id)
+              Buffers: shared hit=567
+              ->  Hash Left Join  (cost=2120.30..2384.79 rows=4736 width=53) (actual time=2.093..3.995 rows=4734 loops=1)
+                    Hash Cond: (c.type_id = ct.id)
+                    Buffers: shared hit=525
+                    ->  Hash Left Join  (cost=2119.08..2365.86 rows=4736 width=54) (actual time=2.085..3.576 rows=4734 loops=1)
+                          Hash Cond: (hn.node_id = c.id)
+                          Buffers: shared hit=524
+                          ->  Hash Left Join  (cost=1967.52..2201.86 rows=4736 width=40) (actual time=1.392..2.439 rows=4734 loops=1)
+                                Hash Cond: (hn.node_id = e.end_vertex)
+                                Buffers: shared hit=482
+                                ->  Nested Loop  (cost=118.97..340.87 rows=4736 width=32) (actual time=0.078..0.652 rows=4734 loops=1)
+                                      Buffers: shared hit=59
+                                      ->  Seq Scan on hierarchy h  (cost=0.00..1.04 rows=1 width=8) (actual time=0.003..0.003 rows=1 loops=1)
+                                            Filter: (id = 1)
+                                            Rows Removed by Filter: 2
+                                            Buffers: shared hit=1
+                                      ->  Bitmap Heap Scan on hierarchy_node hn  (cost=118.97..292.47 rows=4736 width=24) (actual time=0.074..0.346 rows=4734 loops=1)
+                                            Recheck Cond: (hierarchy_id = 1)
+                                            Filter: (NOT is_deleted)
+                                            Rows Removed by Filter: 266
+                                            Heap Blocks: exact=37
+                                            Buffers: shared hit=58
+                                            ->  Bitmap Index Scan on hierarchy_node_hierarchy_id_node_id_key  (cost=0.00..117.78 rows=5000 width=0) (actual time=0.070..0.070 rows=5000 loops=1)
+                                                  Index Cond: (hierarchy_id = 1)
+                                                  Buffers: shared hit=21
+                                ->  Hash  (cost=1786.37..1786.37 rows=4974 width=32) (actual time=1.304..1.304 rows=4903 loops=1)
+                                      Buckets: 8192  Batches: 1  Memory Usage: 371kB
+                                      Buffers: shared hit=423
+                                      ->  Bitmap Heap Scan on hierarchy_edge e  (cost=884.26..1786.37 rows=4974 width=32) (actual time=0.448..0.938 rows=4903 loops=1)
+                                            Recheck Cond: ((hierarchy_id = 1) AND (hops = 2))
+                                            Filter: (NOT is_deleted)
+                                            Rows Removed by Filter: 93
+                                            Heap Blocks: exact=276
+                                            Buffers: shared hit=423
+                                            ->  Bitmap Index Scan on hierarchy_edge_hierarchy_id_end_vertex_hops_key  (cost=0.00..883.02 rows=5074 width=0) (actual time=0.431..0.431 rows=4996 loops=1)
+                                                  Index Cond: ((hierarchy_id = 1) AND (hops = 2))
+                                                  Buffers: shared hit=147
+                          ->  Hash  (cost=92.00..92.00 rows=4765 width=22) (actual time=0.682..0.682 rows=4765 loops=1)
+                                Buckets: 8192  Batches: 1  Memory Usage: 325kB
+                                Buffers: shared hit=42
+                                ->  Seq Scan on profile c  (cost=0.00..92.00 rows=4765 width=22) (actual time=0.002..0.315 rows=4765 loops=1)
+                                      Filter: (NOT is_deleted)
+                                      Rows Removed by Filter: 235
+                                      Buffers: shared hit=42
+                    ->  Hash  (cost=1.10..1.10 rows=10 width=15) (actual time=0.005..0.005 rows=10 loops=1)
+                          Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                          Buffers: shared hit=1
+                          ->  Seq Scan on profile_type ct  (cost=0.00..1.10 rows=10 width=15) (actual time=0.002..0.002 rows=10 loops=1)
+                                Buffers: shared hit=1
+              ->  Hash  (cost=92.00..92.00 rows=4765 width=22) (actual time=0.645..0.645 rows=4765 loops=1)
+                    Buckets: 8192  Batches: 1  Memory Usage: 325kB
+                    Buffers: shared hit=42
+                    ->  Seq Scan on profile p  (cost=0.00..92.00 rows=4765 width=22) (actual time=0.002..0.292 rows=4765 loops=1)
+                          Filter: (NOT is_deleted)
+                          Rows Removed by Filter: 235
+                          Buffers: shared hit=42
+        ->  Hash  (cost=1.10..1.10 rows=10 width=15) (actual time=0.003..0.004 rows=10 loops=1)
+              Buckets: 1024  Batches: 1  Memory Usage: 9kB
+              Buffers: shared hit=1
+              ->  Seq Scan on profile_type pt  (cost=0.00..1.10 rows=10 width=15) (actual time=0.001..0.001 rows=10 loops=1)
+                    Buffers: shared hit=1
+Planning:
+  Buffers: shared hit=28
+Planning Time: 0.417 ms
+Execution Time: 6.378 ms
+
+### POSTGRESQL | A.4/full export | lib: entity join, referenced (Details) | hierarchy 1
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.hierarchy_id=? and he1_0.is_deleted<>? group by 1,2) select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,n1_0.first_name,t1_0.name,var_1_11_0.mq_startVertex,p1_0.first_name,t2_0.name,var_1_11_0.mq_createdAt from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id left join profile p1_0 on p1_0.id=var_1_11_0.mq_startVertex and p1_0.is_deleted<>? left join profile n1_0 on n1_0.id=hn1_0.node_id and n1_0.is_deleted<>? left join profile_type t1_0 on t1_0.id=n1_0.type_id left join profile_type t2_0 on t2_0.id=p1_0.type_id where hn1_0.hierarchy_id=? and hn1_0.is_deleted<>? order by 1 || 2, 1, true, true, true, 1, true
+Sort  (cost=2893.08..2904.92 rows=4736 width=66) (actual time=6.775..6.918 rows=4734 loops=1)
+  Sort Key: hn1_0.id
+  Sort Method: quicksort  Memory: 631kB
+  Buffers: shared hit=567
+  ->  Hash Left Join  (cost=2480.92..2603.96 rows=4736 width=66) (actual time=3.471..6.051 rows=4734 loops=1)
+        Hash Cond: (n1_0.type_id = t1_0.id)
+        Buffers: shared hit=567
+        ->  Hash Left Join  (cost=2479.69..2585.03 rows=4736 width=67) (actual time=3.463..5.646 rows=4734 loops=1)
+              Hash Cond: (hn1_0.node_id = n1_0.id)
+              Buffers: shared hit=566
+              ->  Hash Right Join  (cost=2328.13..2421.03 rows=4736 width=53) (actual time=2.860..4.607 rows=4734 loops=1)
+                    Hash Cond: (he1_0.end_vertex = hn1_0.node_id)
+                    Buffers: shared hit=524
+                    ->  Hash Left Join  (cost=1976.46..2060.94 rows=3204 width=45) (actual time=2.135..3.390 rows=4903 loops=1)
+                          Hash Cond: (p1_0.type_id = t2_0.id)
+                          Buffers: shared hit=466
+                          ->  Hash Left Join  (cost=1975.24..2047.74 rows=3204 width=46) (actual time=2.129..2.998 rows=4903 loops=1)
+                                Hash Cond: ((max(he1_0.start_vertex)) = p1_0.id)
+                                Buffers: shared hit=465
+                                ->  HashAggregate  (cost=1823.68..1855.72 rows=3204 width=32) (actual time=1.514..1.894 rows=4903 loops=1)
+                                      Group Key: he1_0.end_vertex
+                                      Batches: 1  Memory Usage: 721kB
+                                      Buffers: shared hit=423
+                                      ->  Bitmap Heap Scan on hierarchy_edge he1_0  (cost=884.26..1786.37 rows=4974 width=32) (actual time=0.452..0.833 rows=4903 loops=1)
+                                            Recheck Cond: ((hierarchy_id = '1'::bigint) AND (hops = 2))
+                                            Filter: (NOT is_deleted)
+                                            Rows Removed by Filter: 93
+                                            Heap Blocks: exact=276
+                                            Buffers: shared hit=423
+                                            ->  Bitmap Index Scan on hierarchy_edge_hierarchy_id_end_vertex_hops_key  (cost=0.00..883.02 rows=5074 width=0) (actual time=0.430..0.431 rows=4996 loops=1)
+                                                  Index Cond: ((hierarchy_id = '1'::bigint) AND (hops = 2))
+                                                  Buffers: shared hit=147
+                                ->  Hash  (cost=92.00..92.00 rows=4765 width=22) (actual time=0.605..0.605 rows=4765 loops=1)
+                                      Buckets: 8192  Batches: 1  Memory Usage: 325kB
+                                      Buffers: shared hit=42
+                                      ->  Seq Scan on profile p1_0  (cost=0.00..92.00 rows=4765 width=22) (actual time=0.003..0.278 rows=4765 loops=1)
+                                            Filter: (NOT is_deleted)
+                                            Rows Removed by Filter: 235
+                                            Buffers: shared hit=42
+                          ->  Hash  (cost=1.10..1.10 rows=10 width=15) (actual time=0.004..0.004 rows=10 loops=1)
+                                Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                                Buffers: shared hit=1
+                                ->  Seq Scan on profile_type t2_0  (cost=0.00..1.10 rows=10 width=15) (actual time=0.001..0.001 rows=10 loops=1)
+                                      Buffers: shared hit=1
+                    ->  Hash  (cost=292.47..292.47 rows=4736 width=24) (actual time=0.716..0.717 rows=4734 loops=1)
+                          Buckets: 8192  Batches: 1  Memory Usage: 323kB
+                          Buffers: shared hit=58
+                          ->  Bitmap Heap Scan on hierarchy_node hn1_0  (cost=118.97..292.47 rows=4736 width=24) (actual time=0.072..0.388 rows=4734 loops=1)
+                                Recheck Cond: (hierarchy_id = '1'::bigint)
+                                Filter: (NOT is_deleted)
+                                Rows Removed by Filter: 266
+                                Heap Blocks: exact=37
+                                Buffers: shared hit=58
+                                ->  Bitmap Index Scan on hierarchy_node_hierarchy_id_node_id_key  (cost=0.00..117.78 rows=5000 width=0) (actual time=0.067..0.067 rows=5000 loops=1)
+                                      Index Cond: (hierarchy_id = '1'::bigint)
+                                      Buffers: shared hit=21
+              ->  Hash  (cost=92.00..92.00 rows=4765 width=22) (actual time=0.594..0.595 rows=4765 loops=1)
+                    Buckets: 8192  Batches: 1  Memory Usage: 325kB
+                    Buffers: shared hit=42
+                    ->  Seq Scan on profile n1_0  (cost=0.00..92.00 rows=4765 width=22) (actual time=0.002..0.263 rows=4765 loops=1)
+                          Filter: (NOT is_deleted)
+                          Rows Removed by Filter: 235
+                          Buffers: shared hit=42
+        ->  Hash  (cost=1.10..1.10 rows=10 width=15) (actual time=0.004..0.004 rows=10 loops=1)
+              Buckets: 1024  Batches: 1  Memory Usage: 9kB
+              Buffers: shared hit=1
+              ->  Seq Scan on profile_type t1_0  (cost=0.00..1.10 rows=10 width=15) (actual time=0.001..0.001 rows=10 loops=1)
+                    Buffers: shared hit=1
+Planning:
+  Buffers: shared hit=24
+Planning Time: 0.326 ms
+Execution Time: 7.144 ms
+
+### POSTGRESQL | A.4/full export | lib: unreferenced, entity join attached | hierarchy 1
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.hierarchy_id=? and he1_0.is_deleted<>? group by 1,2) select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,var_1_11_0.mq_startVertex,var_1_11_0.mq_createdAt from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id left join profile p1_0 on p1_0.id=var_1_11_0.mq_startVertex and p1_0.is_deleted<>? where hn1_0.hierarchy_id=? and hn1_0.is_deleted<>? order by 1 || 2, 1, true, true, 1, true
+Sort  (cost=2536.97..2548.81 rows=4736 width=40) (actual time=3.362..3.489 rows=4734 loops=1)
+  Sort Key: hn1_0.id
+  Sort Method: quicksort  Memory: 487kB
+  Buffers: shared hit=481
+  ->  Hash Right Join  (cost=2175.34..2247.85 rows=4736 width=40) (actual time=2.045..2.827 rows=4734 loops=1)
+        Hash Cond: (he1_0.end_vertex = hn1_0.node_id)
+        Buffers: shared hit=481
+        ->  HashAggregate  (cost=1823.68..1855.72 rows=3204 width=32) (actual time=1.357..1.674 rows=4903 loops=1)
+              Group Key: he1_0.end_vertex
+              Batches: 1  Memory Usage: 721kB
+              Buffers: shared hit=423
+              ->  Bitmap Heap Scan on hierarchy_edge he1_0  (cost=884.26..1786.37 rows=4974 width=32) (actual time=0.391..0.715 rows=4903 loops=1)
+                    Recheck Cond: ((hierarchy_id = '1'::bigint) AND (hops = 2))
+                    Filter: (NOT is_deleted)
+                    Rows Removed by Filter: 93
+                    Heap Blocks: exact=276
+                    Buffers: shared hit=423
+                    ->  Bitmap Index Scan on hierarchy_edge_hierarchy_id_end_vertex_hops_key  (cost=0.00..883.02 rows=5074 width=0) (actual time=0.376..0.376 rows=4996 loops=1)
+                          Index Cond: ((hierarchy_id = '1'::bigint) AND (hops = 2))
+                          Buffers: shared hit=147
+        ->  Hash  (cost=292.47..292.47 rows=4736 width=24) (actual time=0.680..0.680 rows=4734 loops=1)
+              Buckets: 8192  Batches: 1  Memory Usage: 323kB
+              Buffers: shared hit=58
+              ->  Bitmap Heap Scan on hierarchy_node hn1_0  (cost=118.97..292.47 rows=4736 width=24) (actual time=0.069..0.379 rows=4734 loops=1)
+                    Recheck Cond: (hierarchy_id = '1'::bigint)
+                    Filter: (NOT is_deleted)
+                    Rows Removed by Filter: 266
+                    Heap Blocks: exact=37
+                    Buffers: shared hit=58
+                    ->  Bitmap Index Scan on hierarchy_node_hierarchy_id_node_id_key  (cost=0.00..117.78 rows=5000 width=0) (actual time=0.064..0.065 rows=5000 loops=1)
+                          Index Cond: (hierarchy_id = '1'::bigint)
+                          Buffers: shared hit=21
+Planning:
+  Buffers: shared hit=2
+Planning Time: 0.066 ms
+Execution Time: 3.659 ms
+
+### POSTGRESQL | A.4/full export | lib: unreferenced, no entity join | hierarchy 1
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.hierarchy_id=? and he1_0.is_deleted<>? group by 1,2) select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,var_1_11_0.mq_startVertex,var_1_11_0.mq_createdAt from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id where hn1_0.hierarchy_id=? and hn1_0.is_deleted<>? order by 1 || 2, 1, true, 1, true
+Sort  (cost=2536.97..2548.81 rows=4736 width=40) (actual time=3.443..3.575 rows=4734 loops=1)
+  Sort Key: hn1_0.id
+  Sort Method: quicksort  Memory: 487kB
+  Buffers: shared hit=481
+  ->  Hash Right Join  (cost=2175.34..2247.85 rows=4736 width=40) (actual time=2.080..2.894 rows=4734 loops=1)
+        Hash Cond: (he1_0.end_vertex = hn1_0.node_id)
+        Buffers: shared hit=481
+        ->  HashAggregate  (cost=1823.68..1855.72 rows=3204 width=32) (actual time=1.391..1.722 rows=4903 loops=1)
+              Group Key: he1_0.end_vertex
+              Batches: 1  Memory Usage: 721kB
+              Buffers: shared hit=423
+              ->  Bitmap Heap Scan on hierarchy_edge he1_0  (cost=884.26..1786.37 rows=4974 width=32) (actual time=0.413..0.759 rows=4903 loops=1)
+                    Recheck Cond: ((hierarchy_id = '1'::bigint) AND (hops = 2))
+                    Filter: (NOT is_deleted)
+                    Rows Removed by Filter: 93
+                    Heap Blocks: exact=276
+                    Buffers: shared hit=423
+                    ->  Bitmap Index Scan on hierarchy_edge_hierarchy_id_end_vertex_hops_key  (cost=0.00..883.02 rows=5074 width=0) (actual time=0.396..0.396 rows=4996 loops=1)
+                          Index Cond: ((hierarchy_id = '1'::bigint) AND (hops = 2))
+                          Buffers: shared hit=147
+        ->  Hash  (cost=292.47..292.47 rows=4736 width=24) (actual time=0.680..0.680 rows=4734 loops=1)
+              Buckets: 8192  Batches: 1  Memory Usage: 323kB
+              Buffers: shared hit=58
+              ->  Bitmap Heap Scan on hierarchy_node hn1_0  (cost=118.97..292.47 rows=4736 width=24) (actual time=0.077..0.382 rows=4734 loops=1)
+                    Recheck Cond: (hierarchy_id = '1'::bigint)
+                    Filter: (NOT is_deleted)
+                    Rows Removed by Filter: 266
+                    Heap Blocks: exact=37
+                    Buffers: shared hit=58
+                    ->  Bitmap Index Scan on hierarchy_node_hierarchy_id_node_id_key  (cost=0.00..117.78 rows=5000 width=0) (actual time=0.071..0.071 rows=5000 loops=1)
+                          Index Cond: (hierarchy_id = '1'::bigint)
+                          Buffers: shared hit=21
+Planning:
+  Buffers: shared hit=2
+Planning Time: 0.079 ms
+Execution Time: 3.753 ms
+
+### POSTGRESQL | A.4/page of 20 | native | all hierarchies
+-- SELECT r.id, r.hierarchy_id, r.node_id, c.first_name, ct.name, r.start_vertex, p.first_name, pt.name, r.created_at FROM (SELECT hn.id, hn.hierarchy_id, hn.node_id, e.start_vertex, e.created_at FROM hierarchy_node hn LEFT JOIN hierarchy h ON h.id = hn.hierarchy_id LEFT JOIN hierarchy_edge e ON e.hierarchy_id = h.id AND e.end_vertex = hn.node_id AND e.hops = 2 AND e.is_deleted = false WHERE 1 = 1 AND hn.is_deleted = false) r LEFT JOIN profile c ON c.id = r.node_id AND c.is_deleted = false LEFT JOIN profile_type ct ON ct.id = c.type_id LEFT JOIN profile p ON p.id = r.start_vertex AND p.is_deleted = false LEFT JOIN profile_type pt ON pt.id = p.type_id ORDER BY r.id fetch first ? rows only || 20
+Limit  (cost=1.58..176.74 rows=20 width=66) (actual time=0.022..0.086 rows=20 loops=1)
+  Buffers: shared hit=171
+  ->  Nested Loop Left Join  (cost=1.58..124431.55 rows=14207 width=66) (actual time=0.022..0.084 rows=20 loops=1)
+        Buffers: shared hit=171
+        ->  Nested Loop Left Join  (cost=1.43..124092.13 rows=14207 width=67) (actual time=0.019..0.077 rows=20 loops=1)
+              Buffers: shared hit=167
+              ->  Nested Loop Left Join  (cost=1.14..123220.18 rows=14207 width=53) (actual time=0.017..0.068 rows=20 loops=1)
+                    Buffers: shared hit=161
+                    ->  Nested Loop Left Join  (cost=0.99..122880.76 rows=14207 width=54) (actual time=0.014..0.056 rows=20 loops=1)
+                          Buffers: shared hit=141
+                          ->  Nested Loop Left Join  (cost=0.70..120944.14 rows=14207 width=40) (actual time=0.010..0.033 rows=20 loops=1)
+                                Buffers: shared hit=81
+                                ->  Nested Loop Left Join  (cost=0.29..1045.08 rows=14207 width=32) (actual time=0.006..0.012 rows=20 loops=1)
+                                      Join Filter: (h.id = hn.hierarchy_id)
+                                      Buffers: shared hit=4
+                                      ->  Index Scan using hierarchy_node_pkey on hierarchy_node hn  (cost=0.29..511.29 rows=14207 width=24) (actual time=0.004..0.006 rows=20 loops=1)
+                                            Filter: (NOT is_deleted)
+                                            Rows Removed by Filter: 2
+                                            Buffers: shared hit=3
+                                      ->  Materialize  (cost=0.00..1.04 rows=3 width=8) (actual time=0.000..0.000 rows=1 loops=20)
+                                            Buffers: shared hit=1
+                                            ->  Seq Scan on hierarchy h  (cost=0.00..1.03 rows=3 width=8) (actual time=0.001..0.001 rows=1 loops=1)
+                                                  Buffers: shared hit=1
+                                ->  Index Scan using hierarchy_edge_hierarchy_id_end_vertex_hops_key on hierarchy_edge e  (cost=0.42..8.44 rows=1 width=32) (actual time=0.001..0.001 rows=1 loops=20)
+                                      Index Cond: ((hierarchy_id = h.id) AND (end_vertex = hn.node_id) AND (hops = 2))
+                                      Filter: (NOT is_deleted)
+                                      Buffers: shared hit=77
+                          ->  Memoize  (cost=0.29..0.33 rows=1 width=22) (actual time=0.001..0.001 rows=1 loops=20)
+                                Cache Key: hn.node_id
+                                Cache Mode: logical
+                                Hits: 0  Misses: 20  Evictions: 0  Overflows: 0  Memory Usage: 3kB
+                                Buffers: shared hit=60
+                                ->  Index Scan using profile_pkey on profile c  (cost=0.28..0.32 rows=1 width=22) (actual time=0.001..0.001 rows=1 loops=20)
+                                      Index Cond: (id = hn.node_id)
+                                      Filter: (NOT is_deleted)
+                                      Buffers: shared hit=60
+                    ->  Memoize  (cost=0.15..0.17 rows=1 width=15) (actual time=0.000..0.000 rows=1 loops=20)
+                          Cache Key: c.type_id
+                          Cache Mode: logical
+                          Hits: 10  Misses: 10  Evictions: 0  Overflows: 0  Memory Usage: 2kB
+                          Buffers: shared hit=20
+                          ->  Index Scan using profile_type_pkey on profile_type ct  (cost=0.14..0.16 rows=1 width=15) (actual time=0.001..0.001 rows=1 loops=10)
+                                Index Cond: (id = c.type_id)
+                                Buffers: shared hit=20
+              ->  Memoize  (cost=0.29..0.33 rows=1 width=22) (actual time=0.000..0.000 rows=1 loops=20)
+                    Cache Key: e.start_vertex
+                    Cache Mode: logical
+                    Hits: 17  Misses: 3  Evictions: 0  Overflows: 0  Memory Usage: 1kB
+                    Buffers: shared hit=6
+                    ->  Index Scan using profile_pkey on profile p  (cost=0.28..0.32 rows=1 width=22) (actual time=0.001..0.001 rows=1 loops=3)
+                          Index Cond: (id = e.start_vertex)
+                          Filter: (NOT is_deleted)
+                          Buffers: shared hit=6
+        ->  Memoize  (cost=0.15..0.17 rows=1 width=15) (actual time=0.000..0.000 rows=1 loops=20)
+              Cache Key: p.type_id
+              Cache Mode: logical
+              Hits: 17  Misses: 3  Evictions: 0  Overflows: 0  Memory Usage: 1kB
+              Buffers: shared hit=4
+              ->  Index Scan using profile_type_pkey on profile_type pt  (cost=0.14..0.16 rows=1 width=15) (actual time=0.001..0.001 rows=1 loops=3)
+                    Index Cond: (id = p.type_id)
+                    Buffers: shared hit=4
+Planning:
+  Buffers: shared hit=32
+Planning Time: 0.537 ms
+Execution Time: 0.151 ms
+
+### POSTGRESQL | A.4/page of 20 | lib: entity join, referenced (Details) | all hierarchies
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.is_deleted<>? group by 1,2) select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,n1_0.first_name,t1_0.name,var_1_11_0.mq_startVertex,p1_0.first_name,t2_0.name,var_1_11_0.mq_createdAt from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id left join profile p1_0 on p1_0.id=var_1_11_0.mq_startVertex and p1_0.is_deleted<>? left join profile n1_0 on n1_0.id=hn1_0.node_id and n1_0.is_deleted<>? left join profile_type t1_0 on t1_0.id=n1_0.type_id left join profile_type t2_0 on t2_0.id=p1_0.type_id where hn1_0.is_deleted<>? order by 1 fetch first ? rows only || 2, true, true, true, true, 20
+Limit  (cost=3540.55..3540.60 rows=20 width=66) (actual time=16.957..16.960 rows=20 loops=1)
+  Buffers: shared hit=1023
+  ->  Sort  (cost=3540.55..3576.07 rows=14207 width=66) (actual time=16.957..16.958 rows=20 loops=1)
+        Sort Key: hn1_0.id
+        Sort Method: top-N heapsort  Memory: 27kB
+        Buffers: shared hit=1023
+        ->  Hash Left Join  (cost=2646.07..3162.51 rows=14207 width=66) (actual time=8.687..15.768 rows=14207 loops=1)
+              Hash Cond: (p1_0.type_id = t2_0.id)
+              Buffers: shared hit=1023
+              ->  Hash Left Join  (cost=2644.84..3108.18 rows=14207 width=67) (actual time=8.681..14.623 rows=14207 loops=1)
+                    Hash Cond: (n1_0.type_id = t1_0.id)
+                    Buffers: shared hit=1022
+                    ->  Hash Left Join  (cost=2643.62..3053.86 rows=14207 width=68) (actual time=8.676..13.507 rows=14207 loops=1)
+                          Hash Cond: (hn1_0.node_id = n1_0.id)
+                          Buffers: shared hit=1021
+                          ->  Hash Left Join  (cost=2492.05..2864.97 rows=14207 width=54) (actual time=8.084..11.632 rows=14207 loops=1)
+                                Hash Cond: (var_1_11_0.mq_startvertex = p1_0.id)
+                                Buffers: shared hit=979
+                                ->  Hash Left Join  (cost=2340.49..2676.08 rows=14207 width=40) (actual time=7.481..9.810 rows=14207 loops=1)
+                                      Hash Cond: ((hn1_0.hierarchy_id = var_1_11_0.mq_hierarchyid) AND (hn1_0.node_id = var_1_11_0.mq_endvertex))
+                                      Buffers: shared hit=937
+                                      ->  Seq Scan on hierarchy_node hn1_0  (cost=0.00..261.00 rows=14207 width=24) (actual time=0.002..0.709 rows=14207 loops=1)
+                                            Filter: (NOT is_deleted)
+                                            Rows Removed by Filter: 793
+                                            Buffers: shared hit=111
+                                      ->  Hash  (cost=2228.79..2228.79 rows=7447 width=32) (actual time=7.472..7.473 rows=14691 loops=1)
+                                            Buckets: 16384 (originally 8192)  Batches: 1 (originally 1)  Memory Usage: 1047kB
+                                            Buffers: shared hit=826
+                                            ->  Subquery Scan on var_1_11_0  (cost=2079.85..2228.79 rows=7447 width=32) (actual time=4.608..6.364 rows=14691 loops=1)
+                                                  Buffers: shared hit=826
+                                                  ->  HashAggregate  (cost=2079.85..2154.32 rows=7447 width=32) (actual time=4.607..5.631 rows=14691 loops=1)
+                                                        Group Key: he1_0.hierarchy_id, he1_0.end_vertex
+                                                        Batches: 1  Memory Usage: 2065kB
+                                                        Buffers: shared hit=826
+                                                        ->  Seq Scan on hierarchy_edge he1_0  (cost=0.00..1930.64 rows=14921 width=32) (actual time=0.001..2.753 rows=14691 loops=1)
+                                                              Filter: ((NOT is_deleted) AND (hops = 2))
+                                                              Rows Removed by Filter: 73680
+                                                              Buffers: shared hit=826
+                                ->  Hash  (cost=92.00..92.00 rows=4765 width=22) (actual time=0.593..0.593 rows=4765 loops=1)
+                                      Buckets: 8192  Batches: 1  Memory Usage: 325kB
+                                      Buffers: shared hit=42
+                                      ->  Seq Scan on profile p1_0  (cost=0.00..92.00 rows=4765 width=22) (actual time=0.002..0.265 rows=4765 loops=1)
+                                            Filter: (NOT is_deleted)
+                                            Rows Removed by Filter: 235
+                                            Buffers: shared hit=42
+                          ->  Hash  (cost=92.00..92.00 rows=4765 width=22) (actual time=0.584..0.584 rows=4765 loops=1)
+                                Buckets: 8192  Batches: 1  Memory Usage: 325kB
+                                Buffers: shared hit=42
+                                ->  Seq Scan on profile n1_0  (cost=0.00..92.00 rows=4765 width=22) (actual time=0.001..0.250 rows=4765 loops=1)
+                                      Filter: (NOT is_deleted)
+                                      Rows Removed by Filter: 235
+                                      Buffers: shared hit=42
+                    ->  Hash  (cost=1.10..1.10 rows=10 width=15) (actual time=0.003..0.003 rows=10 loops=1)
+                          Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                          Buffers: shared hit=1
+                          ->  Seq Scan on profile_type t1_0  (cost=0.00..1.10 rows=10 width=15) (actual time=0.001..0.001 rows=10 loops=1)
+                                Buffers: shared hit=1
+              ->  Hash  (cost=1.10..1.10 rows=10 width=15) (actual time=0.003..0.003 rows=10 loops=1)
+                    Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                    Buffers: shared hit=1
+                    ->  Seq Scan on profile_type t2_0  (cost=0.00..1.10 rows=10 width=15) (actual time=0.001..0.001 rows=10 loops=1)
+                          Buffers: shared hit=1
+Planning:
+  Buffers: shared hit=24
+Planning Time: 0.273 ms
+Execution Time: 17.125 ms
+
+### POSTGRESQL | A.4/page of 20 | lib: no manager columns, entity join attached (3 columns read) | all hierarchies
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.is_deleted<>? group by 1,2) select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,var_1_11_0.mq_startVertex,var_1_11_0.mq_createdAt from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id left join profile p1_0 on p1_0.id=var_1_11_0.mq_startVertex and p1_0.is_deleted<>? where hn1_0.is_deleted<>? order by 1 fetch first ? rows only || 2, true, true, true, 20
+Limit  (cost=3054.12..3054.17 rows=20 width=40) (actual time=10.336..10.338 rows=20 loops=1)
+  Buffers: shared hit=937
+  ->  Sort  (cost=3054.12..3089.64 rows=14207 width=40) (actual time=10.336..10.337 rows=20 loops=1)
+        Sort Key: hn1_0.id
+        Sort Method: top-N heapsort  Memory: 26kB
+        Buffers: shared hit=937
+        ->  Hash Left Join  (cost=2340.49..2676.08 rows=14207 width=40) (actual time=7.402..9.512 rows=14207 loops=1)
+              Hash Cond: ((hn1_0.hierarchy_id = var_1_11_0.mq_hierarchyid) AND (hn1_0.node_id = var_1_11_0.mq_endvertex))
+              Buffers: shared hit=937
+              ->  Seq Scan on hierarchy_node hn1_0  (cost=0.00..261.00 rows=14207 width=24) (actual time=0.002..0.621 rows=14207 loops=1)
+                    Filter: (NOT is_deleted)
+                    Rows Removed by Filter: 793
+                    Buffers: shared hit=111
+              ->  Hash  (cost=2228.79..2228.79 rows=7447 width=32) (actual time=7.393..7.393 rows=14691 loops=1)
+                    Buckets: 16384 (originally 8192)  Batches: 1 (originally 1)  Memory Usage: 1047kB
+                    Buffers: shared hit=826
+                    ->  Subquery Scan on var_1_11_0  (cost=2079.85..2228.79 rows=7447 width=32) (actual time=4.532..6.273 rows=14691 loops=1)
+                          Buffers: shared hit=826
+                          ->  HashAggregate  (cost=2079.85..2154.32 rows=7447 width=32) (actual time=4.532..5.555 rows=14691 loops=1)
+                                Group Key: he1_0.hierarchy_id, he1_0.end_vertex
+                                Batches: 1  Memory Usage: 2065kB
+                                Buffers: shared hit=826
+                                ->  Seq Scan on hierarchy_edge he1_0  (cost=0.00..1930.64 rows=14921 width=32) (actual time=0.001..2.687 rows=14691 loops=1)
+                                      Filter: ((NOT is_deleted) AND (hops = 2))
+                                      Rows Removed by Filter: 73680
+                                      Buffers: shared hit=826
+Planning:
+  Buffers: shared hit=2
+Planning Time: 0.044 ms
+Execution Time: 10.467 ms
+
+### POSTGRESQL | A.4/page of 20 | lib: unreferenced, no entity join | all hierarchies
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.is_deleted<>? group by 1,2) select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,var_1_11_0.mq_startVertex,var_1_11_0.mq_createdAt from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id where hn1_0.is_deleted<>? order by 1 fetch first ? rows only || 2, true, true, 20
+Limit  (cost=3054.12..3054.17 rows=20 width=40) (actual time=10.395..10.397 rows=20 loops=1)
+  Buffers: shared hit=937
+  ->  Sort  (cost=3054.12..3089.64 rows=14207 width=40) (actual time=10.395..10.396 rows=20 loops=1)
+        Sort Key: hn1_0.id
+        Sort Method: top-N heapsort  Memory: 26kB
+        Buffers: shared hit=937
+        ->  Hash Left Join  (cost=2340.49..2676.08 rows=14207 width=40) (actual time=7.472..9.569 rows=14207 loops=1)
+              Hash Cond: ((hn1_0.hierarchy_id = var_1_11_0.mq_hierarchyid) AND (hn1_0.node_id = var_1_11_0.mq_endvertex))
+              Buffers: shared hit=937
+              ->  Seq Scan on hierarchy_node hn1_0  (cost=0.00..261.00 rows=14207 width=24) (actual time=0.002..0.603 rows=14207 loops=1)
+                    Filter: (NOT is_deleted)
+                    Rows Removed by Filter: 793
+                    Buffers: shared hit=111
+              ->  Hash  (cost=2228.79..2228.79 rows=7447 width=32) (actual time=7.463..7.463 rows=14691 loops=1)
+                    Buckets: 16384 (originally 8192)  Batches: 1 (originally 1)  Memory Usage: 1047kB
+                    Buffers: shared hit=826
+                    ->  Subquery Scan on var_1_11_0  (cost=2079.85..2228.79 rows=7447 width=32) (actual time=4.539..6.355 rows=14691 loops=1)
+                          Buffers: shared hit=826
+                          ->  HashAggregate  (cost=2079.85..2154.32 rows=7447 width=32) (actual time=4.539..5.565 rows=14691 loops=1)
+                                Group Key: he1_0.hierarchy_id, he1_0.end_vertex
+                                Batches: 1  Memory Usage: 2065kB
+                                Buffers: shared hit=826
+                                ->  Seq Scan on hierarchy_edge he1_0  (cost=0.00..1930.64 rows=14921 width=32) (actual time=0.002..2.692 rows=14691 loops=1)
+                                      Filter: ((NOT is_deleted) AND (hops = 2))
+                                      Rows Removed by Filter: 73680
+                                      Buffers: shared hit=826
+Planning:
+  Buffers: shared hit=2
+Planning Time: 0.040 ms
+Execution Time: 10.529 ms
+
+### POSTGRESQL | A.4/page of 20 | lib: Details without the manager (no entity join, null columns) | all hierarchies
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.is_deleted<>? group by 1,2) select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,n1_0.first_name,t1_0.name,var_1_11_0.mq_startVertex,null,null,var_1_11_0.mq_createdAt from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id left join profile n1_0 on n1_0.id=hn1_0.node_id and n1_0.is_deleted<>? left join profile_type t1_0 on t1_0.id=n1_0.type_id where hn1_0.is_deleted<>? order by 1 fetch first ? rows only || 2, true, true, true, 20
+Limit  (cost=3297.34..3297.39 rows=20 width=117) (actual time=13.683..13.685 rows=20 loops=1)
+  Buffers: shared hit=980
+  ->  Sort  (cost=3297.34..3332.86 rows=14207 width=117) (actual time=13.683..13.684 rows=20 loops=1)
+        Sort Key: hn1_0.id
+        Sort Method: top-N heapsort  Memory: 27kB
+        Buffers: shared hit=980
+        ->  Hash Left Join  (cost=2493.28..2919.30 rows=14207 width=117) (actual time=8.001..12.538 rows=14207 loops=1)
+              Hash Cond: (n1_0.type_id = t1_0.id)
+              Buffers: shared hit=980
+              ->  Hash Left Join  (cost=2492.05..2864.97 rows=14207 width=54) (actual time=7.995..11.445 rows=14207 loops=1)
+                    Hash Cond: (hn1_0.node_id = n1_0.id)
+                    Buffers: shared hit=979
+                    ->  Hash Left Join  (cost=2340.49..2676.08 rows=14207 width=40) (actual time=7.364..9.560 rows=14207 loops=1)
+                          Hash Cond: ((hn1_0.hierarchy_id = var_1_11_0.mq_hierarchyid) AND (hn1_0.node_id = var_1_11_0.mq_endvertex))
+                          Buffers: shared hit=937
+                          ->  Seq Scan on hierarchy_node hn1_0  (cost=0.00..261.00 rows=14207 width=24) (actual time=0.001..0.652 rows=14207 loops=1)
+                                Filter: (NOT is_deleted)
+                                Rows Removed by Filter: 793
+                                Buffers: shared hit=111
+                          ->  Hash  (cost=2228.79..2228.79 rows=7447 width=32) (actual time=7.354..7.354 rows=14691 loops=1)
+                                Buckets: 16384 (originally 8192)  Batches: 1 (originally 1)  Memory Usage: 1047kB
+                                Buffers: shared hit=826
+                                ->  Subquery Scan on var_1_11_0  (cost=2079.85..2228.79 rows=7447 width=32) (actual time=4.489..6.251 rows=14691 loops=1)
+                                      Buffers: shared hit=826
+                                      ->  HashAggregate  (cost=2079.85..2154.32 rows=7447 width=32) (actual time=4.489..5.519 rows=14691 loops=1)
+                                            Group Key: he1_0.hierarchy_id, he1_0.end_vertex
+                                            Batches: 1  Memory Usage: 2065kB
+                                            Buffers: shared hit=826
+                                            ->  Seq Scan on hierarchy_edge he1_0  (cost=0.00..1930.64 rows=14921 width=32) (actual time=0.002..2.666 rows=14691 loops=1)
+                                                  Filter: ((NOT is_deleted) AND (hops = 2))
+                                                  Rows Removed by Filter: 73680
+                                                  Buffers: shared hit=826
+                    ->  Hash  (cost=92.00..92.00 rows=4765 width=22) (actual time=0.621..0.621 rows=4765 loops=1)
+                          Buckets: 8192  Batches: 1  Memory Usage: 325kB
+                          Buffers: shared hit=42
+                          ->  Seq Scan on profile n1_0  (cost=0.00..92.00 rows=4765 width=22) (actual time=0.002..0.281 rows=4765 loops=1)
+                                Filter: (NOT is_deleted)
+                                Rows Removed by Filter: 235
+                                Buffers: shared hit=42
+              ->  Hash  (cost=1.10..1.10 rows=10 width=15) (actual time=0.004..0.004 rows=10 loops=1)
+                    Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                    Buffers: shared hit=1
+                    ->  Seq Scan on profile_type t1_0  (cost=0.00..1.10 rows=10 width=15) (actual time=0.001..0.001 rows=10 loops=1)
+                          Buffers: shared hit=1
+Planning:
+  Buffers: shared hit=16
+Planning Time: 0.138 ms
+Execution Time: 13.840 ms
+
+### POSTGRESQL | A.4/count | native | all hierarchies
+-- SELECT count(*) FROM (SELECT hn.id, hn.hierarchy_id, hn.node_id, e.start_vertex, e.created_at FROM hierarchy_node hn LEFT JOIN hierarchy h ON h.id = hn.hierarchy_id LEFT JOIN hierarchy_edge e ON e.hierarchy_id = h.id AND e.end_vertex = hn.node_id AND e.hops = 2 AND e.is_deleted = false WHERE 1 = 1 AND hn.is_deleted = false) r LEFT JOIN profile c ON c.id = r.node_id AND c.is_deleted = false LEFT JOIN profile_type ct ON ct.id = c.type_id LEFT JOIN profile p ON p.id = r.start_vertex AND p.is_deleted = false LEFT JOIN profile_type pt ON pt.id = p.type_id
+Aggregate  (cost=387.57..387.58 rows=1 width=8) (actual time=2.009..2.010 rows=1 loops=1)
+  Buffers: shared hit=112
+  ->  Hash Left Join  (cost=1.07..352.05 rows=14207 width=0) (actual time=0.007..1.628 rows=14207 loops=1)
+        Hash Cond: (hn.hierarchy_id = h.id)
+        Buffers: shared hit=112
+        ->  Seq Scan on hierarchy_node hn  (cost=0.00..261.00 rows=14207 width=16) (actual time=0.001..0.592 rows=14207 loops=1)
+              Filter: (NOT is_deleted)
+              Rows Removed by Filter: 793
+              Buffers: shared hit=111
+        ->  Hash  (cost=1.03..1.03 rows=3 width=8) (actual time=0.003..0.003 rows=3 loops=1)
+              Buckets: 1024  Batches: 1  Memory Usage: 9kB
+              Buffers: shared hit=1
+              ->  Seq Scan on hierarchy h  (cost=0.00..1.03 rows=3 width=8) (actual time=0.000..0.001 rows=3 loops=1)
+                    Buffers: shared hit=1
+Planning:
+  Buffers: shared hit=4
+Planning Time: 0.054 ms
+Execution Time: 2.017 ms
+
+### POSTGRESQL | A.4/count | lib: count, entity join attached unreferenced | all hierarchies
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.is_deleted<>? group by 1,2) select count(hn1_0.id) from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id left join profile p1_0 on p1_0.id=var_1_11_0.mq_startVertex and p1_0.is_deleted<>? where hn1_0.is_deleted<>? || 2, true, true, true
+Aggregate  (cost=296.52..296.53 rows=1 width=8) (actual time=1.183..1.183 rows=1 loops=1)
+  Buffers: shared hit=111
+  ->  Seq Scan on hierarchy_node hn1_0  (cost=0.00..261.00 rows=14207 width=8) (actual time=0.002..0.587 rows=14207 loops=1)
+        Filter: (NOT is_deleted)
+        Rows Removed by Filter: 793
+        Buffers: shared hit=111
+Planning Time: 0.016 ms
+Execution Time: 1.186 ms
+
+### POSTGRESQL | A.4/count | lib: count, no entity join | all hierarchies
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.is_deleted<>? group by 1,2) select count(hn1_0.id) from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id where hn1_0.is_deleted<>? || 2, true, true
+Aggregate  (cost=296.52..296.53 rows=1 width=8) (actual time=1.031..1.031 rows=1 loops=1)
+  Buffers: shared hit=111
+  ->  Seq Scan on hierarchy_node hn1_0  (cost=0.00..261.00 rows=14207 width=8) (actual time=0.002..0.583 rows=14207 loops=1)
+        Filter: (NOT is_deleted)
+        Rows Removed by Filter: 793
+        Buffers: shared hit=111
+Planning Time: 0.011 ms
+Execution Time: 1.033 ms
+
+### POSTGRESQL | A.4/full export | native | all hierarchies
+-- SELECT r.id, r.hierarchy_id, r.node_id, c.first_name, ct.name, r.start_vertex, p.first_name, pt.name, r.created_at FROM (SELECT hn.id, hn.hierarchy_id, hn.node_id, e.start_vertex, e.created_at FROM hierarchy_node hn LEFT JOIN hierarchy h ON h.id = hn.hierarchy_id LEFT JOIN hierarchy_edge e ON e.hierarchy_id = h.id AND e.end_vertex = hn.node_id AND e.hops = 2 AND e.is_deleted = false WHERE 1 = 1 AND hn.is_deleted = false) r LEFT JOIN profile c ON c.id = r.node_id AND c.is_deleted = false LEFT JOIN profile_type ct ON ct.id = c.type_id LEFT JOIN profile p ON p.id = r.start_vertex AND p.is_deleted = false LEFT JOIN profile_type pt ON pt.id = p.type_id ORDER BY r.id
+Sort  (cost=4047.41..4082.93 rows=14207 width=66) (actual time=14.528..14.846 rows=14207 loops=1)
+  Sort Key: hn.id
+  Sort Method: quicksort  Memory: 1700kB
+  Buffers: shared hit=1024
+  ->  Hash Left Join  (cost=2461.09..3067.53 rows=14207 width=66) (actual time=5.110..13.168 rows=14207 loops=1)
+        Hash Cond: (p.type_id = pt.id)
+        Buffers: shared hit=1024
+        ->  Hash Left Join  (cost=2459.87..3013.21 rows=14207 width=67) (actual time=5.105..12.056 rows=14207 loops=1)
+              Hash Cond: (e.start_vertex = p.id)
+              Buffers: shared hit=1023
+              ->  Hash Left Join  (cost=2308.31..2824.32 rows=14207 width=53) (actual time=4.530..10.238 rows=14207 loops=1)
+                    Hash Cond: (c.type_id = ct.id)
+                    Buffers: shared hit=981
+                    ->  Hash Left Join  (cost=2307.08..2769.99 rows=14207 width=54) (actual time=4.525..9.125 rows=14207 loops=1)
+                          Hash Cond: (hn.node_id = c.id)
+                          Buffers: shared hit=980
+                          ->  Hash Left Join  (cost=2155.52..2581.10 rows=14207 width=40) (actual time=3.925..7.261 rows=14207 loops=1)
+                                Hash Cond: ((h.id = e.hierarchy_id) AND (hn.node_id = e.end_vertex))
+                                Buffers: shared hit=938
+                                ->  Hash Left Join  (cost=1.07..352.05 rows=14207 width=32) (actual time=0.006..1.902 rows=14207 loops=1)
+                                      Hash Cond: (hn.hierarchy_id = h.id)
+                                      Buffers: shared hit=112
+                                      ->  Seq Scan on hierarchy_node hn  (cost=0.00..261.00 rows=14207 width=24) (actual time=0.001..0.691 rows=14207 loops=1)
+                                            Filter: (NOT is_deleted)
+                                            Rows Removed by Filter: 793
+                                            Buffers: shared hit=111
+                                      ->  Hash  (cost=1.03..1.03 rows=3 width=8) (actual time=0.003..0.003 rows=3 loops=1)
+                                            Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                                            Buffers: shared hit=1
+                                            ->  Seq Scan on hierarchy h  (cost=0.00..1.03 rows=3 width=8) (actual time=0.001..0.001 rows=3 loops=1)
+                                                  Buffers: shared hit=1
+                                ->  Hash  (cost=1930.64..1930.64 rows=14921 width=32) (actual time=3.904..3.904 rows=14691 loops=1)
+                                      Buckets: 16384  Batches: 1  Memory Usage: 1047kB
+                                      Buffers: shared hit=826
+                                      ->  Seq Scan on hierarchy_edge e  (cost=0.00..1930.64 rows=14921 width=32) (actual time=0.001..2.821 rows=14691 loops=1)
+                                            Filter: ((NOT is_deleted) AND (hops = 2))
+                                            Rows Removed by Filter: 73680
+                                            Buffers: shared hit=826
+                          ->  Hash  (cost=92.00..92.00 rows=4765 width=22) (actual time=0.592..0.592 rows=4765 loops=1)
+                                Buckets: 8192  Batches: 1  Memory Usage: 325kB
+                                Buffers: shared hit=42
+                                ->  Seq Scan on profile c  (cost=0.00..92.00 rows=4765 width=22) (actual time=0.002..0.260 rows=4765 loops=1)
+                                      Filter: (NOT is_deleted)
+                                      Rows Removed by Filter: 235
+                                      Buffers: shared hit=42
+                    ->  Hash  (cost=1.10..1.10 rows=10 width=15) (actual time=0.004..0.004 rows=10 loops=1)
+                          Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                          Buffers: shared hit=1
+                          ->  Seq Scan on profile_type ct  (cost=0.00..1.10 rows=10 width=15) (actual time=0.001..0.002 rows=10 loops=1)
+                                Buffers: shared hit=1
+              ->  Hash  (cost=92.00..92.00 rows=4765 width=22) (actual time=0.566..0.566 rows=4765 loops=1)
+                    Buckets: 8192  Batches: 1  Memory Usage: 325kB
+                    Buffers: shared hit=42
+                    ->  Seq Scan on profile p  (cost=0.00..92.00 rows=4765 width=22) (actual time=0.001..0.245 rows=4765 loops=1)
+                          Filter: (NOT is_deleted)
+                          Rows Removed by Filter: 235
+                          Buffers: shared hit=42
+        ->  Hash  (cost=1.10..1.10 rows=10 width=15) (actual time=0.004..0.004 rows=10 loops=1)
+              Buckets: 1024  Batches: 1  Memory Usage: 9kB
+              Buffers: shared hit=1
+              ->  Seq Scan on profile_type pt  (cost=0.00..1.10 rows=10 width=15) (actual time=0.001..0.001 rows=10 loops=1)
+                    Buffers: shared hit=1
+Planning:
+  Buffers: shared hit=32
+Planning Time: 0.365 ms
+Execution Time: 15.266 ms
+
+### POSTGRESQL | A.4/full export | lib: entity join, referenced (Details) | all hierarchies
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.is_deleted<>? group by 1,2) select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,n1_0.first_name,t1_0.name,var_1_11_0.mq_startVertex,p1_0.first_name,t2_0.name,var_1_11_0.mq_createdAt from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id left join profile p1_0 on p1_0.id=var_1_11_0.mq_startVertex and p1_0.is_deleted<>? left join profile n1_0 on n1_0.id=hn1_0.node_id and n1_0.is_deleted<>? left join profile_type t1_0 on t1_0.id=n1_0.type_id left join profile_type t2_0 on t2_0.id=p1_0.type_id where hn1_0.is_deleted<>? order by 1 || 2, true, true, true, true
+Sort  (cost=4142.39..4177.91 rows=14207 width=66) (actual time=16.821..17.141 rows=14207 loops=1)
+  Sort Key: hn1_0.id
+  Sort Method: quicksort  Memory: 1700kB
+  Buffers: shared hit=1023
+  ->  Hash Left Join  (cost=2646.07..3162.51 rows=14207 width=66) (actual time=8.271..15.370 rows=14207 loops=1)
+        Hash Cond: (p1_0.type_id = t2_0.id)
+        Buffers: shared hit=1023
+        ->  Hash Left Join  (cost=2644.84..3108.18 rows=14207 width=67) (actual time=8.267..14.266 rows=14207 loops=1)
+              Hash Cond: (n1_0.type_id = t1_0.id)
+              Buffers: shared hit=1022
+              ->  Hash Left Join  (cost=2643.62..3053.86 rows=14207 width=68) (actual time=8.264..13.135 rows=14207 loops=1)
+                    Hash Cond: (hn1_0.node_id = n1_0.id)
+                    Buffers: shared hit=1021
+                    ->  Hash Left Join  (cost=2492.05..2864.97 rows=14207 width=54) (actual time=7.697..11.258 rows=14207 loops=1)
+                          Hash Cond: (var_1_11_0.mq_startvertex = p1_0.id)
+                          Buffers: shared hit=979
+                          ->  Hash Left Join  (cost=2340.49..2676.08 rows=14207 width=40) (actual time=7.128..9.412 rows=14207 loops=1)
+                                Hash Cond: ((hn1_0.hierarchy_id = var_1_11_0.mq_hierarchyid) AND (hn1_0.node_id = var_1_11_0.mq_endvertex))
+                                Buffers: shared hit=937
+                                ->  Seq Scan on hierarchy_node hn1_0  (cost=0.00..261.00 rows=14207 width=24) (actual time=0.001..0.664 rows=14207 loops=1)
+                                      Filter: (NOT is_deleted)
+                                      Rows Removed by Filter: 793
+                                      Buffers: shared hit=111
+                                ->  Hash  (cost=2228.79..2228.79 rows=7447 width=32) (actual time=7.118..7.118 rows=14691 loops=1)
+                                      Buckets: 16384 (originally 8192)  Batches: 1 (originally 1)  Memory Usage: 1047kB
+                                      Buffers: shared hit=826
+                                      ->  Subquery Scan on var_1_11_0  (cost=2079.85..2228.79 rows=7447 width=32) (actual time=4.272..5.998 rows=14691 loops=1)
+                                            Buffers: shared hit=826
+                                            ->  HashAggregate  (cost=2079.85..2154.32 rows=7447 width=32) (actual time=4.272..5.293 rows=14691 loops=1)
+                                                  Group Key: he1_0.hierarchy_id, he1_0.end_vertex
+                                                  Batches: 1  Memory Usage: 2065kB
+                                                  Buffers: shared hit=826
+                                                  ->  Seq Scan on hierarchy_edge he1_0  (cost=0.00..1930.64 rows=14921 width=32) (actual time=0.001..2.412 rows=14691 loops=1)
+                                                        Filter: ((NOT is_deleted) AND (hops = 2))
+                                                        Rows Removed by Filter: 73680
+                                                        Buffers: shared hit=826
+                          ->  Hash  (cost=92.00..92.00 rows=4765 width=22) (actual time=0.561..0.561 rows=4765 loops=1)
+                                Buckets: 8192  Batches: 1  Memory Usage: 325kB
+                                Buffers: shared hit=42
+                                ->  Seq Scan on profile p1_0  (cost=0.00..92.00 rows=4765 width=22) (actual time=0.002..0.250 rows=4765 loops=1)
+                                      Filter: (NOT is_deleted)
+                                      Rows Removed by Filter: 235
+                                      Buffers: shared hit=42
+                    ->  Hash  (cost=92.00..92.00 rows=4765 width=22) (actual time=0.558..0.558 rows=4765 loops=1)
+                          Buckets: 8192  Batches: 1  Memory Usage: 325kB
+                          Buffers: shared hit=42
+                          ->  Seq Scan on profile n1_0  (cost=0.00..92.00 rows=4765 width=22) (actual time=0.001..0.240 rows=4765 loops=1)
+                                Filter: (NOT is_deleted)
+                                Rows Removed by Filter: 235
+                                Buffers: shared hit=42
+              ->  Hash  (cost=1.10..1.10 rows=10 width=15) (actual time=0.003..0.003 rows=10 loops=1)
+                    Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                    Buffers: shared hit=1
+                    ->  Seq Scan on profile_type t1_0  (cost=0.00..1.10 rows=10 width=15) (actual time=0.001..0.001 rows=10 loops=1)
+                          Buffers: shared hit=1
+        ->  Hash  (cost=1.10..1.10 rows=10 width=15) (actual time=0.002..0.002 rows=10 loops=1)
+              Buckets: 1024  Batches: 1  Memory Usage: 9kB
+              Buffers: shared hit=1
+              ->  Seq Scan on profile_type t2_0  (cost=0.00..1.10 rows=10 width=15) (actual time=0.000..0.001 rows=10 loops=1)
+                    Buffers: shared hit=1
+Planning:
+  Buffers: shared hit=24
+Planning Time: 0.218 ms
+Execution Time: 17.596 ms
+
+### POSTGRESQL | A.4/full export | lib: unreferenced, entity join attached | all hierarchies
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.is_deleted<>? group by 1,2) select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,var_1_11_0.mq_startVertex,var_1_11_0.mq_createdAt from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id left join profile p1_0 on p1_0.id=var_1_11_0.mq_startVertex and p1_0.is_deleted<>? where hn1_0.is_deleted<>? order by 1 || 2, true, true, true
+Sort  (cost=3655.96..3691.48 rows=14207 width=40) (actual time=10.085..10.415 rows=14207 loops=1)
+  Sort Key: hn1_0.id
+  Sort Method: quicksort  Memory: 1268kB
+  Buffers: shared hit=937
+  ->  Hash Left Join  (cost=2340.49..2676.08 rows=14207 width=40) (actual time=7.098..9.193 rows=14207 loops=1)
+        Hash Cond: ((hn1_0.hierarchy_id = var_1_11_0.mq_hierarchyid) AND (hn1_0.node_id = var_1_11_0.mq_endvertex))
+        Buffers: shared hit=937
+        ->  Seq Scan on hierarchy_node hn1_0  (cost=0.00..261.00 rows=14207 width=24) (actual time=0.001..0.562 rows=14207 loops=1)
+              Filter: (NOT is_deleted)
+              Rows Removed by Filter: 793
+              Buffers: shared hit=111
+        ->  Hash  (cost=2228.79..2228.79 rows=7447 width=32) (actual time=7.089..7.089 rows=14691 loops=1)
+              Buckets: 16384 (originally 8192)  Batches: 1 (originally 1)  Memory Usage: 1047kB
+              Buffers: shared hit=826
+              ->  Subquery Scan on var_1_11_0  (cost=2079.85..2228.79 rows=7447 width=32) (actual time=4.289..6.000 rows=14691 loops=1)
+                    Buffers: shared hit=826
+                    ->  HashAggregate  (cost=2079.85..2154.32 rows=7447 width=32) (actual time=4.289..5.317 rows=14691 loops=1)
+                          Group Key: he1_0.hierarchy_id, he1_0.end_vertex
+                          Batches: 1  Memory Usage: 2065kB
+                          Buffers: shared hit=826
+                          ->  Seq Scan on hierarchy_edge he1_0  (cost=0.00..1930.64 rows=14921 width=32) (actual time=0.001..2.470 rows=14691 loops=1)
+                                Filter: ((NOT is_deleted) AND (hops = 2))
+                                Rows Removed by Filter: 73680
+                                Buffers: shared hit=826
+Planning:
+  Buffers: shared hit=2
+Planning Time: 0.046 ms
+Execution Time: 10.830 ms
+
+### POSTGRESQL | A.4/full export | lib: unreferenced, no entity join | all hierarchies
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.is_deleted<>? group by 1,2) select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,var_1_11_0.mq_startVertex,var_1_11_0.mq_createdAt from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id where hn1_0.is_deleted<>? order by 1 || 2, true, true
+Sort  (cost=3655.96..3691.48 rows=14207 width=40) (actual time=10.164..10.471 rows=14207 loops=1)
+  Sort Key: hn1_0.id
+  Sort Method: quicksort  Memory: 1268kB
+  Buffers: shared hit=937
+  ->  Hash Left Join  (cost=2340.49..2676.08 rows=14207 width=40) (actual time=7.148..9.268 rows=14207 loops=1)
+        Hash Cond: ((hn1_0.hierarchy_id = var_1_11_0.mq_hierarchyid) AND (hn1_0.node_id = var_1_11_0.mq_endvertex))
+        Buffers: shared hit=937
+        ->  Seq Scan on hierarchy_node hn1_0  (cost=0.00..261.00 rows=14207 width=24) (actual time=0.001..0.567 rows=14207 loops=1)
+              Filter: (NOT is_deleted)
+              Rows Removed by Filter: 793
+              Buffers: shared hit=111
+        ->  Hash  (cost=2228.79..2228.79 rows=7447 width=32) (actual time=7.140..7.140 rows=14691 loops=1)
+              Buckets: 16384 (originally 8192)  Batches: 1 (originally 1)  Memory Usage: 1047kB
+              Buffers: shared hit=826
+              ->  Subquery Scan on var_1_11_0  (cost=2079.85..2228.79 rows=7447 width=32) (actual time=4.256..6.033 rows=14691 loops=1)
+                    Buffers: shared hit=826
+                    ->  HashAggregate  (cost=2079.85..2154.32 rows=7447 width=32) (actual time=4.256..5.278 rows=14691 loops=1)
+                          Group Key: he1_0.hierarchy_id, he1_0.end_vertex
+                          Batches: 1  Memory Usage: 2065kB
+                          Buffers: shared hit=826
+                          ->  Seq Scan on hierarchy_edge he1_0  (cost=0.00..1930.64 rows=14921 width=32) (actual time=0.001..2.443 rows=14691 loops=1)
+                                Filter: ((NOT is_deleted) AND (hops = 2))
+                                Rows Removed by Filter: 73680
+                                Buffers: shared hit=826
+Planning:
+  Buffers: shared hit=2
+Planning Time: 0.037 ms
+Execution Time: 10.886 ms
+

@@ -1,0 +1,4 @@
+hibernate 6.6.58.Final
+PASS direct: JpaFrom#join(Class, SqmJoinType): linked, returned SqmEntityJoin
+PASS direct: ... then JpaEntityJoin#on(Predicate...): linked
+PASS reflective: join looked up once, on looked up on the returned type, run: runs, count=0, on declared by JpaEntityJoin returning JpaEntityJoin

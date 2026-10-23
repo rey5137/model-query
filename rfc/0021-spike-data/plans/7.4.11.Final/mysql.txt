@@ -1,0 +1,424 @@
+### MYSQL | A.4/page of 20 | native | hierarchy 1
+-- SELECT r.id, r.hierarchy_id, r.node_id, c.first_name, ct.name, r.start_vertex, p.first_name, pt.name, r.created_at FROM (SELECT hn.id, hn.hierarchy_id, hn.node_id, e.start_vertex, e.created_at FROM hierarchy_node hn LEFT JOIN hierarchy h ON h.id = hn.hierarchy_id LEFT JOIN hierarchy_edge e ON e.hierarchy_id = h.id AND e.end_vertex = hn.node_id AND e.hops = 2 AND e.is_deleted = false WHERE 1 = 1 AND h.id = 1 AND hn.is_deleted = false) r LEFT JOIN profile c ON c.id = r.node_id AND c.is_deleted = false LEFT JOIN profile_type ct ON ct.id = c.type_id LEFT JOIN profile p ON p.id = r.start_vertex AND p.is_deleted = false LEFT JOIN profile_type pt ON pt.id = p.type_id ORDER BY r.id limit ? || 20
+-> Limit: 20 row(s)  (cost=3130 rows=9.93) (actual time=0.0123..0.0672 rows=20 loops=1)
+    -> Nested loop left join  (cost=3130 rows=9.93) (actual time=0.0121..0.0665 rows=20 loops=1)
+        -> Nested loop left join  (cost=2504 rows=9.93) (actual time=0.0118..0.0631 rows=20 loops=1)
+            -> Nested loop left join  (cost=1878 rows=9.93) (actual time=0.0114..0.057 rows=20 loops=1)
+                -> Nested loop left join  (cost=1252 rows=9.93) (actual time=0.0106..0.0491 rows=20 loops=1)
+                    -> Nested loop left join  (cost=626 rows=9.93) (actual time=0.00917..0.0367 rows=20 loops=1)
+                        -> Filter: ((hn.is_deleted = false) and (hn.hierarchy_id = 1))  (cost=0.293 rows=9.93) (actual time=0.00637..0.00867 rows=20 loops=1)
+                            -> Index scan on hn using PRIMARY  (cost=0.293 rows=61) (actual time=0.00567..0.00675 rows=22 loops=1)
+                        -> Filter: (e.is_deleted = false)  (cost=0.25 rows=1) (actual time=0.00125..0.00129 rows=0.85 loops=20)
+                            -> Single-row index lookup on e using UKlk7t9jekk5v3q58yyh32qmed6 (hierarchy_id=1, end_vertex=hn.node_id, hops=2)  (cost=0.25 rows=1) (actual time=0.00116..0.00117 rows=0.85 loops=20)
+                    -> Filter: (c.is_deleted = false)  (cost=0.25 rows=1) (actual time=487e-6..531e-6 rows=1 loops=20)
+                        -> Single-row index lookup on c using PRIMARY (id=hn.node_id)  (cost=0.25 rows=1) (actual time=417e-6..427e-6 rows=1 loops=20)
+                -> Single-row index lookup on ct using PRIMARY (id=c.type_id)  (cost=0.25 rows=1) (actual time=281e-6..300e-6 rows=1 loops=20)
+            -> Filter: (p.is_deleted = false)  (cost=0.25 rows=1) (actual time=165e-6..204e-6 rows=0.85 loops=20)
+                -> Single-row index lookup on p using PRIMARY (id=e.start_vertex)  (cost=0.25 rows=1) (actual time=102e-6..111e-6 rows=0.85 loops=20)
+        -> Single-row index lookup on pt using PRIMARY (id=p.type_id)  (cost=0.25 rows=1) (actual time=79.3e-6..96e-6 rows=0.85 loops=20)
+
+
+### MYSQL | A.4/page of 20 | lib: entity join, referenced (Details) | hierarchy 1
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.hierarchy_id=? and he1_0.is_deleted<>? group by 1,2) select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,n1_0.first_name,t1_0.name,var_1_11_0.mq_startVertex,p1_0.first_name,t2_0.name,var_1_11_0.mq_createdAt from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id left join profile p1_0 on p1_0.id=var_1_11_0.mq_startVertex and p1_0.is_deleted<>? left join profile n1_0 on n1_0.id=hn1_0.node_id and n1_0.is_deleted<>? left join profile_type t1_0 on t1_0.id=n1_0.type_id left join profile_type t2_0 on t2_0.id=p1_0.type_id where hn1_0.hierarchy_id=? and hn1_0.is_deleted<>? order by 1 limit ? || 2, 1, true, true, true, 1, true, 20
+-> Limit: 20 row(s)  (cost=31789 rows=20) (actual time=7.91..7.95 rows=20 loops=1)
+    -> Nested loop left join  (cost=31789 rows=1078) (actual time=7.91..7.95 rows=20 loops=1)
+        -> Nested loop left join  (cost=21681 rows=1078) (actual time=7.91..7.95 rows=20 loops=1)
+            -> Nested loop left join  (cost=20948 rows=1078) (actual time=7.91..7.94 rows=20 loops=1)
+                -> Nested loop left join  (cost=20216 rows=1078) (actual time=7.91..7.93 rows=20 loops=1)
+                    -> Nested loop left join  (cost=10108 rows=1078) (actual time=7.91..7.92 rows=20 loops=1)
+                        -> Filter: ((hn1_0.hierarchy_id = 1) and (hn1_0.is_deleted <> 1))  (cost=0.0142 rows=0.488) (actual time=0.00229..0.00675 rows=20 loops=1)
+                            -> Index scan on hn1_0 using PRIMARY  (cost=0.0142 rows=3) (actual time=0.00179..0.00484 rows=22 loops=1)
+                        -> Index lookup on var_1_11_0 using <auto_key0> (mq_hierarchyId=1, mq_endVertex=hn1_0.node_id)  (cost=975..979 rows=16) (actual time=0.396..0.396 rows=0.85 loops=20)
+                            -> Materialize CTE cte0  (cost=975..975 rows=2207) (actual time=7.9..7.9 rows=4903 loops=1)
+                                -> Group aggregate: max(he1_0.start_vertex), max(he1_0.created_at)  (cost=754 rows=2207) (actual time=0.0632..4.93 rows=4903 loops=1)
+                                    -> Filter: (he1_0.is_deleted <> 1)  (cost=533 rows=2207) (actual time=0.062..4.26 rows=4903 loops=1)
+                                        -> Index lookup on he1_0 using UKlk7t9jekk5v3q58yyh32qmed6 (hierarchy_id=1), with index condition: (he1_0.hops = 2)  (cost=533 rows=44149) (actual time=0.0617..4.04 rows=4996 loops=1)
+                    -> Filter: (p1_0.is_deleted <> 1)  (cost=0.25 rows=1) (actual time=186e-6..221e-6 rows=0.85 loops=20)
+                        -> Single-row index lookup on p1_0 using PRIMARY (id=var_1_11_0.mq_startVertex)  (cost=0.25 rows=1) (actual time=111e-6..121e-6 rows=0.85 loops=20)
+                -> Filter: (n1_0.is_deleted <> 1)  (cost=0.0156 rows=1) (actual time=467e-6..514e-6 rows=1 loops=20)
+                    -> Single-row index lookup on n1_0 using PRIMARY (id=hn1_0.node_id)  (cost=0.0156 rows=1) (actual time=377e-6..394e-6 rows=1 loops=20)
+            -> Single-row index lookup on t1_0 using PRIMARY (id=n1_0.type_id)  (cost=0.0156 rows=1) (actual time=269e-6..284e-6 rows=1 loops=20)
+        -> Single-row index lookup on t2_0 using PRIMARY (id=p1_0.type_id)  (cost=0.25 rows=1) (actual time=73e-6..81.2e-6 rows=0.85 loops=20)
+
+
+### MYSQL | A.4/page of 20 | lib: no manager columns, entity join attached (3 columns read) | hierarchy 1
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.hierarchy_id=? and he1_0.is_deleted<>? group by 1,2) select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,var_1_11_0.mq_startVertex,var_1_11_0.mq_createdAt from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id left join profile p1_0 on p1_0.id=var_1_11_0.mq_startVertex and p1_0.is_deleted<>? where hn1_0.hierarchy_id=? and hn1_0.is_deleted<>? order by 1 limit ? || 2, 1, true, true, 1, true, 20
+-> Limit: 20 row(s)  (cost=20216 rows=20) (actual time=7.92..7.94 rows=20 loops=1)
+    -> Nested loop left join  (cost=20216 rows=1078) (actual time=7.92..7.94 rows=20 loops=1)
+        -> Nested loop left join  (cost=10108 rows=1078) (actual time=7.92..7.93 rows=20 loops=1)
+            -> Filter: ((hn1_0.hierarchy_id = 1) and (hn1_0.is_deleted <> 1))  (cost=0.0142 rows=0.488) (actual time=0.00229..0.00658 rows=20 loops=1)
+                -> Index scan on hn1_0 using PRIMARY  (cost=0.0142 rows=3) (actual time=0.00192..0.00508 rows=22 loops=1)
+            -> Index lookup on var_1_11_0 using <auto_key0> (mq_hierarchyId=1, mq_endVertex=hn1_0.node_id)  (cost=975..979 rows=16) (actual time=0.396..0.396 rows=0.85 loops=20)
+                -> Materialize CTE cte0  (cost=975..975 rows=2207) (actual time=7.91..7.91 rows=4903 loops=1)
+                    -> Group aggregate: max(he1_0.start_vertex), max(he1_0.created_at)  (cost=754 rows=2207) (actual time=0.063..4.95 rows=4903 loops=1)
+                        -> Filter: (he1_0.is_deleted <> 1)  (cost=533 rows=2207) (actual time=0.062..4.26 rows=4903 loops=1)
+                            -> Index lookup on he1_0 using UKlk7t9jekk5v3q58yyh32qmed6 (hierarchy_id=1), with index condition: (he1_0.hops = 2)  (cost=533 rows=44149) (actual time=0.0619..4.03 rows=4996 loops=1)
+        -> Filter: (p1_0.is_deleted <> 1)  (cost=0.25 rows=1) (actual time=183e-6..223e-6 rows=0.85 loops=20)
+            -> Single-row index lookup on p1_0 using PRIMARY (id=var_1_11_0.mq_startVertex)  (cost=0.25 rows=1) (actual time=127e-6..138e-6 rows=0.85 loops=20)
+
+
+### MYSQL | A.4/page of 20 | lib: unreferenced, no entity join | hierarchy 1
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.hierarchy_id=? and he1_0.is_deleted<>? group by 1,2) select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,var_1_11_0.mq_startVertex,var_1_11_0.mq_createdAt from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id where hn1_0.hierarchy_id=? and hn1_0.is_deleted<>? order by 1 limit ? || 2, 1, true, 1, true, 20
+-> Limit: 20 row(s)  (cost=6378 rows=20) (actual time=7.89..7.91 rows=20 loops=1)
+    -> Nested loop left join  (cost=6378 rows=1078) (actual time=7.89..7.9 rows=20 loops=1)
+        -> Filter: ((hn1_0.hierarchy_id = 1) and (hn1_0.is_deleted <> 1))  (cost=0.0142 rows=0.488) (actual time=0.00242..0.00675 rows=20 loops=1)
+            -> Index scan on hn1_0 using PRIMARY  (cost=0.0142 rows=3) (actual time=0.00204..0.00513 rows=22 loops=1)
+        -> Index lookup on var_1_11_0 using <auto_key0> (mq_hierarchyId=1, mq_endVertex=hn1_0.node_id)  (cost=975..977 rows=10) (actual time=0.395..0.395 rows=0.85 loops=20)
+            -> Materialize CTE cte0  (cost=975..975 rows=2207) (actual time=7.89..7.89 rows=4903 loops=1)
+                -> Group aggregate: max(he1_0.start_vertex), max(he1_0.created_at)  (cost=754 rows=2207) (actual time=0.0664..4.92 rows=4903 loops=1)
+                    -> Filter: (he1_0.is_deleted <> 1)  (cost=533 rows=2207) (actual time=0.0655..4.24 rows=4903 loops=1)
+                        -> Index lookup on he1_0 using UKlk7t9jekk5v3q58yyh32qmed6 (hierarchy_id=1), with index condition: (he1_0.hops = 2)  (cost=533 rows=44149) (actual time=0.0653..4.02 rows=4996 loops=1)
+
+
+### MYSQL | A.4/page of 20 | lib: Details without the manager (no entity join, null columns) | hierarchy 1
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.hierarchy_id=? and he1_0.is_deleted<>? group by 1,2) select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,n1_0.first_name,t1_0.name,var_1_11_0.mq_startVertex,null,null,var_1_11_0.mq_createdAt from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id left join profile n1_0 on n1_0.id=hn1_0.node_id and n1_0.is_deleted<>? left join profile_type t1_0 on t1_0.id=n1_0.type_id where hn1_0.hierarchy_id=? and hn1_0.is_deleted<>? order by 1 limit ? || 2, 1, true, true, 1, true, 20
+-> Limit: 20 row(s)  (cost=7843 rows=20) (actual time=7.96..7.99 rows=20 loops=1)
+    -> Nested loop left join  (cost=7843 rows=1078) (actual time=7.96..7.99 rows=20 loops=1)
+        -> Nested loop left join  (cost=7111 rows=1078) (actual time=7.96..7.98 rows=20 loops=1)
+            -> Nested loop left join  (cost=6378 rows=1078) (actual time=7.95..7.97 rows=20 loops=1)
+                -> Filter: ((hn1_0.hierarchy_id = 1) and (hn1_0.is_deleted <> 1))  (cost=0.0142 rows=0.488) (actual time=0.00292..0.00746 rows=20 loops=1)
+                    -> Index scan on hn1_0 using PRIMARY  (cost=0.0142 rows=3) (actual time=0.00217..0.00529 rows=22 loops=1)
+                -> Index lookup on var_1_11_0 using <auto_key0> (mq_hierarchyId=1, mq_endVertex=hn1_0.node_id)  (cost=975..977 rows=10) (actual time=0.398..0.398 rows=0.85 loops=20)
+                    -> Materialize CTE cte0  (cost=975..975 rows=2207) (actual time=7.95..7.95 rows=4903 loops=1)
+                        -> Group aggregate: max(he1_0.start_vertex), max(he1_0.created_at)  (cost=754 rows=2207) (actual time=0.0649..4.91 rows=4903 loops=1)
+                            -> Filter: (he1_0.is_deleted <> 1)  (cost=533 rows=2207) (actual time=0.0638..4.23 rows=4903 loops=1)
+                                -> Index lookup on he1_0 using UKlk7t9jekk5v3q58yyh32qmed6 (hierarchy_id=1), with index condition: (he1_0.hops = 2)  (cost=533 rows=44149) (actual time=0.0636..4 rows=4996 loops=1)
+            -> Filter: (n1_0.is_deleted <> 1)  (cost=0.0249 rows=1) (actual time=494e-6..537e-6 rows=1 loops=20)
+                -> Single-row index lookup on n1_0 using PRIMARY (id=hn1_0.node_id)  (cost=0.0249 rows=1) (actual time=419e-6..429e-6 rows=1 loops=20)
+        -> Single-row index lookup on t1_0 using PRIMARY (id=n1_0.type_id)  (cost=0.0249 rows=1) (actual time=288e-6..300e-6 rows=1 loops=20)
+
+
+### MYSQL | A.4/count | native | hierarchy 1
+-- SELECT count(*) FROM (SELECT hn.id, hn.hierarchy_id, hn.node_id, e.start_vertex, e.created_at FROM hierarchy_node hn LEFT JOIN hierarchy h ON h.id = hn.hierarchy_id LEFT JOIN hierarchy_edge e ON e.hierarchy_id = h.id AND e.end_vertex = hn.node_id AND e.hops = 2 AND e.is_deleted = false WHERE 1 = 1 AND h.id = 1 AND hn.is_deleted = false) r LEFT JOIN profile c ON c.id = r.node_id AND c.is_deleted = false LEFT JOIN profile_type ct ON ct.id = c.type_id LEFT JOIN profile p ON p.id = r.start_vertex AND p.is_deleted = false LEFT JOIN profile_type pt ON pt.id = p.type_id
+-> Aggregate: count(0)  (cost=4948 rows=1) (actual time=12.9..12.9 rows=1 loops=1)
+    -> Nested loop left join  (cost=4698 rows=2500) (actual time=0.042..12.7 rows=4734 loops=1)
+        -> Nested loop left join  (cost=3823 rows=2500) (actual time=0.0415..11.9 rows=4734 loops=1)
+            -> Nested loop left join  (cost=2948 rows=2500) (actual time=0.0411..10.5 rows=4734 loops=1)
+                -> Nested loop left join  (cost=2073 rows=2500) (actual time=0.0404..8.99 rows=4734 loops=1)
+                    -> Nested loop left join  (cost=1198 rows=2500) (actual time=0.0393..6.38 rows=4734 loops=1)
+                        -> Filter: (hn.is_deleted = false)  (cost=323 rows=2500) (actual time=0.0372..1.98 rows=4734 loops=1)
+                            -> Index lookup on hn using UKp8p6ocmwhla0q6l0twj9qdd3o (hierarchy_id=1)  (cost=323 rows=5000) (actual time=0.0365..1.76 rows=5000 loops=1)
+                        -> Filter: (e.is_deleted = false)  (cost=0.25 rows=1) (actual time=796e-6..843e-6 rows=0.982 loops=4734)
+                            -> Single-row index lookup on e using UKlk7t9jekk5v3q58yyh32qmed6 (hierarchy_id=1, end_vertex=hn.node_id, hops=2)  (cost=0.25 rows=1) (actual time=722e-6..738e-6 rows=0.999 loops=4734)
+                    -> Filter: (c.is_deleted = false)  (cost=0.25 rows=1) (actual time=414e-6..460e-6 rows=0.953 loops=4734)
+                        -> Single-row index lookup on c using PRIMARY (id=hn.node_id)  (cost=0.25 rows=1) (actual time=339e-6..355e-6 rows=1 loops=4734)
+                -> Single-row covering index lookup on ct using PRIMARY (id=c.type_id)  (cost=0.25 rows=1) (actual time=218e-6..234e-6 rows=0.953 loops=4734)
+            -> Filter: (p.is_deleted = false)  (cost=0.25 rows=1) (actual time=161e-6..206e-6 rows=0.944 loops=4734)
+                -> Single-row index lookup on p using PRIMARY (id=e.start_vertex)  (cost=0.25 rows=1) (actual time=88e-6..104e-6 rows=0.982 loops=4734)
+        -> Single-row covering index lookup on pt using PRIMARY (id=p.type_id)  (cost=0.25 rows=1) (actual time=68.1e-6..83.9e-6 rows=0.944 loops=4734)
+
+
+### MYSQL | A.4/count | lib: count, entity join attached unreferenced | hierarchy 1
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.hierarchy_id=? and he1_0.is_deleted<>? group by 1,2) select count(hn1_0.id) from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id left join profile p1_0 on p1_0.id=var_1_11_0.mq_startVertex and p1_0.is_deleted<>? where hn1_0.hierarchy_id=? and hn1_0.is_deleted<>? || 2, 1, true, true, 1, true
+-> Aggregate: count(hn1_0.id)  (cost=1.68e+6 rows=1) (actual time=14.1..14.1 rows=1 loops=1)
+    -> Nested loop left join  (cost=1.12e+6 rows=5.52e+6) (actual time=7.87..14 rows=4734 loops=1)
+        -> Nested loop left join  (cost=562185 rows=5.52e+6) (actual time=7.87..12.7 rows=4734 loops=1)
+            -> Filter: (hn1_0.is_deleted <> 1)  (cost=323 rows=2500) (actual time=0.0375..2.01 rows=4734 loops=1)
+                -> Index lookup on hn1_0 using UKp8p6ocmwhla0q6l0twj9qdd3o (hierarchy_id=1)  (cost=323 rows=5000) (actual time=0.037..1.81 rows=5000 loops=1)
+            -> Index lookup on var_1_11_0 using <auto_key0> (mq_hierarchyId=1, mq_endVertex=hn1_0.node_id)  (cost=975..979 rows=16) (actual time=0.00208..0.00217 rows=0.982 loops=4734)
+                -> Materialize CTE cte0  (cost=975..975 rows=2207) (actual time=7.83..7.83 rows=4903 loops=1)
+                    -> Group aggregate: max(he1_0.start_vertex), max(he1_0.created_at)  (cost=754 rows=2207) (actual time=0.0598..4.85 rows=4903 loops=1)
+                        -> Filter: (he1_0.is_deleted <> 1)  (cost=533 rows=2207) (actual time=0.0588..4.17 rows=4903 loops=1)
+                            -> Index lookup on he1_0 using UKlk7t9jekk5v3q58yyh32qmed6 (hierarchy_id=1), with index condition: (he1_0.hops = 2)  (cost=533 rows=44149) (actual time=0.0586..3.93 rows=4996 loops=1)
+        -> Filter: (p1_0.is_deleted <> 1)  (cost=0.25 rows=1) (actual time=159e-6..205e-6 rows=0.944 loops=4734)
+            -> Single-row index lookup on p1_0 using PRIMARY (id=var_1_11_0.mq_startVertex)  (cost=0.25 rows=1) (actual time=88.3e-6..105e-6 rows=0.982 loops=4734)
+
+
+### MYSQL | A.4/count | lib: count, no entity join | hierarchy 1
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.hierarchy_id=? and he1_0.is_deleted<>? group by 1,2) select count(hn1_0.id) from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id where hn1_0.hierarchy_id=? and hn1_0.is_deleted<>? || 2, 1, true, 1, true
+-> Aggregate: count(hn1_0.id)  (cost=1.11e+6 rows=1) (actual time=12.8..12.8 rows=1 loops=1)
+    -> Nested loop left join  (cost=558455 rows=5.52e+6) (actual time=7.86..12.7 rows=4734 loops=1)
+        -> Filter: (hn1_0.is_deleted <> 1)  (cost=323 rows=2500) (actual time=0.0374..1.98 rows=4734 loops=1)
+            -> Index lookup on hn1_0 using UKp8p6ocmwhla0q6l0twj9qdd3o (hierarchy_id=1)  (cost=323 rows=5000) (actual time=0.037..1.79 rows=5000 loops=1)
+        -> Index lookup on var_1_11_0 using <auto_key0> (mq_hierarchyId=1, mq_endVertex=hn1_0.node_id)  (cost=975..977 rows=10) (actual time=0.00208..0.00217 rows=0.982 loops=4734)
+            -> Materialize CTE cte0  (cost=975..975 rows=2207) (actual time=7.82..7.82 rows=4903 loops=1)
+                -> Group aggregate: max(he1_0.start_vertex), max(he1_0.created_at)  (cost=754 rows=2207) (actual time=0.0657..4.86 rows=4903 loops=1)
+                    -> Filter: (he1_0.is_deleted <> 1)  (cost=533 rows=2207) (actual time=0.0643..4.17 rows=4903 loops=1)
+                        -> Index lookup on he1_0 using UKlk7t9jekk5v3q58yyh32qmed6 (hierarchy_id=1), with index condition: (he1_0.hops = 2)  (cost=533 rows=44149) (actual time=0.0642..3.95 rows=4996 loops=1)
+
+
+### MYSQL | A.4/full export | native | hierarchy 1
+-- SELECT r.id, r.hierarchy_id, r.node_id, c.first_name, ct.name, r.start_vertex, p.first_name, pt.name, r.created_at FROM (SELECT hn.id, hn.hierarchy_id, hn.node_id, e.start_vertex, e.created_at FROM hierarchy_node hn LEFT JOIN hierarchy h ON h.id = hn.hierarchy_id LEFT JOIN hierarchy_edge e ON e.hierarchy_id = h.id AND e.end_vertex = hn.node_id AND e.hops = 2 AND e.is_deleted = false WHERE 1 = 1 AND h.id = 1 AND hn.is_deleted = false) r LEFT JOIN profile c ON c.id = r.node_id AND c.is_deleted = false LEFT JOIN profile_type ct ON ct.id = c.type_id LEFT JOIN profile p ON p.id = r.start_vertex AND p.is_deleted = false LEFT JOIN profile_type pt ON pt.id = p.type_id ORDER BY r.id
+-> Nested loop left join  (cost=5948 rows=5000) (actual time=2.43..13.8 rows=4734 loops=1)
+    -> Nested loop left join  (cost=4823 rows=5000) (actual time=2.43..13 rows=4734 loops=1)
+        -> Nested loop left join  (cost=3698 rows=5000) (actual time=2.43..11.6 rows=4734 loops=1)
+            -> Nested loop left join  (cost=2573 rows=5000) (actual time=2.43..9.91 rows=4734 loops=1)
+                -> Nested loop left join  (cost=1448 rows=5000) (actual time=2.42..7.24 rows=4734 loops=1)
+                    -> Sort: id  (cost=323 rows=5000) (actual time=2.42..2.59 rows=4734 loops=1)
+                        -> Filter: (hn.is_deleted = false)  (cost=323 rows=5000) (actual time=0.0533..2.1 rows=4734 loops=1)
+                            -> Index lookup on hn using UKp8p6ocmwhla0q6l0twj9qdd3o (hierarchy_id=1)  (cost=323 rows=5000) (actual time=0.0526..1.91 rows=5000 loops=1)
+                    -> Filter: (e.is_deleted = false)  (cost=0.25 rows=1) (actual time=852e-6..900e-6 rows=0.982 loops=4734)
+                        -> Single-row index lookup on e using UKlk7t9jekk5v3q58yyh32qmed6 (hierarchy_id=1, end_vertex=hn.node_id, hops=2)  (cost=0.25 rows=1) (actual time=778e-6..794e-6 rows=0.999 loops=4734)
+                -> Filter: (c.is_deleted = false)  (cost=0.25 rows=1) (actual time=429e-6..476e-6 rows=0.953 loops=4734)
+                    -> Single-row index lookup on c using PRIMARY (id=hn.node_id)  (cost=0.25 rows=1) (actual time=351e-6..368e-6 rows=1 loops=4734)
+            -> Single-row index lookup on ct using PRIMARY (id=c.type_id)  (cost=0.25 rows=1) (actual time=243e-6..259e-6 rows=0.953 loops=4734)
+        -> Filter: (p.is_deleted = false)  (cost=0.25 rows=1) (actual time=163e-6..210e-6 rows=0.944 loops=4734)
+            -> Single-row index lookup on p using PRIMARY (id=e.start_vertex)  (cost=0.25 rows=1) (actual time=88.9e-6..105e-6 rows=0.982 loops=4734)
+    -> Single-row index lookup on pt using PRIMARY (id=p.type_id)  (cost=0.25 rows=1) (actual time=72.5e-6..88.4e-6 rows=0.944 loops=4734)
+
+
+### MYSQL | A.4/full export | lib: entity join, referenced (Details) | hierarchy 1
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.hierarchy_id=? and he1_0.is_deleted<>? group by 1,2) select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,n1_0.first_name,t1_0.name,var_1_11_0.mq_startVertex,p1_0.first_name,t2_0.name,var_1_11_0.mq_createdAt from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id left join profile p1_0 on p1_0.id=var_1_11_0.mq_startVertex and p1_0.is_deleted<>? left join profile n1_0 on n1_0.id=hn1_0.node_id and n1_0.is_deleted<>? left join profile_type t1_0 on t1_0.id=n1_0.type_id left join profile_type t2_0 on t2_0.id=p1_0.type_id where hn1_0.hierarchy_id=? and hn1_0.is_deleted<>? order by 1 || 2, 1, true, true, true, 1, true
+-> Nested loop left join  (cost=5.55e+6 rows=11e+6) (actual time=10.2..19.6 rows=4734 loops=1)
+    -> Nested loop left join  (cost=4.44e+6 rows=11e+6) (actual time=10.2..18.8 rows=4734 loops=1)
+        -> Nested loop left join  (cost=3.33e+6 rows=11e+6) (actual time=10.2..17.2 rows=4734 loops=1)
+            -> Nested loop left join  (cost=2.23e+6 rows=11e+6) (actual time=10.2..14.6 rows=4734 loops=1)
+                -> Nested loop left join  (cost=1.11e+6 rows=11e+6) (actual time=10.2..13.2 rows=4734 loops=1)
+                    -> Sort: hn1_0.id  (cost=323 rows=5000) (actual time=2.29..2.44 rows=4734 loops=1)
+                        -> Filter: (hn1_0.is_deleted <> 1)  (cost=323 rows=5000) (actual time=0.0434..1.98 rows=4734 loops=1)
+                            -> Index lookup on hn1_0 using UKp8p6ocmwhla0q6l0twj9qdd3o (hierarchy_id=1)  (cost=323 rows=5000) (actual time=0.043..1.8 rows=5000 loops=1)
+                    -> Index lookup on var_1_11_0 using <auto_key0> (mq_hierarchyId=1, mq_endVertex=hn1_0.node_id)  (cost=975..979 rows=16) (actual time=0.00209..0.00218 rows=0.982 loops=4734)
+                        -> Materialize CTE cte0  (cost=975..975 rows=2207) (actual time=7.87..7.87 rows=4903 loops=1)
+                            -> Group aggregate: max(he1_0.start_vertex), max(he1_0.created_at)  (cost=754 rows=2207) (actual time=0.0614..4.86 rows=4903 loops=1)
+                                -> Filter: (he1_0.is_deleted <> 1)  (cost=533 rows=2207) (actual time=0.06..4.18 rows=4903 loops=1)
+                                    -> Index lookup on he1_0 using UKlk7t9jekk5v3q58yyh32qmed6 (hierarchy_id=1), with index condition: (he1_0.hops = 2)  (cost=533 rows=44149) (actual time=0.0598..3.96 rows=4996 loops=1)
+                -> Filter: (p1_0.is_deleted <> 1)  (cost=0.25 rows=1) (actual time=162e-6..207e-6 rows=0.944 loops=4734)
+                    -> Single-row index lookup on p1_0 using PRIMARY (id=var_1_11_0.mq_startVertex)  (cost=0.25 rows=1) (actual time=89.3e-6..106e-6 rows=0.982 loops=4734)
+            -> Filter: (n1_0.is_deleted <> 1)  (cost=0.0156 rows=1) (actual time=422e-6..469e-6 rows=0.953 loops=4734)
+                -> Single-row index lookup on n1_0 using PRIMARY (id=hn1_0.node_id)  (cost=0.0156 rows=1) (actual time=348e-6..365e-6 rows=1 loops=4734)
+        -> Single-row index lookup on t1_0 using PRIMARY (id=n1_0.type_id)  (cost=0.0156 rows=1) (actual time=236e-6..252e-6 rows=0.953 loops=4734)
+    -> Single-row index lookup on t2_0 using PRIMARY (id=p1_0.type_id)  (cost=0.25 rows=1) (actual time=74e-6..89.8e-6 rows=0.944 loops=4734)
+
+
+### MYSQL | A.4/full export | lib: unreferenced, entity join attached | hierarchy 1
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.hierarchy_id=? and he1_0.is_deleted<>? group by 1,2) select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,var_1_11_0.mq_startVertex,var_1_11_0.mq_createdAt from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id left join profile p1_0 on p1_0.id=var_1_11_0.mq_startVertex and p1_0.is_deleted<>? where hn1_0.hierarchy_id=? and hn1_0.is_deleted<>? order by 1 || 2, 1, true, true, 1, true
+-> Nested loop left join  (cost=2.23e+6 rows=11e+6) (actual time=10.1..14.4 rows=4734 loops=1)
+    -> Nested loop left join  (cost=1.11e+6 rows=11e+6) (actual time=10.1..13.1 rows=4734 loops=1)
+        -> Sort: hn1_0.id  (cost=323 rows=5000) (actual time=2.27..2.4 rows=4734 loops=1)
+            -> Filter: (hn1_0.is_deleted <> 1)  (cost=323 rows=5000) (actual time=0.0378..1.95 rows=4734 loops=1)
+                -> Index lookup on hn1_0 using UKp8p6ocmwhla0q6l0twj9qdd3o (hierarchy_id=1)  (cost=323 rows=5000) (actual time=0.0372..1.76 rows=5000 loops=1)
+        -> Index lookup on var_1_11_0 using <auto_key0> (mq_hierarchyId=1, mq_endVertex=hn1_0.node_id)  (cost=975..979 rows=16) (actual time=0.00209..0.00217 rows=0.982 loops=4734)
+            -> Materialize CTE cte0  (cost=975..975 rows=2207) (actual time=7.85..7.85 rows=4903 loops=1)
+                -> Group aggregate: max(he1_0.start_vertex), max(he1_0.created_at)  (cost=754 rows=2207) (actual time=0.0602..4.86 rows=4903 loops=1)
+                    -> Filter: (he1_0.is_deleted <> 1)  (cost=533 rows=2207) (actual time=0.0587..4.17 rows=4903 loops=1)
+                        -> Index lookup on he1_0 using UKlk7t9jekk5v3q58yyh32qmed6 (hierarchy_id=1), with index condition: (he1_0.hops = 2)  (cost=533 rows=44149) (actual time=0.0585..3.94 rows=4996 loops=1)
+    -> Filter: (p1_0.is_deleted <> 1)  (cost=0.25 rows=1) (actual time=158e-6..204e-6 rows=0.944 loops=4734)
+        -> Single-row index lookup on p1_0 using PRIMARY (id=var_1_11_0.mq_startVertex)  (cost=0.25 rows=1) (actual time=87.5e-6..105e-6 rows=0.982 loops=4734)
+
+
+### MYSQL | A.4/full export | lib: unreferenced, no entity join | hierarchy 1
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.hierarchy_id=? and he1_0.is_deleted<>? group by 1,2) select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,var_1_11_0.mq_startVertex,var_1_11_0.mq_createdAt from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id where hn1_0.hierarchy_id=? and hn1_0.is_deleted<>? order by 1 || 2, 1, true, 1, true
+-> Nested loop left join  (cost=1.11e+6 rows=11e+6) (actual time=10.1..13 rows=4734 loops=1)
+    -> Sort: hn1_0.id  (cost=323 rows=5000) (actual time=2.24..2.37 rows=4734 loops=1)
+        -> Filter: (hn1_0.is_deleted <> 1)  (cost=323 rows=5000) (actual time=0.0371..1.92 rows=4734 loops=1)
+            -> Index lookup on hn1_0 using UKp8p6ocmwhla0q6l0twj9qdd3o (hierarchy_id=1)  (cost=323 rows=5000) (actual time=0.0366..1.74 rows=5000 loops=1)
+    -> Index lookup on var_1_11_0 using <auto_key0> (mq_hierarchyId=1, mq_endVertex=hn1_0.node_id)  (cost=975..977 rows=10) (actual time=0.00208..0.00216 rows=0.982 loops=4734)
+        -> Materialize CTE cte0  (cost=975..975 rows=2207) (actual time=7.82..7.82 rows=4903 loops=1)
+            -> Group aggregate: max(he1_0.start_vertex), max(he1_0.created_at)  (cost=754 rows=2207) (actual time=0.059..4.85 rows=4903 loops=1)
+                -> Filter: (he1_0.is_deleted <> 1)  (cost=533 rows=2207) (actual time=0.0581..4.17 rows=4903 loops=1)
+                    -> Index lookup on he1_0 using UKlk7t9jekk5v3q58yyh32qmed6 (hierarchy_id=1), with index condition: (he1_0.hops = 2)  (cost=533 rows=44149) (actual time=0.0579..3.94 rows=4996 loops=1)
+
+
+### MYSQL | A.4/page of 20 | native | all hierarchies
+-- SELECT r.id, r.hierarchy_id, r.node_id, c.first_name, ct.name, r.start_vertex, p.first_name, pt.name, r.created_at FROM (SELECT hn.id, hn.hierarchy_id, hn.node_id, e.start_vertex, e.created_at FROM hierarchy_node hn LEFT JOIN hierarchy h ON h.id = hn.hierarchy_id LEFT JOIN hierarchy_edge e ON e.hierarchy_id = h.id AND e.end_vertex = hn.node_id AND e.hops = 2 AND e.is_deleted = false WHERE 1 = 1 AND hn.is_deleted = false) r LEFT JOIN profile c ON c.id = r.node_id AND c.is_deleted = false LEFT JOIN profile_type ct ON ct.id = c.type_id LEFT JOIN profile p ON p.id = r.start_vertex AND p.is_deleted = false LEFT JOIN profile_type pt ON pt.id = p.type_id ORDER BY r.id limit ? || 20
+-> Limit: 20 row(s)  (cost=11524 rows=10) (actual time=0.0135..0.0783 rows=20 loops=1)
+    -> Nested loop left join  (cost=11524 rows=10) (actual time=0.0133..0.0774 rows=20 loops=1)
+        -> Nested loop left join  (cost=9604 rows=10) (actual time=0.013..0.0733 rows=20 loops=1)
+            -> Nested loop left join  (cost=7683 rows=10) (actual time=0.0125..0.0669 rows=20 loops=1)
+                -> Nested loop left join  (cost=5763 rows=10) (actual time=0.0116..0.0582 rows=20 loops=1)
+                    -> Nested loop left join  (cost=3842 rows=10) (actual time=0.0102..0.0445 rows=20 loops=1)
+                        -> Nested loop left join  (cost=1922 rows=10) (actual time=0.0075..0.0145 rows=20 loops=1)
+                            -> Filter: (hn.is_deleted = false)  (cost=1.03 rows=10) (actual time=0.00508..0.00871 rows=20 loops=1)
+                                -> Index scan on hn using PRIMARY  (cost=1.03 rows=20) (actual time=0.00437..0.00725 rows=22 loops=1)
+                            -> Single-row covering index lookup on h using PRIMARY (id=hn.hierarchy_id)  (cost=0.25 rows=1) (actual time=134e-6..152e-6 rows=1 loops=20)
+                        -> Filter: (e.is_deleted = false)  (cost=0.25 rows=1) (actual time=0.00136..0.00141 rows=0.85 loops=20)
+                            -> Single-row index lookup on e using UKlk7t9jekk5v3q58yyh32qmed6 (hierarchy_id=h.id, end_vertex=hn.node_id, hops=2)  (cost=0.25 rows=1) (actual time=0.00128..0.00129 rows=0.85 loops=20)
+                    -> Filter: (c.is_deleted = false)  (cost=0.25 rows=1) (actual time=538e-6..585e-6 rows=1 loops=20)
+                        -> Single-row index lookup on c using PRIMARY (id=hn.node_id)  (cost=0.25 rows=1) (actual time=452e-6..467e-6 rows=1 loops=20)
+                -> Single-row index lookup on ct using PRIMARY (id=c.type_id)  (cost=0.25 rows=1) (actual time=311e-6..325e-6 rows=1 loops=20)
+            -> Filter: (p.is_deleted = false)  (cost=0.25 rows=1) (actual time=183e-6..225e-6 rows=0.85 loops=20)
+                -> Single-row index lookup on p using PRIMARY (id=e.start_vertex)  (cost=0.25 rows=1) (actual time=108e-6..117e-6 rows=0.85 loops=20)
+        -> Single-row index lookup on pt using PRIMARY (id=p.type_id)  (cost=0.25 rows=1) (actual time=79.2e-6..91.7e-6 rows=0.85 loops=20)
+
+
+### MYSQL | A.4/page of 20 | lib: entity join, referenced (Details) | all hierarchies
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.is_deleted<>? group by 1,2) select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,n1_0.first_name,t1_0.name,var_1_11_0.mq_startVertex,p1_0.first_name,t2_0.name,var_1_11_0.mq_createdAt from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id left join profile p1_0 on p1_0.id=var_1_11_0.mq_startVertex and p1_0.is_deleted<>? left join profile n1_0 on n1_0.id=hn1_0.node_id and n1_0.is_deleted<>? left join profile_type t1_0 on t1_0.id=n1_0.type_id left join profile_type t2_0 on t2_0.id=p1_0.type_id where hn1_0.is_deleted<>? order by 1 limit ? || 2, true, true, true, true, 20
+-> Limit: 20 row(s)  (cost=83329 rows=20) (actual time=46.3..46.3 rows=20 loops=1)
+    -> Nested loop left join  (cost=83329 rows=2207) (actual time=46.3..46.3 rows=20 loops=1)
+        -> Nested loop left join  (cost=56980 rows=2207) (actual time=46.3..46.3 rows=20 loops=1)
+            -> Nested loop left join  (cost=54840 rows=2207) (actual time=46.3..46.3 rows=20 loops=1)
+                -> Nested loop left join  (cost=52699 rows=2207) (actual time=46.3..46.3 rows=20 loops=1)
+                    -> Nested loop left join  (cost=26350 rows=2207) (actual time=46.3..46.3 rows=20 loops=1)
+                        -> Filter: (hn1_0.is_deleted <> 1)  (cost=0.0516 rows=0.5) (actual time=0.00371..0.008 rows=20 loops=1)
+                            -> Index scan on hn1_0 using PRIMARY  (cost=0.0516 rows=1) (actual time=0.00275..0.00658 rows=22 loops=1)
+                        -> Index lookup on var_1_11_0 using <auto_key1> (mq_hierarchyId=hn1_0.hierarchy_id, mq_endVertex=hn1_0.node_id)  (cost=9817..9820 rows=13.6) (actual time=2.31..2.31 rows=0.85 loops=20)
+                            -> Materialize CTE cte0  (cost=9817..9817 rows=4415) (actual time=46.3..46.3 rows=14691 loops=1)
+                                -> Group aggregate: max(he1_0.start_vertex), max(he1_0.created_at)  (cost=9376 rows=4415) (actual time=0.037..36.7 rows=14691 loops=1)
+                                    -> Filter: ((he1_0.hops = 2) and (he1_0.is_deleted <> 1))  (cost=8934 rows=4415) (actual time=0.0359..34.4 rows=14691 loops=1)
+                                        -> Index scan on he1_0 using UKlk7t9jekk5v3q58yyh32qmed6  (cost=8934 rows=88298) (actual time=0.035..31.1 rows=88371 loops=1)
+                    -> Filter: (p1_0.is_deleted <> 1)  (cost=0.25 rows=1) (actual time=208e-6..246e-6 rows=0.85 loops=20)
+                        -> Single-row index lookup on p1_0 using PRIMARY (id=var_1_11_0.mq_startVertex)  (cost=0.25 rows=1) (actual time=123e-6..140e-6 rows=0.85 loops=20)
+                -> Filter: (n1_0.is_deleted <> 1)  (cost=0.0184 rows=1) (actual time=479e-6..523e-6 rows=1 loops=20)
+                    -> Single-row index lookup on n1_0 using PRIMARY (id=hn1_0.node_id)  (cost=0.0184 rows=1) (actual time=402e-6..419e-6 rows=1 loops=20)
+            -> Single-row index lookup on t1_0 using PRIMARY (id=n1_0.type_id)  (cost=0.0184 rows=1) (actual time=289e-6..302e-6 rows=1 loops=20)
+        -> Single-row index lookup on t2_0 using PRIMARY (id=p1_0.type_id)  (cost=0.25 rows=1) (actual time=83.2e-6..99.8e-6 rows=0.85 loops=20)
+
+
+### MYSQL | A.4/page of 20 | lib: no manager columns, entity join attached (3 columns read) | all hierarchies
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.is_deleted<>? group by 1,2) select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,var_1_11_0.mq_startVertex,var_1_11_0.mq_createdAt from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id left join profile p1_0 on p1_0.id=var_1_11_0.mq_startVertex and p1_0.is_deleted<>? where hn1_0.is_deleted<>? order by 1 limit ? || 2, true, true, true, 20
+-> Limit: 20 row(s)  (cost=52699 rows=20) (actual time=46.1..46.1 rows=20 loops=1)
+    -> Nested loop left join  (cost=52699 rows=2207) (actual time=46.1..46.1 rows=20 loops=1)
+        -> Nested loop left join  (cost=26350 rows=2207) (actual time=46.1..46.1 rows=20 loops=1)
+            -> Filter: (hn1_0.is_deleted <> 1)  (cost=0.0516 rows=0.5) (actual time=0.00308..0.00721 rows=20 loops=1)
+                -> Index scan on hn1_0 using PRIMARY  (cost=0.0516 rows=1) (actual time=0.00237..0.00604 rows=22 loops=1)
+            -> Index lookup on var_1_11_0 using <auto_key1> (mq_hierarchyId=hn1_0.hierarchy_id, mq_endVertex=hn1_0.node_id)  (cost=9817..9820 rows=13.6) (actual time=2.3..2.3 rows=0.85 loops=20)
+                -> Materialize CTE cte0  (cost=9817..9817 rows=4415) (actual time=46.1..46.1 rows=14691 loops=1)
+                    -> Group aggregate: max(he1_0.start_vertex), max(he1_0.created_at)  (cost=9376 rows=4415) (actual time=0.0439..36.3 rows=14691 loops=1)
+                        -> Filter: ((he1_0.hops = 2) and (he1_0.is_deleted <> 1))  (cost=8934 rows=4415) (actual time=0.0428..34 rows=14691 loops=1)
+                            -> Index scan on he1_0 using UKlk7t9jekk5v3q58yyh32qmed6  (cost=8934 rows=88298) (actual time=0.0421..30.8 rows=88371 loops=1)
+        -> Filter: (p1_0.is_deleted <> 1)  (cost=0.25 rows=1) (actual time=210e-6..250e-6 rows=0.85 loops=20)
+            -> Single-row index lookup on p1_0 using PRIMARY (id=var_1_11_0.mq_startVertex)  (cost=0.25 rows=1) (actual time=133e-6..146e-6 rows=0.85 loops=20)
+
+
+### MYSQL | A.4/page of 20 | lib: unreferenced, no entity join | all hierarchies
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.is_deleted<>? group by 1,2) select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,var_1_11_0.mq_startVertex,var_1_11_0.mq_createdAt from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id where hn1_0.is_deleted<>? order by 1 limit ? || 2, true, true, 20
+-> Limit: 20 row(s)  (cost=19433 rows=20) (actual time=46.4..46.5 rows=20 loops=1)
+    -> Nested loop left join  (cost=19433 rows=2207) (actual time=46.4..46.5 rows=20 loops=1)
+        -> Filter: (hn1_0.is_deleted <> 1)  (cost=0.0516 rows=0.5) (actual time=0.003..0.00704 rows=20 loops=1)
+            -> Index scan on hn1_0 using PRIMARY  (cost=0.0516 rows=1) (actual time=0.00221..0.00579 rows=22 loops=1)
+        -> Index lookup on var_1_11_0 using <auto_key0> (mq_hierarchyId=hn1_0.hierarchy_id, mq_endVertex=hn1_0.node_id)  (cost=9817..9820 rows=10) (actual time=2.32..2.32 rows=0.85 loops=20)
+            -> Materialize CTE cte0  (cost=9817..9817 rows=4415) (actual time=46.4..46.4 rows=14691 loops=1)
+                -> Group aggregate: max(he1_0.start_vertex), max(he1_0.created_at)  (cost=9376 rows=4415) (actual time=0.0366..36.9 rows=14691 loops=1)
+                    -> Filter: ((he1_0.hops = 2) and (he1_0.is_deleted <> 1))  (cost=8934 rows=4415) (actual time=0.0356..34.5 rows=14691 loops=1)
+                        -> Index scan on he1_0 using UKlk7t9jekk5v3q58yyh32qmed6  (cost=8934 rows=88298) (actual time=0.035..31.3 rows=88371 loops=1)
+
+
+### MYSQL | A.4/page of 20 | lib: Details without the manager (no entity join, null columns) | all hierarchies
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.is_deleted<>? group by 1,2) select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,n1_0.first_name,t1_0.name,var_1_11_0.mq_startVertex,null,null,var_1_11_0.mq_createdAt from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id left join profile n1_0 on n1_0.id=hn1_0.node_id and n1_0.is_deleted<>? left join profile_type t1_0 on t1_0.id=n1_0.type_id where hn1_0.is_deleted<>? order by 1 limit ? || 2, true, true, true, 20
+-> Limit: 20 row(s)  (cost=23714 rows=20) (actual time=46.3..46.3 rows=20 loops=1)
+    -> Nested loop left join  (cost=23714 rows=2207) (actual time=46.3..46.3 rows=20 loops=1)
+        -> Nested loop left join  (cost=21573 rows=2207) (actual time=46.3..46.3 rows=20 loops=1)
+            -> Nested loop left join  (cost=19433 rows=2207) (actual time=46.3..46.3 rows=20 loops=1)
+                -> Filter: (hn1_0.is_deleted <> 1)  (cost=0.0516 rows=0.5) (actual time=0.00246..0.00646 rows=20 loops=1)
+                    -> Index scan on hn1_0 using PRIMARY  (cost=0.0516 rows=1) (actual time=0.00188..0.00533 rows=22 loops=1)
+                -> Index lookup on var_1_11_0 using <auto_key0> (mq_hierarchyId=hn1_0.hierarchy_id, mq_endVertex=hn1_0.node_id)  (cost=9817..9820 rows=10) (actual time=2.32..2.32 rows=0.85 loops=20)
+                    -> Materialize CTE cte0  (cost=9817..9817 rows=4415) (actual time=46.3..46.3 rows=14691 loops=1)
+                        -> Group aggregate: max(he1_0.start_vertex), max(he1_0.created_at)  (cost=9376 rows=4415) (actual time=0.0349..36.8 rows=14691 loops=1)
+                            -> Filter: ((he1_0.hops = 2) and (he1_0.is_deleted <> 1))  (cost=8934 rows=4415) (actual time=0.0339..34.3 rows=14691 loops=1)
+                                -> Index scan on he1_0 using UKlk7t9jekk5v3q58yyh32qmed6  (cost=8934 rows=88298) (actual time=0.0333..31.1 rows=88371 loops=1)
+            -> Filter: (n1_0.is_deleted <> 1)  (cost=0.025 rows=1) (actual time=471e-6..521e-6 rows=1 loops=20)
+                -> Single-row index lookup on n1_0 using PRIMARY (id=hn1_0.node_id)  (cost=0.025 rows=1) (actual time=398e-6..413e-6 rows=1 loops=20)
+        -> Single-row index lookup on t1_0 using PRIMARY (id=n1_0.type_id)  (cost=0.025 rows=1) (actual time=285e-6..306e-6 rows=1 loops=20)
+
+
+### MYSQL | A.4/count | native | all hierarchies
+-- SELECT count(*) FROM (SELECT hn.id, hn.hierarchy_id, hn.node_id, e.start_vertex, e.created_at FROM hierarchy_node hn LEFT JOIN hierarchy h ON h.id = hn.hierarchy_id LEFT JOIN hierarchy_edge e ON e.hierarchy_id = h.id AND e.end_vertex = hn.node_id AND e.hops = 2 AND e.is_deleted = false WHERE 1 = 1 AND hn.is_deleted = false) r LEFT JOIN profile c ON c.id = r.node_id AND c.is_deleted = false LEFT JOIN profile_type ct ON ct.id = c.type_id LEFT JOIN profile p ON p.id = r.start_vertex AND p.is_deleted = false LEFT JOIN profile_type pt ON pt.id = p.type_id
+-> Aggregate: count(0)  (cost=18451 rows=1) (actual time=42..42 rows=1 loops=1)
+    -> Nested loop left join  (cost=17684 rows=7678) (actual time=0.0152..41.6 rows=14207 loops=1)
+        -> Nested loop left join  (cost=14996 rows=7678) (actual time=0.0149..39.2 rows=14207 loops=1)
+            -> Nested loop left join  (cost=12309 rows=7678) (actual time=0.0144..35 rows=14207 loops=1)
+                -> Nested loop left join  (cost=9622 rows=7678) (actual time=0.0137..30.5 rows=14207 loops=1)
+                    -> Nested loop left join  (cost=6934 rows=7678) (actual time=0.0125..22.6 rows=14207 loops=1)
+                        -> Nested loop left join  (cost=4247 rows=7678) (actual time=0.0102..4.51 rows=14207 loops=1)
+                            -> Filter: (hn.is_deleted = false)  (cost=1560 rows=7678) (actual time=0.00862..2.29 rows=14207 loops=1)
+                                -> Table scan on hn  (cost=1560 rows=15356) (actual time=0.00788..1.66 rows=15000 loops=1)
+                            -> Single-row covering index lookup on h using PRIMARY (id=hn.hierarchy_id)  (cost=0.25 rows=1) (actual time=55.9e-6..72.6e-6 rows=1 loops=14207)
+                        -> Filter: (e.is_deleted = false)  (cost=0.25 rows=1) (actual time=0.00114..0.00119 rows=0.979 loops=14207)
+                            -> Single-row index lookup on e using UKlk7t9jekk5v3q58yyh32qmed6 (hierarchy_id=h.id, end_vertex=hn.node_id, hops=2)  (cost=0.25 rows=1) (actual time=0.00107..0.00108 rows=0.999 loops=14207)
+                    -> Filter: (c.is_deleted = false)  (cost=0.25 rows=1) (actual time=416e-6..463e-6 rows=0.953 loops=14207)
+                        -> Single-row index lookup on c using PRIMARY (id=hn.node_id)  (cost=0.25 rows=1) (actual time=339e-6..356e-6 rows=1 loops=14207)
+                -> Single-row covering index lookup on ct using PRIMARY (id=c.type_id)  (cost=0.25 rows=1) (actual time=218e-6..234e-6 rows=0.953 loops=14207)
+            -> Filter: (p.is_deleted = false)  (cost=0.25 rows=1) (actual time=160e-6..205e-6 rows=0.941 loops=14207)
+                -> Single-row index lookup on p using PRIMARY (id=e.start_vertex)  (cost=0.25 rows=1) (actual time=88e-6..104e-6 rows=0.979 loops=14207)
+        -> Single-row covering index lookup on pt using PRIMARY (id=p.type_id)  (cost=0.25 rows=1) (actual time=69.2e-6..85.7e-6 rows=0.941 loops=14207)
+
+
+### MYSQL | A.4/count | lib: count, entity join attached unreferenced | all hierarchies
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.is_deleted<>? group by 1,2) select count(hn1_0.id) from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id left join profile p1_0 on p1_0.id=var_1_11_0.mq_startVertex and p1_0.is_deleted<>? where hn1_0.is_deleted<>? || 2, true, true, true
+-> Aggregate: count(hn1_0.id)  (cost=10.2e+6 rows=1) (actual time=61.9..61.9 rows=1 loops=1)
+    -> Nested loop left join  (cost=6.83e+6 rows=33.9e+6) (actual time=46.3..61.6 rows=14207 loops=1)
+        -> Nested loop left join  (cost=3.42e+6 rows=33.9e+6) (actual time=46.3..57.5 rows=14207 loops=1)
+            -> Filter: (hn1_0.is_deleted <> 1)  (cost=1560 rows=7678) (actual time=0.00958..2.46 rows=14207 loops=1)
+                -> Table scan on hn1_0  (cost=1560 rows=15356) (actual time=0.00921..1.88 rows=15000 loops=1)
+            -> Index lookup on var_1_11_0 using <auto_key1> (mq_hierarchyId=hn1_0.hierarchy_id, mq_endVertex=hn1_0.node_id)  (cost=9817..9820 rows=13.6) (actual time=0.00371..0.00379 rows=0.979 loops=14207)
+                -> Materialize CTE cte0  (cost=9817..9817 rows=4415) (actual time=46.3..46.3 rows=14691 loops=1)
+                    -> Group aggregate: max(he1_0.start_vertex), max(he1_0.created_at)  (cost=9376 rows=4415) (actual time=0.0359..36.7 rows=14691 loops=1)
+                        -> Filter: ((he1_0.hops = 2) and (he1_0.is_deleted <> 1))  (cost=8934 rows=4415) (actual time=0.0349..34.3 rows=14691 loops=1)
+                            -> Index scan on he1_0 using UKlk7t9jekk5v3q58yyh32qmed6  (cost=8934 rows=88298) (actual time=0.0342..31 rows=88371 loops=1)
+        -> Filter: (p1_0.is_deleted <> 1)  (cost=0.25 rows=1) (actual time=157e-6..202e-6 rows=0.941 loops=14207)
+            -> Single-row index lookup on p1_0 using PRIMARY (id=var_1_11_0.mq_startVertex)  (cost=0.25 rows=1) (actual time=85.3e-6..102e-6 rows=0.979 loops=14207)
+
+
+### MYSQL | A.4/count | lib: count, no entity join | all hierarchies
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.is_deleted<>? group by 1,2) select count(hn1_0.id) from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id where hn1_0.is_deleted<>? || 2, true, true
+-> Aggregate: count(hn1_0.id)  (cost=6.8e+6 rows=1) (actual time=58..58 rows=1 loops=1)
+    -> Nested loop left join  (cost=3.41e+6 rows=33.9e+6) (actual time=46.6..57.7 rows=14207 loops=1)
+        -> Filter: (hn1_0.is_deleted <> 1)  (cost=1560 rows=7678) (actual time=0.0106..2.27 rows=14207 loops=1)
+            -> Table scan on hn1_0  (cost=1560 rows=15356) (actual time=0.0101..1.71 rows=15000 loops=1)
+        -> Index lookup on var_1_11_0 using <auto_key0> (mq_hierarchyId=hn1_0.hierarchy_id, mq_endVertex=hn1_0.node_id)  (cost=9817..9820 rows=10) (actual time=0.00372..0.00381 rows=0.979 loops=14207)
+            -> Materialize CTE cte0  (cost=9817..9817 rows=4415) (actual time=46.6..46.6 rows=14691 loops=1)
+                -> Group aggregate: max(he1_0.start_vertex), max(he1_0.created_at)  (cost=9376 rows=4415) (actual time=0.0369..37 rows=14691 loops=1)
+                    -> Filter: ((he1_0.hops = 2) and (he1_0.is_deleted <> 1))  (cost=8934 rows=4415) (actual time=0.0358..34.7 rows=14691 loops=1)
+                        -> Index scan on he1_0 using UKlk7t9jekk5v3q58yyh32qmed6  (cost=8934 rows=88298) (actual time=0.035..31.4 rows=88371 loops=1)
+
+
+### MYSQL | A.4/full export | native | all hierarchies
+-- SELECT r.id, r.hierarchy_id, r.node_id, c.first_name, ct.name, r.start_vertex, p.first_name, pt.name, r.created_at FROM (SELECT hn.id, hn.hierarchy_id, hn.node_id, e.start_vertex, e.created_at FROM hierarchy_node hn LEFT JOIN hierarchy h ON h.id = hn.hierarchy_id LEFT JOIN hierarchy_edge e ON e.hierarchy_id = h.id AND e.end_vertex = hn.node_id AND e.hops = 2 AND e.is_deleted = false WHERE 1 = 1 AND hn.is_deleted = false) r LEFT JOIN profile c ON c.id = r.node_id AND c.is_deleted = false LEFT JOIN profile_type ct ON ct.id = c.type_id LEFT JOIN profile p ON p.id = r.start_vertex AND p.is_deleted = false LEFT JOIN profile_type pt ON pt.id = p.type_id ORDER BY r.id
+-> Nested loop left join  (cost=17684 rows=7678) (actual time=0.0206..43.5 rows=14207 loops=1)
+    -> Nested loop left join  (cost=14996 rows=7678) (actual time=0.0203..41.1 rows=14207 loops=1)
+        -> Nested loop left join  (cost=12309 rows=7678) (actual time=0.0195..37 rows=14207 loops=1)
+            -> Nested loop left join  (cost=9622 rows=7678) (actual time=0.0186..32 rows=14207 loops=1)
+                -> Nested loop left join  (cost=6934 rows=7678) (actual time=0.0169..23.9 rows=14207 loops=1)
+                    -> Nested loop left join  (cost=4247 rows=7678) (actual time=0.0132..4.58 rows=14207 loops=1)
+                        -> Filter: (hn.is_deleted = false)  (cost=1560 rows=7678) (actual time=0.0109..2.41 rows=14207 loops=1)
+                            -> Index scan on hn using PRIMARY  (cost=1560 rows=15356) (actual time=0.0102..1.81 rows=15000 loops=1)
+                        -> Single-row covering index lookup on h using PRIMARY (id=hn.hierarchy_id)  (cost=0.25 rows=1) (actual time=52.2e-6..69e-6 rows=1 loops=14207)
+                    -> Filter: (e.is_deleted = false)  (cost=0.25 rows=1) (actual time=0.00122..0.00127 rows=0.979 loops=14207)
+                        -> Single-row index lookup on e using UKlk7t9jekk5v3q58yyh32qmed6 (hierarchy_id=h.id, end_vertex=hn.node_id, hops=2)  (cost=0.25 rows=1) (actual time=0.00115..0.00116 rows=0.999 loops=14207)
+                -> Filter: (c.is_deleted = false)  (cost=0.25 rows=1) (actual time=434e-6..481e-6 rows=0.953 loops=14207)
+                    -> Single-row index lookup on c using PRIMARY (id=hn.node_id)  (cost=0.25 rows=1) (actual time=357e-6..374e-6 rows=1 loops=14207)
+            -> Single-row index lookup on ct using PRIMARY (id=c.type_id)  (cost=0.25 rows=1) (actual time=248e-6..264e-6 rows=0.953 loops=14207)
+        -> Filter: (p.is_deleted = false)  (cost=0.25 rows=1) (actual time=162e-6..207e-6 rows=0.941 loops=14207)
+            -> Single-row index lookup on p using PRIMARY (id=e.start_vertex)  (cost=0.25 rows=1) (actual time=88.8e-6..105e-6 rows=0.979 loops=14207)
+    -> Single-row index lookup on pt using PRIMARY (id=p.type_id)  (cost=0.25 rows=1) (actual time=70.5e-6..86.4e-6 rows=0.941 loops=14207)
+
+
+### MYSQL | A.4/full export | lib: entity join, referenced (Details) | all hierarchies
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.is_deleted<>? group by 1,2) select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,n1_0.first_name,t1_0.name,var_1_11_0.mq_startVertex,p1_0.first_name,t2_0.name,var_1_11_0.mq_createdAt from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id left join profile p1_0 on p1_0.id=var_1_11_0.mq_startVertex and p1_0.is_deleted<>? left join profile n1_0 on n1_0.id=hn1_0.node_id and n1_0.is_deleted<>? left join profile_type t1_0 on t1_0.id=n1_0.type_id left join profile_type t2_0 on t2_0.id=p1_0.type_id where hn1_0.is_deleted<>? order by 1 || 2, true, true, true, true
+-> Nested loop left join  (cost=17e+6 rows=33.9e+6) (actual time=46..76.6 rows=14207 loops=1)
+    -> Nested loop left join  (cost=13.6e+6 rows=33.9e+6) (actual time=46..74.2 rows=14207 loops=1)
+        -> Nested loop left join  (cost=10.2e+6 rows=33.9e+6) (actual time=46..69.3 rows=14207 loops=1)
+            -> Nested loop left join  (cost=6.83e+6 rows=33.9e+6) (actual time=46..61.4 rows=14207 loops=1)
+                -> Nested loop left join  (cost=3.42e+6 rows=33.9e+6) (actual time=46..57.3 rows=14207 loops=1)
+                    -> Filter: (hn1_0.is_deleted <> 1)  (cost=1560 rows=7678) (actual time=0.0105..2.37 rows=14207 loops=1)
+                        -> Index scan on hn1_0 using PRIMARY  (cost=1560 rows=15356) (actual time=0.0101..1.78 rows=15000 loops=1)
+                    -> Index lookup on var_1_11_0 using <auto_key1> (mq_hierarchyId=hn1_0.hierarchy_id, mq_endVertex=hn1_0.node_id)  (cost=9817..9820 rows=13.6) (actual time=0.00369..0.00378 rows=0.979 loops=14207)
+                        -> Materialize CTE cte0  (cost=9817..9817 rows=4415) (actual time=46..46 rows=14691 loops=1)
+                            -> Group aggregate: max(he1_0.start_vertex), max(he1_0.created_at)  (cost=9376 rows=4415) (actual time=0.0367..36.4 rows=14691 loops=1)
+                                -> Filter: ((he1_0.hops = 2) and (he1_0.is_deleted <> 1))  (cost=8934 rows=4415) (actual time=0.0351..34.1 rows=14691 loops=1)
+                                    -> Index scan on he1_0 using UKlk7t9jekk5v3q58yyh32qmed6  (cost=8934 rows=88298) (actual time=0.0343..30.8 rows=88371 loops=1)
+                -> Filter: (p1_0.is_deleted <> 1)  (cost=0.25 rows=1) (actual time=160e-6..205e-6 rows=0.941 loops=14207)
+                    -> Single-row index lookup on p1_0 using PRIMARY (id=var_1_11_0.mq_startVertex)  (cost=0.25 rows=1) (actual time=89.5e-6..106e-6 rows=0.979 loops=14207)
+            -> Filter: (n1_0.is_deleted <> 1)  (cost=0.0184 rows=1) (actual time=424e-6..470e-6 rows=0.953 loops=14207)
+                -> Single-row index lookup on n1_0 using PRIMARY (id=hn1_0.node_id)  (cost=0.0184 rows=1) (actual time=351e-6..368e-6 rows=1 loops=14207)
+        -> Single-row index lookup on t1_0 using PRIMARY (id=n1_0.type_id)  (cost=0.0184 rows=1) (actual time=239e-6..255e-6 rows=0.953 loops=14207)
+    -> Single-row index lookup on t2_0 using PRIMARY (id=p1_0.type_id)  (cost=0.25 rows=1) (actual time=71.2e-6..87.9e-6 rows=0.941 loops=14207)
+
+
+### MYSQL | A.4/full export | lib: unreferenced, entity join attached | all hierarchies
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.is_deleted<>? group by 1,2) select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,var_1_11_0.mq_startVertex,var_1_11_0.mq_createdAt from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id left join profile p1_0 on p1_0.id=var_1_11_0.mq_startVertex and p1_0.is_deleted<>? where hn1_0.is_deleted<>? order by 1 || 2, true, true, true
+-> Nested loop left join  (cost=6.83e+6 rows=33.9e+6) (actual time=46..61.2 rows=14207 loops=1)
+    -> Nested loop left join  (cost=3.42e+6 rows=33.9e+6) (actual time=46..57.1 rows=14207 loops=1)
+        -> Filter: (hn1_0.is_deleted <> 1)  (cost=1560 rows=7678) (actual time=0.00958..2.37 rows=14207 loops=1)
+            -> Index scan on hn1_0 using PRIMARY  (cost=1560 rows=15356) (actual time=0.00904..1.77 rows=15000 loops=1)
+        -> Index lookup on var_1_11_0 using <auto_key1> (mq_hierarchyId=hn1_0.hierarchy_id, mq_endVertex=hn1_0.node_id)  (cost=9817..9820 rows=13.6) (actual time=0.00369..0.00377 rows=0.979 loops=14207)
+            -> Materialize CTE cte0  (cost=9817..9817 rows=4415) (actual time=46..46 rows=14691 loops=1)
+                -> Group aggregate: max(he1_0.start_vertex), max(he1_0.created_at)  (cost=9376 rows=4415) (actual time=0.0364..36.4 rows=14691 loops=1)
+                    -> Filter: ((he1_0.hops = 2) and (he1_0.is_deleted <> 1))  (cost=8934 rows=4415) (actual time=0.0354..34.1 rows=14691 loops=1)
+                        -> Index scan on he1_0 using UKlk7t9jekk5v3q58yyh32qmed6  (cost=8934 rows=88298) (actual time=0.0348..30.9 rows=88371 loops=1)
+    -> Filter: (p1_0.is_deleted <> 1)  (cost=0.25 rows=1) (actual time=159e-6..205e-6 rows=0.941 loops=14207)
+        -> Single-row index lookup on p1_0 using PRIMARY (id=var_1_11_0.mq_startVertex)  (cost=0.25 rows=1) (actual time=87.4e-6..103e-6 rows=0.979 loops=14207)
+
+
+### MYSQL | A.4/full export | lib: unreferenced, no entity join | all hierarchies
+-- with cte0 (mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) as (select he1_0.hierarchy_id,he1_0.end_vertex,max(he1_0.start_vertex),max(he1_0.created_at) from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.is_deleted<>? group by 1,2) select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,var_1_11_0.mq_startVertex,var_1_11_0.mq_createdAt from hierarchy_node hn1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_hierarchyId=hn1_0.hierarchy_id and var_1_11_0.mq_endVertex=hn1_0.node_id where hn1_0.is_deleted<>? order by 1 || 2, true, true
+-> Nested loop left join  (cost=3.41e+6 rows=33.9e+6) (actual time=46.4..57.6 rows=14207 loops=1)
+    -> Filter: (hn1_0.is_deleted <> 1)  (cost=1560 rows=7678) (actual time=0.00967..2.36 rows=14207 loops=1)
+        -> Index scan on hn1_0 using PRIMARY  (cost=1560 rows=15356) (actual time=0.00929..1.78 rows=15000 loops=1)
+    -> Index lookup on var_1_11_0 using <auto_key0> (mq_hierarchyId=hn1_0.hierarchy_id, mq_endVertex=hn1_0.node_id)  (cost=9817..9820 rows=10) (actual time=0.00371..0.0038 rows=0.979 loops=14207)
+        -> Materialize CTE cte0  (cost=9817..9817 rows=4415) (actual time=46.4..46.4 rows=14691 loops=1)
+            -> Group aggregate: max(he1_0.start_vertex), max(he1_0.created_at)  (cost=9376 rows=4415) (actual time=0.0368..36.9 rows=14691 loops=1)
+                -> Filter: ((he1_0.hops = 2) and (he1_0.is_deleted <> 1))  (cost=8934 rows=4415) (actual time=0.0357..34.6 rows=14691 loops=1)
+                    -> Index scan on he1_0 using UKlk7t9jekk5v3q58yyh32qmed6  (cost=8934 rows=88298) (actual time=0.0349..31.3 rows=88371 loops=1)
+
+

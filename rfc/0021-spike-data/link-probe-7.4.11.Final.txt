@@ -1,0 +1,4 @@
+hibernate 7.4.11.Final
+PASS direct: JpaFrom#join(Class, SqmJoinType): linked, returned SqmEntityJoin
+FAIL direct: ... then JpaEntityJoin#on(Predicate...): NoSuchMethodError: 'org.hibernate.query.criteria.JpaEntityJoin org.hibernate.query.criteria.JpaEntityJoin.on(org.hibernate.query.criteria.JpaExpression)'
+PASS reflective: join looked up once, on looked up on the returned type, run: runs, count=0, on declared by JpaJoin returning JpaJoin
