@@ -5,6 +5,7 @@ import jakarta.persistence.Tuple;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.From;
 import jakarta.persistence.criteria.Order;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
@@ -106,8 +107,8 @@ public final class SourceQuery<S> {
      * Starts an ungrouped source of {@code model}: the entity the model is read from, the fields it carries and the
      * key that identifies a row. Only {@code where} is added afterwards; a source with no predicate reads every row.
      *
-     * @throws ModelQueryDefinitionException {@code MQ1203} when {@code root} is a join; {@code MQ1907} for a
-     *     source root without an inner source; {@code MQ1908} for a correlated field
+     * @throws ModelQueryDefinitionException {@code MQ1203} when {@code root} is a join or a joined source's root;
+     *     {@code MQ1907} for a source root without an inner source; {@code MQ1908} for a correlated field
      */
     public static <E, M> Builder<E, M, M> builder(
             Class<M> model, TableField<E, E> root, SelectSet<M> fields, PrimaryKey<M, ?> key) {
@@ -118,8 +119,8 @@ public final class SourceQuery<S> {
      * Starts a grouped source of {@code model}, as {@link #builder} does: {@code groupKeys} are the source's
      * {@code GROUP_KEYS}, which are also its key (R-SRC-02).
      *
-     * @throws ModelQueryDefinitionException {@code MQ1203} when {@code root} is a join; {@code MQ1907} for a
-     *     source root without an inner source; {@code MQ1908} for a correlated field
+     * @throws ModelQueryDefinitionException {@code MQ1203} when {@code root} is a join or a joined source's root;
+     *     {@code MQ1907} for a source root without an inner source; {@code MQ1908} for a correlated field
      */
     public static <E, M> Builder<E, M, M> builder(Class<M> model, TableField<E, E> root, SelectSet<M> fields,
             PrimaryKey<M, ?> key, SelectSet<M> groupKeys) {
@@ -129,8 +130,9 @@ public final class SourceQuery<S> {
     /**
      * Starts an ungrouped source over {@code inner}, whose shape must match {@code root} (R-SRC-16).
      *
-     * @throws ModelQueryDefinitionException {@code MQ1907} for a missing or mismatched inner source, or an entity
-     *     root; {@code MQ1908} for a correlated field
+     * @throws ModelQueryDefinitionException {@code MQ1203} when {@code root} is a join or a joined source's root;
+     *     {@code MQ1907} for a missing or mismatched inner source, or an entity root; {@code MQ1908} for a correlated
+     *     field
      */
     @Incubating
     public static <E, M> Builder<E, M, M> builder(Class<M> model, TableField<E, E> root, SelectSet<M> fields,
@@ -141,8 +143,9 @@ public final class SourceQuery<S> {
     /**
      * Starts a grouped source over {@code inner}, unique by {@code groupKeys} even when the inner is not.
      *
-     * @throws ModelQueryDefinitionException {@code MQ1907} for a missing or mismatched inner source, or an entity
-     *     root; {@code MQ1908} for a correlated field
+     * @throws ModelQueryDefinitionException {@code MQ1203} when {@code root} is a join or a joined source's root;
+     *     {@code MQ1907} for a missing or mismatched inner source, or an entity root; {@code MQ1908} for a correlated
+     *     field
      */
     @Incubating
     public static <E, M> Builder<E, M, M> builder(Class<M> model, TableField<E, E> root, SelectSet<M> fields,
@@ -187,7 +190,7 @@ public final class SourceQuery<S> {
             this.fields = Objects.requireNonNull(fields, "fields");
             this.key = Objects.requireNonNull(key, "key");
             this.inner = inner;
-            if (root.rootEntity() == null) {
+            if (root.rootEntity() == null || root.isJoinedSource()) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1203,
                         "builder(...) takes a TableField.root(...) or a TableField.source(...), not the "
                                 + root.describe());
@@ -671,6 +674,13 @@ public final class SourceQuery<S> {
         return key;
     }
 
+    /** The CTE columns of {@link #key()}'s fields, in key order, as an outer statement reads them (R-SRC-10). */
+    List<String> keyColumns() {
+        var columns = new ArrayList<String>();
+        key.columns().forEach(column -> columns.add(columnName(propertyOf(column).orElse(column.name()))));
+        return List.copyOf(columns);
+    }
+
     /** The group keys, or {@code null} for an ungrouped source. */
     SelectSet<?> groupKeys() {
         return groupKeys;
@@ -727,6 +737,20 @@ public final class SourceQuery<S> {
         return branches(this).stream().anyMatch(branch -> branch.inner != null);
     }
 
+    /**
+     * How many levels of this chain recurse, every branch of a combined source counted, so a statement that joins
+     * sources can refuse a second walk, whose checks it has no place for (R-SRC-21, D-187).
+     */
+    int walks() {
+        if (recursion != null) {
+            return 1;
+        }
+        if (inner != null) {
+            return inner.walks();
+        }
+        return operation == null ? 0 : operation.left.walks() + operation.right.walks();
+    }
+
     /** The recursive source in this chain, or {@code null} when no level recurses (R-SRC-07, R-SRC-18). */
     SourceQuery<?> recursiveSource() {
         if (recursion != null) {
@@ -765,7 +789,7 @@ public final class SourceQuery<S> {
      * {@code maxDepth} and the row that closed a cycle (RFC 0013 §5, R-SRC-08, R-SRC-18).
      */
     @SuppressWarnings("unchecked")
-    List<Predicate> walkGuards(CriteriaBuilder cb, Root<Tuple> cte) {
+    List<Predicate> walkGuards(CriteriaBuilder cb, From<?, Tuple> cte) {
         Expression<Integer> level = (Expression<Integer>) (Expression<?>) cte.get(levelAlias());
         Expression<Boolean> marked = (Expression<Boolean>) (Expression<?>) cte.get(MARK_ALIAS);
         return List.of(cb.le(level, maxDepth()), cb.isFalse(marked));
@@ -915,7 +939,7 @@ public final class SourceQuery<S> {
                     Objects.requireNonNull(top, "top"), cb, options, renderer, outerModel, checks, bodies);
             CriteriaQuery<Tuple> query = cb.createTupleQuery();
             Root<Tuple> from = renderer.from(query, handle);
-            JoinContext joins = JoinContext.sourceOf(from, root.rootEntity(), cb, query, options);
+            JoinContext joins = JoinContext.sourceOf(from, root.rootEntity(), inner.keyColumns(), cb, query, options);
             bodies.add(joins);
             List<Predicate> guards = inner.recurses() ? inner.walkGuards(cb, from) : List.of();
             return select(query, joins, cb, renderer, null, guards, Optional.empty());

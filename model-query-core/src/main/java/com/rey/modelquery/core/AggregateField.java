@@ -303,8 +303,8 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
 
     /**
      * The first value in {@link #orders}, with the root's id appended ascending (R-AGG-16): the vendor's fact first,
-     * {@code MQ4015}, then the provider's renderer, {@code MQ4014} by default (R-VND-23). The root's id is appended
-     * for an entity root only, as a source root has no id to break ties by.
+     * {@code MQ4015}, then the provider's renderer, {@code MQ4014} by default (R-VND-23). Over a source root the
+     * source's key is appended instead, in key order, as the CTE has no id to break ties by.
      */
     private Expression<?> firstBy(JoinContext ctx) {
         CriteriaBuilder cb = ctx.cb();
@@ -322,7 +322,12 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
         for (OrderField<?, ?> order : orders) {
             keys.addAll(order.toOrders(ctx, cb));
         }
-        if (ctx.root() instanceof Root<?> root && root.getModel() instanceof EntityType<?>) {
+        if (!ctx.sourceKey().isEmpty()) {
+            // A CTE root, whose model Hibernate 7 does not expose, so it is not asked for one.
+            for (String column : ctx.sourceKey()) {
+                keys.add(cb.asc(ctx.root().get(column)));
+            }
+        } else if (ctx.root() instanceof Root<?> root && root.getModel() instanceof EntityType<?>) {
             SubqueryOrders.appendId(root, cb, keys);
         }
         Join<?, ?> toMany = toManyJoin(value);

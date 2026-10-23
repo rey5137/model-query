@@ -19,7 +19,8 @@ import jakarta.persistence.metamodel.Type;
  * The count of a table's identity at every site that counts one: a table count, a count of a table's id column, a
  * correlated count and the page total (R-AGG-19, R-EXE-05). Where the identity cannot be null on any row the
  * statement reads, the count is the provider's row count ({@link AggregateRenderer#rowCount}); elsewhere it counts the
- * identity as before. A source's constant, {@code count(1)}, is counted as it is.
+ * identity as before. A source root's constant, {@code count(1)}, is counted as it is; a joined source's
+ * first key column is the row count only through an INNER join.
  *
  * @implSpec R-AGG-19, D-185
  */
@@ -47,15 +48,20 @@ public final class RowCounts {
      * no treated node, in a statement without a customizer: then it is non-null on every row and its count is the
      * row count. A table's identity is its {@code From}, or the path to that {@code From}'s own single id attribute;
      * a foreign-key read is neither. The walk follows {@code Join#getParent()}, not the context's root, which in a
-     * {@code rootedAt} context is a join. A joined source is classified by its join kind, which this is the place to
-     * add (R-AGG-19).
+     * {@code rootedAt} context is a join. A joined source's table is counted by its first key column
+     * ({@link JoinContext#joinedSourceKey}), classified by its join kind: an INNER join is a hop of the chain, from the
+     * {@code From} it joins, and a LEFT join keeps the column's count, 0 where no source row matched (R-AGG-19).
      */
     static boolean eligible(JoinContext ctx, Expression<?> counted) {
         if (ctx.customized()) {
             // The customizer runs after the selection is built and could add a RIGHT or FULL join (D-185).
             return false;
         }
-        From<?, ?> node = identified(counted);
+        JoinContext.JoinedSource joined = ctx.joinedSourceCounted(counted);
+        if (joined != null && !joined.inner()) {
+            return false;
+        }
+        From<?, ?> node = joined != null ? joined.outer() : identified(counted);
         while (node != null) {
             if (ctx.treatedNode(node)) {
                 return false;

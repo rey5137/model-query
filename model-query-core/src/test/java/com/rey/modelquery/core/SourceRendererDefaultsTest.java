@@ -30,6 +30,11 @@ class SourceRendererDefaultsTest {
     }
 
     @Test
+    void ac_src_43_join_defaults_to_mq4014() {
+        assertMq4014(() -> NOTHING_OVERRIDDEN.join(null, null, null, null), "not joined sources");
+    }
+
+    @Test
     void ac_src_16_cte_defaults_over_register_then_from() {
         List<String> calls = new ArrayList<>();
         SourceRenderer.CteHandle handle = new SourceRenderer.CteHandle() {};

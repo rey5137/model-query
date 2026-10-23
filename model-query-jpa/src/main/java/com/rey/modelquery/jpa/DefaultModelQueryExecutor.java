@@ -407,6 +407,13 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 return renderer.from(query, inner);
             }
 
+            @Override
+            public From<?, Tuple> join(From<?, ?> outer, CteHandle source, JoinType type,
+                    Function<From<?, Tuple>, Predicate> on) {
+                requireCte();
+                return renderer.join(outer, source, type, on);
+            }
+
             private void requireCte() {
                 if (!vendor.profile().sources(SourceFeature.CTE)) {
                     throw new ModelQueryConfigurationException(MqCode.MQ4015, rootEntity.getSimpleName()
@@ -843,11 +850,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     }
 
     /**
-     * The R-EXE-14 refusals for a locking read of {@code q}, before any statement and in order: a source's CTE, which
-     * a locking clause cannot follow ({@code MQ1903}, R-SRC-11), a join in {@code built} ({@code MQ2211}), a provider
-     * that cannot render the lock or a root on several tables ({@code MQ4010}), and no active transaction
-     * ({@code MQ2102}). Returns the support to apply on the statement, or empty when {@code q} takes no lock;
-     * {@code built} is the statement's criteria, built by the caller and never executed here.
+     * The R-EXE-14 refusals for a locking read of {@code q}, before any statement and in order: a source's CTE, read
+     * or joined, which a locking clause cannot follow ({@code MQ1903}, R-SRC-11, R-SRC-22), a join in {@code built}
+     * ({@code MQ2211}), a provider that cannot render the lock or a root on several tables ({@code MQ4010}), and no
+     * active transaction ({@code MQ2102}). Returns the support to apply on the statement, or empty when {@code q}
+     * takes no lock; {@code built} is the statement's criteria, built by the caller and never executed here.
      */
     private <M> Optional<LockSupport> lockChecks(ModelQuery<E, ?, M> q, BuiltQuery<M> built, String read) {
         Optional<RowLock> lock = q.lock();
@@ -855,11 +862,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             return Optional.empty();
         }
         RowLock rowLock = lock.get();
-        if (q.source().isPresent()) {
+        if (q.source().isPresent() || q.joinsSource()) {
             throw new ModelQueryDefinitionException(MqCode.MQ1903,
-                    q + ": " + read + " cannot lock a query that reads a "
-                    + "source: its rows come from a common table expression, which a locking clause cannot follow; "
-                    + "drop withLock(...) (R-SRC-11)");
+                    q + ": " + read + " cannot lock a query that " + (q.source().isPresent() ? "reads" : "joins")
+                    + " a source: its rows come from a common table expression, which a locking clause cannot "
+                    + "follow; drop withLock(...) (R-SRC-11, R-SRC-22)");
         }
         Optional<LockSupport> rendered = vendor.providerSupport().flatMap(ProviderSupport::locks);
         refuseJoin(q, built, rendered, read);

@@ -37,7 +37,9 @@ public final class Agg {
     /**
      * {@code count(table)}: the rows of {@code table}, or of the query's root when given the root. A source root is
      * the CTE's, whose derived model part has no identifying parts to count or expand, so its rows are counted by a
-     * constant (R-SRC-12); count works on every source (RFC 0013 §7).
+     * constant (R-SRC-12); count works on every source (RFC 0013 §7). A joined source's table
+     * ({@link SourceJoin#root()}) is counted by its first key column, the row count through an INNER join and
+     * {@code 0} for an outer row a LEFT join matched no source row for (R-AGG-19, R-SRC-21).
      */
     public static <M> AggregateField<M, Long> count(TableField<?, ?> table) {
         Objects.requireNonNull(table, "table");
@@ -46,9 +48,12 @@ public final class Agg {
             String subtype = table.treatedType().getSimpleName();
             name = Character.toLowerCase(subtype.charAt(0)) + subtype.substring(1);
         }
+        boolean joined = table.isJoinedSource();
         boolean source = table.isSource();
+        String owner = "count(" + table.describe() + ")";
         return new AggregateField<>(AggregateField.Kind.COUNT, table.key(), name, "", Long.class, null, null,
-                (ctx, cb) -> source ? cb.literal(1) : table.resolve(ctx));
+                (ctx, cb) -> joined ? ctx.joinedSourceKey(table.key(), owner)
+                        : source ? cb.literal(1) : table.resolve(ctx));
     }
 
     /**

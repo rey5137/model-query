@@ -98,6 +98,11 @@ public final class JoinContext {
      * preflight expects (R-VND-26, D-157). Shared with the build's nested contexts, as {@link #parameters} is.
      */
     private final List<Declared> narrowings;
+    /**
+     * The join to each joined source's CTE this statement made, by its table's key (R-SRC-21). Shared with the build's
+     * nested contexts, as {@link #parameters} is, so a sub-query reads the statement's join.
+     */
+    private final Map<JoinKey, JoinedSource> joinedSources;
     /** The narrowing a treat of {@link #root} declares: a path {@code exists}'s correlated root, else none. */
     private ExpectedNarrowing.Kind declares;
     /** This context's entry in {@link #narrowings}, made by the first treat of {@link #root}; else {@code null}. */
@@ -137,6 +142,11 @@ public final class JoinContext {
     /** For a {@link #rootedAt} context, the context its root was joined in; {@code null} everywhere else. */
     private JoinContext rootedIn;
     /**
+     * For a {@link #sourceOf} context, the CTE columns of the source's key, in key order; empty everywhere else. A
+     * {@code firstBy} over the source root appends them to break ties (R-AGG-16).
+     */
+    private List<String> sourceKey = List.of();
+    /**
      * The to-many joins this context itself made, in resolution order: a source's {@code where} predicate that
      * crosses one is {@code MQ1906} (R-SRC-03). A nested {@code exists} joins on a context of its own, so the paths
      * an {@code exists} may legitimately cross are not counted here.
@@ -146,13 +156,14 @@ public final class JoinContext {
     private JoinContext(From<?, ?> root, Class<?> rootType, CriteriaBuilder cb, CommonAbstractCriteria query,
             JoinKey rootKey, Set<JoinKey> required, RenderOptions renderOptions, Set<Class<?>> existsJoined) {
         this(root, rootType, cb, query, rootKey, required, renderOptions, existsJoined, null, new int[1],
-                new LinkedHashMap<>(), new LinkedHashMap<>(), new ArrayList<>());
+                new LinkedHashMap<>(), new LinkedHashMap<>(), new ArrayList<>(), new HashMap<>());
     }
 
     private JoinContext(From<?, ?> root, Class<?> rootType, CriteriaBuilder cb, CommonAbstractCriteria query,
             JoinKey rootKey, Set<JoinKey> required, RenderOptions renderOptions, Set<Class<?>> existsJoined,
             JoinContext outer, int[] repeatedExpressionBinds, Map<ParameterExpression<?>, Object> parameters,
-            Map<ForeignKeyRead, ColumnField<?, ?, ?>> foreignKeyReads, List<Declared> narrowings) {
+            Map<ForeignKeyRead, ColumnField<?, ?, ?>> foreignKeyReads, List<Declared> narrowings,
+            Map<JoinKey, JoinedSource> joinedSources) {
         this.root = root;
         this.rootType = rootType;
         this.cb = cb;
@@ -166,6 +177,7 @@ public final class JoinContext {
         this.parameters = parameters;
         this.foreignKeyReads = foreignKeyReads;
         this.narrowings = narrowings;
+        this.joinedSources = joinedSources;
     }
 
     /** A context over {@code root}, the query's root table, rendering with {@link RenderOptions#portable()}. */
@@ -209,19 +221,26 @@ public final class JoinContext {
     /**
      * A read context over {@code cte}, the root of a source's columns, for the source model {@code model}: its
      * {@link TableField#source} root resolves to it and its columns read the CTE's field-named elements (R-SRC-10).
-     * The {@code model} is the context's root type, so a column's {@code MQ1003} check passes for the source root.
+     * The {@code model} is the context's root type, so a column's {@code MQ1003} check passes for the source root;
+     * {@code key} names the CTE columns of the source's key ({@link SourceQuery#keyColumns()}).
      */
-    static JoinContext sourceOf(Root<?> cte, Class<?> model, CriteriaBuilder cb, CommonAbstractCriteria query,
-            RenderOptions options) {
+    static JoinContext sourceOf(Root<?> cte, Class<?> model, List<String> key, CriteriaBuilder cb,
+            CommonAbstractCriteria query, RenderOptions options) {
         JoinContext ctx = new JoinContext(cte, model, cb, query, JoinKey.root(model), Set.of(), options,
                 new HashSet<>());
         ctx.readsToOneLeft = true;
+        ctx.sourceKey = List.copyOf(key);
         return ctx;
+    }
+
+    /** The CTE columns of the key of the source this context's root reads, in key order; empty for any other root. */
+    List<String> sourceKey() {
+        return sourceKey;
     }
 
     JoinContext rootedAt(From<?, ?> join, Class<?> entity) {
         JoinContext ctx = new JoinContext(join, entity, cb, query, null, Set.of(), renderOptions, existsJoined, null,
-                repeatedExpressionBinds, parameters, foreignKeyReads, narrowings);
+                repeatedExpressionBinds, parameters, foreignKeyReads, narrowings, joinedSources);
         ctx.readsToOneLeft = readsToOneLeft;
         ctx.customized = customized;
         ctx.rootedIn = this;
@@ -434,6 +453,71 @@ public final class JoinContext {
     }
 
     /**
+     * Records {@code join}, this statement's join to the CTE of the source whose table's key is {@code key}, made from
+     * {@code outer} as an INNER join or not; {@code firstKey} names the CTE column of the source's first key field,
+     * which a count of the joined table counts (R-SRC-21, R-AGG-19).
+     */
+    void joinSource(JoinKey key, From<?, ?> join, From<?, ?> outer, boolean inner, String firstKey) {
+        joinedSources.put(key, new JoinedSource(join, outer, inner, join.get(firstKey)));
+    }
+
+    /**
+     * The join this statement made to the joined source whose table's key is {@code key} (R-SRC-21).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1003} when the query binds no such join: a column of
+     *     {@code owner} sits on a table the statement does not read
+     */
+    From<?, ?> joinedSource(JoinKey key, String owner) {
+        return bound(key, owner).join();
+    }
+
+    /**
+     * What a count of the joined source whose table's key is {@code key} counts: the CTE column of the source's first
+     * key field, null exactly where a LEFT join matched no source row, so an unmatched row counts 0 (R-AGG-19).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1003} when the query binds no such join
+     */
+    Path<?> joinedSourceKey(JoinKey key, String owner) {
+        return bound(key, owner).key();
+    }
+
+    /**
+     * The joined source whose first key column {@code counted} is, as {@link #joinedSourceKey} returned it, or
+     * {@code null} for any other expression (R-AGG-19).
+     */
+    JoinedSource joinedSourceCounted(Expression<?> counted) {
+        for (JoinedSource joined : joinedSources.values()) {
+            if (joined.key() == counted) {
+                return joined;
+            }
+        }
+        return null;
+    }
+
+    private JoinedSource bound(JoinKey key, String owner) {
+        JoinedSource joined = joinedSources.get(key);
+        if (joined == null) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1003, owner + ": the query binds no source joined as '"
+                    + key.alias() + "'; bind it with joinSource(...)");
+        }
+        return joined;
+    }
+
+    /**
+     * A statement's join to a joined source's CTE, the {@code From} it joins from, whether it is an INNER join, and the
+     * CTE column of the source's first key field.
+     */
+    record JoinedSource(From<?, ?> join, From<?, ?> outer, boolean inner, Path<?> key) {}
+
+    /**
+     * Makes the joined sources of {@code statement} readable here, a context of its own over a second root of the same
+     * statement, such as a semi-join's sub-query, which reads the statement's joins (R-SRC-21).
+     */
+    void adoptJoinedSources(JoinContext statement) {
+        joinedSources.putAll(statement.joinedSources);
+    }
+
+    /**
      * Adds the statement parameters {@code rendered} recorded, the context of a body this statement registers, such
      * as a source's CTE body, to bind on this statement (R-COL-26, R-FLT-08).
      */
@@ -623,7 +707,8 @@ public final class JoinContext {
             // The root of a through child's context is a join, which the sub-query correlates as a join (D-100).
             From<?, ?> correlated = root instanceof Root<?> ? sub.correlate((Root) root) : sub.correlate((Join) root);
             ctx = new JoinContext(correlated, rootType, cb, sub, null, path.keysUpTo(null), renderOptions,
-                    existsJoined, outer, repeatedExpressionBinds, parameters, foreignKeyReads, narrowings);
+                    existsJoined, outer, repeatedExpressionBinds, parameters, foreignKeyReads, narrowings,
+                    joinedSources);
             ctx.readsToOneLeft = readsToOneLeft;
             ctx.customized = customized;
             ctx.declares = ExpectedNarrowing.Kind.EXISTS_ROOT; // a treat of the correlated root narrows the sub-select
@@ -639,7 +724,7 @@ public final class JoinContext {
             From<?, ?> correlated = sub.correlate((Join) existsFrom);
             ctx = new JoinContext(correlated, correlated.getJavaType(), cb, sub, existsPath.key(),
                     path.keysUpTo(existsPath.key()), renderOptions, existsJoined, outer, repeatedExpressionBinds,
-                    parameters, foreignKeyReads, narrowings);
+                    parameters, foreignKeyReads, narrowings, joinedSources);
             ctx.readsToOneLeft = readsToOneLeft;
             ctx.customized = customized;
         }
@@ -679,7 +764,8 @@ public final class JoinContext {
         Subquery<?> sq = (Subquery<?>) query;
         From<?, ?> correlated = from instanceof Root<?> ? sq.correlate((Root) from) : sq.correlate((Join) from);
         JoinContext ctx = new JoinContext(correlated, outer.rootType, cb, sq, column.table().key(), Set.of(),
-                renderOptions, existsJoined, null, repeatedExpressionBinds, parameters, foreignKeyReads, narrowings);
+                renderOptions, existsJoined, null, repeatedExpressionBinds, parameters, foreignKeyReads, narrowings,
+                joinedSources);
         ctx.readsToOneLeft = outer.readsToOneLeft;
         ctx.customized = outer.customized;
         return column.path(ctx);
@@ -698,7 +784,7 @@ public final class JoinContext {
         Subquery<C> sq = query.subquery(sub.column().type());
         Root<?> inner = sq.from(sub.rootEntity());
         JoinContext ctx = new JoinContext(inner, sub.rootEntity(), cb, sq, null, Set.of(), renderOptions,
-                existsJoined, null, repeatedExpressionBinds, parameters, foreignKeyReads, narrowings);
+                existsJoined, null, repeatedExpressionBinds, parameters, foreignKeyReads, narrowings, joinedSources);
         ctx.readsToOneLeft = readsToOneLeft;
         ctx.customized = customized;
         Path<C> selected = sub.column().path(ctx);
@@ -781,7 +867,7 @@ public final class JoinContext {
         Subquery<C> sq = query.subquery(type);
         Root<?> inner = sq.from(sub.rootEntity());
         JoinContext ctx = new JoinContext(inner, sub.rootEntity(), cb, sq, null, Set.of(), renderOptions,
-                existsJoined, this, repeatedExpressionBinds, parameters, foreignKeyReads, narrowings);
+                existsJoined, this, repeatedExpressionBinds, parameters, foreignKeyReads, narrowings, joinedSources);
         ctx.readsToOneLeft = readsToOneLeft;
         ctx.customized = customized;
         sq.select(selection.apply(ctx));

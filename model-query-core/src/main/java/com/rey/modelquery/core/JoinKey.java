@@ -12,6 +12,11 @@ record JoinKey(JoinKey parent, String attribute, JoinType type, String alias) {
         return new JoinKey(null, entity.getName(), null, "");
     }
 
+    /** The key of the source {@code model} joined as {@code name}: a root's shape, the join's name as its alias. */
+    static JoinKey joinedSource(Class<?> model, String name) {
+        return new JoinKey(null, model.getName(), null, name);
+    }
+
     /** This key with its root replaced by {@code newRoot}, as {@code TableField.withParent} re-roots a path. */
     JoinKey reroot(JoinKey newRoot) {
         return parent == null ? newRoot : new JoinKey(parent.reroot(newRoot), attribute, type, alias);

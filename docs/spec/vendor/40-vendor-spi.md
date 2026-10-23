@@ -317,9 +317,11 @@ clause Hibernate emulates with `array[row(a, b)]`, a form H2 rejects — on Post
 it, so a recursive source over a composite node key is `MQ4015` there before any statement (M26.1, D-149; `api/17`
 AC-SRC-21). `OTHER` keeps the default. A database fact, no SQL (R-VND-11, INV-6). The SQL side is
 `core.SourceRenderer`, the one source hook `ProviderSupport#sources()` returns (`CteHandle` and `RecursiveHandle`
-nested types; `register`, `registerRecursive`, `from`, `window` and `combine` default to `MQ4014`, a missing provider
-renderer, rather than a vendor fact; `cte` and `recursive` default over `register`, `registerRecursive` and `from`, so a
-provider needs only those; D-146, D-150, D-151).
+nested types; `register`, `registerRecursive`, `from`, `join`, `window` and `combine` default to `MQ4014`, a missing
+provider renderer, rather than a vendor fact; `cte` and `recursive` default over `register`, `registerRecursive` and
+`from`, so a provider needs only those; D-146, D-150, D-151). A joined source (`api/17` R-SRC-21) asks the same
+features as a source root, `CTE` for the join and `RECURSIVE`, `RECURSIVE_COMPOSITE_KEY` and R-VND-22's ceiling for a
+joined walk; no `SourceFeature` is added for it (D-185).
 
 **R-VND-22** A database's own recursion ceiling is a profile fact (D-143). `VendorProfile` gains `@Incubating
 int maxRecursionDepth()`, `Integer.MAX_VALUE` by default, meaning the database sets no ceiling this library knows of.
@@ -620,7 +622,14 @@ yield a NULL element where `FILTER` skips the row. `model-query-hibernate` rende
 `HibernateCriteriaBuilder#arrayAgg` with the whole order (the first key as its `JpaOrder`, the rest, the id among them,
 on its within-group order), then its own `mq_first_element` function pattern, `(?1)[1]` on PostgreSQL and `?1[1]` on
 H2, called with no result type so Hibernate types the result as the array's element and applies its converter; the
-pattern is not registered on other dialects.
+pattern is not registered on other dialects. Over a source root the source's key fields are appended instead of an id.
+
+`SourceRenderer#join(outer, source, type, on)` (`@Incubating`, D-185, D-187) joins a CTE registered on the statement
+to `outer` with `INNER` or `LEFT` and applies `on`, the key predicate `core` builds over the new join, as its `ON`
+condition; it returns the join as a plain `From`, and its default throws `MQ4014` ("joined sources", `api/17`
+R-SRC-22). `core` never calls `Join#on` itself, since the type a provider joins a CTE with need not be a `Join`.
+`model-query-hibernate` calls `JpaFrom#join(JpaCteCriteria, SqmJoinType)` and applies `on` through the type its line
+returns, `JpaJoinedFrom` on 6.6 and `JpaJoin` on 7.4, so `jpa` imports no `org.hibernate` (INV-7).
 
 ## 2. Detection
 

@@ -6,8 +6,12 @@ import jakarta.persistence.criteria.AbstractQuery;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.From;
+import jakarta.persistence.criteria.JoinType;
+import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import java.util.Objects;
+import java.util.function.Function;
 
 /**
  * How a query rooted at a source reaches its provider's CTE and window support, so {@code core} names no provider
@@ -20,10 +24,10 @@ import java.util.Objects;
  * A query over a source with no renderer is {@code MQ4014}, raised at build time, before any statement.
  *
  * <p>A provider implements {@link #register} and {@link #from}, and {@link #registerRecursive} for recursion;
- * {@link #cte} and {@link #recursive} default over them (D-151). Those three, {@link #window} and {@link #combine}
- * default to {@code MQ4014}, so a provider can ship plain CTE support only.
+ * {@link #cte} and {@link #recursive} default over them (D-151). Those three, {@link #join}, {@link #window} and
+ * {@link #combine} default to {@code MQ4014}, so a provider can ship plain CTE support only.
  *
- * @implSpec R-SRC-10, R-SRC-12, R-SRC-18, R-SRC-04, INV-7
+ * @implSpec R-SRC-10, R-SRC-12, R-SRC-18, R-SRC-21, R-SRC-22, R-SRC-04, INV-7
  */
 @EngineFacing
 @Incubating
@@ -118,6 +122,19 @@ public interface SourceRenderer {
     @Incubating
     default Root<Tuple> from(AbstractQuery<?> query, CteHandle inner) {
         throw unsupported("chained CTEs");
+    }
+
+    /**
+     * Joins {@code source}, a CTE registered on {@code outer}'s statement, to {@code outer} with {@code type}
+     * ({@code INNER} or {@code LEFT}), applies {@code on} over the new join as its {@code ON} condition, and returns
+     * the join, whose columns the statement reads by the source's field aliases (R-SRC-21, R-SRC-22). The engine
+     * builds the predicate over standard Criteria and never calls {@code Join#on} itself, since the type a provider
+     * joins a CTE with need not be a {@code Join}. Called once per statement, for each source the query joins.
+     */
+    @Incubating
+    default From<?, Tuple> join(From<?, ?> outer, CteHandle source, JoinType type,
+            Function<From<?, Tuple>, Predicate> on) {
+        throw unsupported("joined sources");
     }
 
     /**

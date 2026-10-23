@@ -372,6 +372,14 @@ public enum MqCode {
     @Incubating
     MQ1909("A sub-select cannot be rooted at a source; read the source in an outer query instead"),
 
+    /**
+     * A hand-written {@code SourceJoin} binding whose {@code on} pairs miss the source's key or exceed it (a partial
+     * key, a field paired twice, a field that is not a key field), over a non-unique or recursive source, or a join
+     * bound twice; raised when the query is built (R-SRC-21, D-187).
+     */
+    @Incubating
+    MQ1910("A joined source must be unique and joined on its full key, once"),
+
     /** A page size or {@code maxPerParent} that is not positive, or a limit that is negative (R-EXE-06, R-FCH-11). */
     MQ2001("A page or chunk size and maxPerParent must be positive, and a limit must not be negative"),
 
