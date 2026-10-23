@@ -334,6 +334,14 @@ offset pages. The value can change when **another table** is written: keeping pa
 Use REPEATABLE READ or a consistent snapshot across the export for the full guarantee. The engine does not check
 for this movement or warn about it (R-PAG-25).
 
+A correlated column is one way to put a child's aggregate beside each parent. The other is to
+[join a source](source-models.md#joining-a-source) that groups the child once. A later measurement
+(RFC 0020) found that once the page **filters or sorts on the value**, a joined source won on every vendor, because a
+filter on a correlated column re-evaluates its sub-select. Keep
+`Correlated.*` for **unfiltered** pages of a few rows over an indexed child, and join a source for a page, export or
+report that filters or sorts on the aggregate. [What a joined source costs](source-models.md#what-a-joined-source-costs)
+covers the count.
+
 Behavior is covered by `CorrelatedExecutionTest`, `CorrelatedFirstTest`, `CorrelatedResolutionTest` and
 `LiftedColumnTest`; the computed declaration follows `OrderNet` / `RowNet`.
 

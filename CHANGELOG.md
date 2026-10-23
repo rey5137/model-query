@@ -8,15 +8,51 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
 ## [0.11.0] - 2026-10-23
 
-0.11.0 covers milestone M31 (D-184): faster flat reads, with no compiled or cached query API.
+0.11.0 covers milestones M31 (D-184) and M32 (D-185): faster flat reads, with no compiled or cached query API, and
+the report SQL that RFC 0020 adds: joined sources, aggregates for reports, null-safe equality and `count(*)`. Every
+addition below is `@Incubating`.
+
+### Added (incubating)
+
+- Joined sources (RFC 0020 Part A, D-185, D-187, R-SRC-21, R-SRC-22, R-PROC-44): `SourceJoin` and
+  `ModelQuery.Builder#joinSource` join a unique `SourceQuery` on its full key, `LEFT` or `INNER`, in every statement
+  (content, count, paging, export, `byKeys` and fetch-plan reads). `@JoinSource` and `@SourceColumn` generate
+  `query(...)` taking each joined source (AC-SRC-42 to AC-SRC-50, AC-PROC-46). `SourceRenderer#join` is the provider
+  hook, served by `model-query-hibernate` on both lines. A non-unique source, a partial key or a second walk is
+  `MQ1910`, a lock is `MQ1903`, a returning write is `MQ1809`, and a misdeclared annotation is `MQ3044`; a `@Child`
+  model that joins a source is `MQ3039`. See [Source models](docs/site/docs/source-models.md#joining-a-source) for the
+  cost of a joined source.
+- First value in a group (Part B, R-AGG-16, AC-AGG-18, AC-AGG-19): `Agg.firstBy(value, order, more...)` appends the
+  root's id so ties pick the same row everywhere, on PostgreSQL and H2. MySQL and `OTHER` are `MQ4015`
+  (`AggregateFeature.FIRST_BY`, `VendorProfile#aggregates`), a provider without `AggregateRenderer#firstBy` is `MQ4014`,
+  and a to-many value or an aggregate order key is `MQ1412`. The docs give the portable ranked-source route.
+- Filtered aggregates (Part C, R-AGG-17, AC-AGG-20 to AC-AGG-22): `AggregateField#filter` and
+  `@Aggregate(filter = ...)` with the new `FilterDefinition`, rendered with `FILTER (WHERE ...)` or an equal `CASE`;
+  `MQ1412` for the refused shapes.
+- Exact averages and rounding (Part D, R-AGG-18, R-COL-37, AC-AGG-23 to AC-AGG-26): `Agg.avgExact` as
+  `sum / count` over `BigDecimal`, `Agg.round` and `Expr.round` (half away from zero, scale 0 to 30), and
+  `@Aggregate(scale = ...)`; an `AVG` field typed `BigDecimal` is the exact average. `MQ1411` for a `Double` or `Float`
+  input or a scale out of range; `AggregateRenderer#exactAverage` is the provider hook. `@Aggregate(orderBy = ...)` and
+  the `FIRST_BY` function complete the annotation (R-PROC-45, AC-PROC-47, `MQ3045`).
+- Null-safe equality (Part E, R-FLT-29, AC-FLT-37 to AC-FLT-39): `notDistinctFrom`, `distinctFrom`,
+  `notDistinctFromColumn` and `distinctFromColumn`, the column forms native on H2 and MySQL
+  (`VendorProfile#nativeNullSafeEquality`) and a two-valued portable form otherwise. A `null` value is a value, not `MQ1301`; write it as a typed `null`.
 
 ### Added (docs)
 
+- [Joining a source](docs/site/docs/source-models.md#joining-a-source) and the report aggregates in
+  [Grouped queries](docs/site/docs/grouped-queries.md): the cost of a joined source, `firstBy` and its portable
+  ranked-source route, filtered and exact aggregates.
 - [Hot paths](docs/site/docs/performance.md): measured read costs, when to use `JdbcClient`, and guidance on large
   flat reads and keyset exports.
 
 ### Changed
 
+- A count of a table's identity renders `count(*)` where no row the statement reads can leave the identity null
+  (Part F, R-AGG-19, AC-AGG-27 to AC-AGG-29): `Agg.count(table)`, a count of the id column, `@Aggregate(fn = COUNT)`,
+  a correlated count and the page total. The SQL text changes, the results do not; a test that matches the statement's
+  text sees `count(*)` where it saw `count(t.id)`. A `LEFT` hop, a treated node or a statement with a customizer keeps
+  counting the identity.
 - `list` reads with no fetch plan map tuples straight to models. On the PostgreSQL 16 benchmark's 86k-row,
   12-column read, median time roughly halves
   (194 / 203 → 92 / 108 ms on Hibernate 6.6 / 7.4), and allocation falls from 393 / 429 to 109 / 155 MB per call.

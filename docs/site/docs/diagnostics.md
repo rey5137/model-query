@@ -110,13 +110,14 @@ throws when it affects no rows (see [Bulk writes](bulk-writes.md)).
 | `MQ1806` | Insert: a `chunked` insert-select whose source and target overlap, or whose tables the provider cannot name, or whose source joins through a link or collection table (`@ManyToMany`, `@ElementCollection`, a `@OneToMany` over a join table). |
 | `MQ1807` | Insert: keys requested for an `IDENTITY` or assigned id, or a key type that is not the id's type. |
 | `MQ1808` | Insert: two rows of one insert-values call with a conflict clause share a conflict-key tuple. |
-| `MQ1809` | `persist(persist, returning)`: a query with a `where` or `having` that recorded a filter, `groupBy`, a fetch plan, `customize`, `orderBy`, `keyset` or `primaryKeyFirst`, a lock, or a column the flushed entity cannot fill. A returning write also refuses a column on a table other than the written one, `throughEntities()` and `commitEachChunk()`. |
+| `MQ1809` | `persist(persist, returning)`: a query with a `where` or `having` that recorded a filter, `groupBy`, a fetch plan, `customize`, `orderBy`, `keyset` or `primaryKeyFirst`, a lock, a `joinSource(...)`, or a column the flushed entity cannot fill. A returning write also refuses a column on a table other than the written one, `throughEntities()` and `commitEachChunk()`. |
 | `MQ1901` | `keyset()` or `primaryKeyFirst(...)` on a query over a non-unique source, whose key does not identify a row. |
 | `MQ1902` | A recursive source built wrongly: a `maxDepth` below 1 or above `Integer.MAX_VALUE - 2`, `recursive(...)` on a model with no `@Depth`, a `@Depth` model built without `recursive(...)`, or a `depth(...)` column that is not among the fields. |
-| `MQ1903` | A row lock on a query that reads a source: a locking clause cannot follow through a common table expression. |
+| `MQ1903` | A row lock on a query that reads or joins a source: a locking clause cannot follow through a common table expression. |
 | `MQ1904` | Two branches of one set operation fix the same `@Discriminator` value, two combined sources read different shapes or fields in a different order, type or converter, a `discriminator` column is not a key column, or a side of the operation is a recursive source. |
-| `MQ1905` | A hand-written `ColumnField.of` or `TableField.join` over a source root; a generated outer column is `ColumnField.over(model, root, sourceConstant)`. |
+| `MQ1905` | A hand-written `ColumnField.of` or `TableField.join` over a source root, or `joinSource` on a query rooted at a source; a generated outer column is `ColumnField.over(model, root, sourceConstant)`. |
 | `MQ1906` | A source's `where` predicate whose path crosses a to-many join, which no join inside the CTE can express; use `Filters.exists(path, inner)`. |
+| `MQ1910` | A `joinSource` binding refused when the query is built, before any statement: its `SourceJoin` pairs miss a key field of the source, name a field that is not a key field or pair one twice; the source is not unique (a set operation, a plain `recursive(...)` source or an ungrouped source over one; the message names `tree(...)` when it recurses); one join is bound twice, by name; a source of another model is bound through a raw type; or the joined chains walk more than one recursive source. See [Joining a source](source-models.md#joining-a-source). |
 
 For `MQ1313`, the message names the operator and column; a thrown `RuntimeException` is the cause. Preparation fails
 when adding the filter, rendering when building the statement. A `ModelQueryException` keeps its own code.
@@ -222,8 +223,10 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | `MQ3036` | An outer model's `@PrimaryKey` is not exactly its source's key. |
 | `MQ3037` | A recursive source is not well written: a `@Depth` that is not one `Integer`, a second one, a `@Depth` outside a `@SourceModel`, or `@Window`, `@Aggregate` or `@GroupBy` beside it. |
 | `MQ3038` | A model's `root` is neither an `@Entity` nor a `@SourceModel`, or both. |
-| `MQ3039` | `@Child` whose child model is rooted at a source: a fetch plan has no source to pass it. |
+| `MQ3039` | `@Child` whose child model is rooted at a source or joins one (`@JoinSource`): a fetch plan has no source to pass it. |
 | `MQ3040` | `generateChanges` on a model rooted at a source. A write needs an entity root; read the source through an outer model instead ([Source models](source-models.md)). |
+| `MQ3044` | `@JoinSource` or `@SourceColumn` written wrongly: `on` misses or exceeds the source's key, pairs a key twice or mismatches a type, an unknown root attribute, source field or join, a class that is no `@SourceModel`, a repeated join name, a key field with a converter, a `@SourceColumn` beside `@PrimaryKey` or an annotation that makes the field no column, a model that is not a `@QueryModel` rooted at an entity, or a nested `@Join` model that joins a source. |
+| `MQ3045` | `@Aggregate` with `orderBy` but not `FIRST_BY` (or `FIRST_BY` without one), an unknown or malformed `orderBy` key, a `filter` class that is no public `FilterDefinition` of the model with an `INSTANCE` or no-arg constructor, a `scale` outside 0 to 30 or on a field that is not a `BigDecimal`, or an `AVG` field typed `BigDecimal` over a `Double` or `Float` attribute. |
 | `MQ3201` | Aggregate model: field is primitive. |
 | `MQ3202` | Aggregate model: field type does not match the function's result type. |
 | `MQ3203` | Aggregate model: no `@GroupBy` field and is not `singleGroup`. |
@@ -274,10 +277,10 @@ See [Models and QModels](models.md).
 
 For `MQ4014`, `ProviderSupport#sources()` is empty, there is no `ProviderSupport`, or the provider's `SourceRenderer`
 returned no duplicate-key check for `tree(...)`. An operator requiring a feature also needs an operator gate and a
-provider that serves that feature (`ProviderSupport#operators`), after the vendor check passes. An `Agg.avgExact` with no `AggregateRenderer#exactAverage`, and an `Agg.firstBy` with no `AggregateRenderer#firstBy` (or no native `FILTER` form when filtered), is also `MQ4014`. All are refused before
+provider that serves that feature (`ProviderSupport#operators`), after the vendor check passes. A query that joins a source whose `SourceRenderer` has no `join` hook, an `Agg.avgExact` with no `AggregateRenderer#exactAverage`, and an `Agg.firstBy` with no `AggregateRenderer#firstBy` (or no native `FILTER` form when filtered) are also `MQ4014`. All are refused before
 any statement; the [portability check](portability.md) reports them per declared target with no database attached.
 
-For `MQ4015`, `VendorProfile#operators` refuses an operator's required feature before the provider check (`MQ4014`), and `VendorProfile#aggregates` does the same for an `Agg.firstBy`.
+For `MQ4015`, `VendorProfile#operators` refuses an operator's required feature before the provider check (`MQ4014`), and `VendorProfile#aggregates` does the same for an `Agg.firstBy`: false on MySQL and `OTHER`. A joined source needs the same source features as a source root, so it is `MQ4015` where `CTE` is false (`OTHER`).
 The message names the feature, vendor, operator and column. For sources it names the unsupported feature or depth:
 `maxDepth + 2` must fit `VendorProfile#maxRecursionDepth()` (R-VND-23).
 

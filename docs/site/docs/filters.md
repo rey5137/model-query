@@ -26,6 +26,7 @@ The available filters:
 | Sets | `in`, `notIn` |
 | Strings | `like`, `likeIgnoreCase`, `eqIgnoreCase`, with a `LikeMode` of `EXACT`, `CONTAINS`, `STARTS_WITH` or `ENDS_WITH` |
 | Nulls | `isNull`, `isNotNull`, and a tri-state `isNull(column, Optional<Boolean>)` |
+| Null-safe equality | `notDistinctFrom`, `distinctFrom`, `notDistinctFromColumn`, `distinctFromColumn` (see [below](#null-safe-equality)) |
 | Column against column | `compare(left, Op, right)` |
 | Entity type | `ofType`, `notOfType` (see [Inheritance roots](inheritance-roots.md#entity-type-typeof-oftype-and-notoftype)) |
 | Composition | `or` (two or three branches, or a `List` of them), `not`, `when`, `apply` (reuse a shared fragment) |
@@ -81,6 +82,28 @@ The available filters:
   while MySQL 8.0 was 1.4–3.6x slower due to duplicate weedout and a second root lookup. These are single-laptop
   EXPLAIN observations; check real execution plans and indexes. There is no unique-per-root escape hatch to force a
   join.
+
+## Null-safe equality
+
+`eq` and `ne` leave a `NULL` column unknown. The `@Incubating` null-safe forms treat `NULL` as a value, and are
+two-valued, so they stay correct under `not(...)`, where `not(eq(...))` would drop a `NULL` row:
+
+- `notDistinctFrom(COLUMN, value)` matches rows equal to the value, and a `null` value matches `NULL` rows
+  (`col is null`). A non-null value renders `col = ? and col is not null`, which keeps an index on the column usable.
+- `distinctFrom(COLUMN, value)` is its negation: a row whose column differs from the value, including a `NULL` one.
+- `notDistinctFromColumn(COLUMN, OTHER)` and `distinctFromColumn(COLUMN, OTHER)` compare two columns, both `NULL`
+  counting as equal. H2 and MySQL render their own operator (`is not distinct from`, `<=>`); PostgreSQL, and a provider
+  without the hook, render the portable two-valued `or` form. Two columns with different converters are `MQ1001`.
+
+Each value form has an `Optional` twin, and an empty `Optional` still skips the filter. A literal `null` is a value
+here, not `MQ1301`, but a bare `null` is ambiguous with the `Optional` overload and does not compile, so type it:
+
+```java
+.where(f -> f
+        .notDistinctFrom(QOrderView.COUPON, (String) null)                  // coupon is null
+        .notDistinctFrom(QOrderView.REGION, region)                         // Optional<String>: skipped when empty
+        .distinctFromColumn(QOrderView.TOTAL, QOrderView.PAID_TOTAL))   // differs, NULL counted as a value
+```
 
 ## Literal filters
 
