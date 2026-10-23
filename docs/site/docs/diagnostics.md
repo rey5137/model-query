@@ -79,7 +79,7 @@ throws when it affects no rows (see [Bulk writes](bulk-writes.md)).
 | `MQ1409` | Grouped query: column selected under a `presentBy` join whose key columns are not all group keys. |
 | `MQ1410` | Runtime `groupBy` or group key over a column that selects a whole to-one entity. Group by the id form instead. |
 | `MQ1411` | `Agg.avgExact` over a `Double`, `Float` or another input with no exact rendering, or `Agg.round` / `Expr.round` with a scale below 0 or above 30. Use `Agg.avg` for an approximate average, and a scale from 0 to 30. |
-| `MQ1412` | `filter(...)` on a rounded aggregate (filter the aggregate it rounds), an `Agg.of` field or an already filtered aggregate, with a condition that leaves no filter, reads a correlated value, or is a filtered `count(table)` over an embedded or composite id with no usable first id attribute, or adds a to-many join. |
+| `MQ1412` | `filter(...)` on a rounded aggregate (filter the aggregate it rounds), an `Agg.of` field or an already filtered aggregate, with a condition that leaves no filter, reads a correlated value, or is a filtered `count(table)` over an embedded or composite id with no usable first id attribute, or adds a to-many join; or an `Agg.firstBy` whose order key is an aggregate or window field, or whose value or order key is read through a to-many join. |
 | `MQ1502` | An expression, operator, key, cursor or assignment value cannot bind, or binder failed; see below. |
 | `MQ1505` | A CASE condition uses `add`, `exists`, a sub-select, a correlated value or `op`. |
 | `MQ1508` | An `Expr.constant` cannot be rendered as a literal: its value is not a `String`, `Number` or `Boolean` after the column's converter, the column is not a basic attribute of a root table, the provider has no constant renderer, or it is used other than as a comparison or `in` operand. The message names the cause. |
@@ -270,14 +270,14 @@ See [Models and QModels](models.md).
 | `MQ4012` | A factory is not on one of the declared target vendors; the message names the factory, its vendor, how it was found and the list. |
 | `MQ4013` | The [portability check](portability.md) cannot boot your unit offline for a target: no provider support for its vendor, a vendor with no offline boot (Oracle, SQL Server, `OTHER`), or a version that is not numeric. |
 | `MQ4014` | Missing provider renderer, source check or custom operator feature support; see below. |
-| `MQ4015` | The vendor lacks a source or operator feature, or a recursive source exceeds its depth limit. |
+| `MQ4015` | The vendor lacks a source, operator or aggregate feature, or a recursive source exceeds its depth limit. |
 
 For `MQ4014`, `ProviderSupport#sources()` is empty, there is no `ProviderSupport`, or the provider's `SourceRenderer`
 returned no duplicate-key check for `tree(...)`. An operator requiring a feature also needs an operator gate and a
-provider that serves that feature (`ProviderSupport#operators`), after the vendor check passes. An `Agg.avgExact` with no `AggregateRenderer#exactAverage` is also `MQ4014`. All are refused before
+provider that serves that feature (`ProviderSupport#operators`), after the vendor check passes. An `Agg.avgExact` with no `AggregateRenderer#exactAverage`, and an `Agg.firstBy` with no `AggregateRenderer#firstBy` (or no native `FILTER` form when filtered), is also `MQ4014`. All are refused before
 any statement; the [portability check](portability.md) reports them per declared target with no database attached.
 
-For `MQ4015`, `VendorProfile#operators` refuses an operator's required feature before the provider check (`MQ4014`).
+For `MQ4015`, `VendorProfile#operators` refuses an operator's required feature before the provider check (`MQ4014`), and `VendorProfile#aggregates` does the same for an `Agg.firstBy`.
 The message names the feature, vendor, operator and column. For sources it names the unsupported feature or depth:
 `maxDepth + 2` must fit `VendorProfile#maxRecursionDepth()` (R-VND-23).
 

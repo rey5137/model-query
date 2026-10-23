@@ -53,12 +53,27 @@ public final class ModelQuery<E, K, M> {
      * {@link #UNLIMITED} for {@link #checkPhases}' scratch builds alone, with a stand-in sequence renderer so a model
      * selecting {@code Expr.nextval} is not refused for a vendor fact the scratch lacks: the real build refuses it on
      * this executor's own options (D-132). Its stand-in operator gate serves every feature for the same reason, so a
-     * query with an {@code op} and a customizer passes there (R-VND-23, D-169).
+     * query with an {@code op} and a customizer passes there (R-VND-23, D-169), and so do its aggregate gate and a
+     * renderer whose {@code firstBy} is a NULL literal, for an {@code Agg.firstBy} (R-AGG-16).
      */
     private static final RenderOptions PHASE_SCRATCH_BASE =
             UNLIMITED.withSequenceRenderer((cb, sequence) -> cb.nullLiteral(Long.class))
                     .withOperatorGate(OperatorGate.of("checkPhases' scratch build",
-                            EnumSet.allOf(OperatorFeature.class), EnumSet.allOf(OperatorFeature.class)));
+                            EnumSet.allOf(OperatorFeature.class), EnumSet.allOf(OperatorFeature.class)))
+                    .withAggregateGate(AggregateGate.of("checkPhases' scratch build",
+                            EnumSet.allOf(AggregateFeature.class)))
+                    .withAggregateRenderer(new AggregateRenderer() {
+                        @Override
+                        public Expression<?> firstBy(CriteriaBuilder cb, Expression<?> value, List<Order> orders) {
+                            return cb.nullLiteral(value.getJavaType());
+                        }
+
+                        @Override
+                        public Expression<?> firstBy(CriteriaBuilder cb, Expression<?> value, List<Order> orders,
+                                Predicate filter) {
+                            return cb.nullLiteral(value.getJavaType());
+                        }
+                    });
 
     /**
      * {@link #PHASE_SCRATCH_BASE} with a stand-in binder, for {@link #checkPhases(CriteriaBuilder)} alone: with an

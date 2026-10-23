@@ -4,6 +4,7 @@ import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Expression;
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.Objects;
 import java.util.List;
 import java.util.function.BiFunction;
@@ -135,6 +136,50 @@ public final class Agg {
         }
         requireScale(scale);
         return AggregateField.rounding(value, scale);
+    }
+
+    /**
+     * The value of {@code value} on the first row of each group in the order {@code order}, {@code more}, with the
+     * root's id appended ascending so a tie picks the same row everywhere (R-AGG-16). It is the value's own type and
+     * its converter applies; a group with no row is {@code NULL}. A filtered one ({@link AggregateField#filter}) uses
+     * the database's {@code FILTER}, and the provider must render it. Null precedence follows R-COL-12: say
+     * {@code nullsFirst()} or {@code nullsLast()}.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1412} for an order key that is itself an aggregate or window;
+     *     when the query is built, also a value or order key read through a to-many join, whose rows the root's id
+     *     does not order. At build time too, {@code MQ4015} when the target's vendor has no form of it and
+     *     {@code MQ4014} when the provider cannot render it
+     */
+    @Incubating
+    @SafeVarargs
+    public static <M, C> AggregateField<M, C> firstBy(ScalarField<M, C> value, OrderField<M, ?> order,
+            OrderField<M, ?>... more) {
+        Objects.requireNonNull(value, "value");
+        Objects.requireNonNull(order, "order");
+        Objects.requireNonNull(more, "more");
+        var orders = new ArrayList<OrderField<?, ?>>();
+        orders.add(order);
+        for (OrderField<M, ?> each : more) {
+            orders.add(Objects.requireNonNull(each, "order"));
+        }
+        for (OrderField<?, ?> each : orders) {
+            if (each.column() instanceof ExpressionField<?, ?> key) {
+                checkCorrelated(key);
+            }
+            if (!(each.column() instanceof ScalarField<?, ?>)) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1412, "Agg.firstBy: the order key " + each.column()
+                        + " is an aggregate or a window, which cannot order the rows of an aggregate; order by a "
+                        + "column or expression");
+            }
+        }
+        if (value instanceof ColumnField<M, ?, C> column) {
+            return AggregateField.first(column.table().key(), column.name(), column.type(),
+                    column.isConverted() ? column : null, null, (ctx, cb) -> column.expression(ctx), orders);
+        }
+        ExpressionField<M, C> expression = (ExpressionField<M, C>) value;
+        checkCorrelated(expression);
+        return AggregateField.first(null, "", expression.type(), null, expression,
+                (ctx, cb) -> expression.expression(ctx), orders);
     }
 
     private static final List<Class<?>> EXACT_TYPES =

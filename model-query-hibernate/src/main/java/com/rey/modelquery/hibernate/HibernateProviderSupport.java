@@ -68,9 +68,12 @@ import org.hibernate.query.criteria.HibernateCriteriaBuilder;
 import org.hibernate.query.criteria.JpaCriteriaQuery;
 import org.hibernate.query.criteria.JpaSubQuery;
 import org.hibernate.query.criteria.JpaExpression;
+import org.hibernate.query.criteria.JpaOrder;
 import org.hibernate.query.criteria.JpaPredicate;
 import org.hibernate.query.criteria.ValueHandlingMode;
 import org.hibernate.query.sqm.function.SqmFunctionRegistry;
+import org.hibernate.query.sqm.tree.expression.SqmOrderedSetAggregateFunction;
+import org.hibernate.query.sqm.tree.select.SqmSortSpecification;
 
 /**
  * Hibernate's {@link ProviderSupport}: the vendor from the dialect, without a connection, and the grouped count with
@@ -608,6 +611,39 @@ public final class HibernateProviderSupport implements ProviderSupport {
                     case MAX -> hcb.functionAggregate("max", argument.getJavaType(), filter, argument);
                     default -> AggregateRenderer.super.filtered(cb, kind, argument, condition);
                 };
+            }
+
+            @Override
+            @Incubating
+            public Expression<?> firstBy(CriteriaBuilder cb, Expression<?> value, List<Order> orders) {
+                return firstElement(cb, value, orders, null);
+            }
+
+            @Override
+            @Incubating
+            public Expression<?> firstBy(CriteriaBuilder cb, Expression<?> value, List<Order> orders,
+                    Predicate filter) {
+                return firstElement(cb, value, orders, (JpaPredicate) filter);
+            }
+
+            /**
+             * {@code array_agg(value order by ...)[1]}: the ordered array, then the registered first-element pattern
+             * called with no result type, so Hibernate types it as the array's element and a converter applies. The
+             * first key goes to {@code arrayAgg}, the rest, the root's id among them, onto its within-group order.
+             */
+            @SuppressWarnings({"unchecked", "rawtypes"})
+            private Expression<?> firstElement(CriteriaBuilder cb, Expression<?> value, List<Order> orders,
+                    JpaPredicate filter) {
+                var hcb = (HibernateCriteriaBuilder) cb;
+                var head = (JpaOrder) orders.get(0);
+                JpaExpression<Object[]> array = filter == null
+                        ? hcb.arrayAgg(head, (Expression<Object>) value)
+                        : hcb.arrayAgg(head, filter, (Expression<Object>) value);
+                var within = ((SqmOrderedSetAggregateFunction<?>) array).getWithinGroup();
+                for (Order rest : orders.subList(1, orders.size())) {
+                    within.addSortSpecification((SqmSortSpecification) rest);
+                }
+                return hcb.function(HibernateOperatorFunctions.FIRST_ELEMENT, null, array);
             }
 
             /**

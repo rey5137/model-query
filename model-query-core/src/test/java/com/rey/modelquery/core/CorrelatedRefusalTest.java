@@ -57,6 +57,8 @@ class CorrelatedRefusalTest {
         assertMq(MqCode.MQ1510, () -> Agg.sum(nested));
         assertMq(MqCode.MQ1510, () -> Agg.sumAsLong(nested));
         assertMq(MqCode.MQ1510, () -> Agg.avg(nested));
+        assertMq(MqCode.MQ1510, () -> Agg.firstBy(nested, ID.asc()));
+        assertMq(MqCode.MQ1510, () -> Agg.firstBy(ID, nested.asc()));
         assertMq(MqCode.MQ1510, () -> Agg.sum(Expr.function("as_int", Integer.class, COUNT)));
         assertMq(MqCode.MQ1510, () -> Agg.sumAsLong(Expr.function("as_double", Double.class, COUNT)));
         assertMq(MqCode.MQ1510, () -> Agg.min(nested));

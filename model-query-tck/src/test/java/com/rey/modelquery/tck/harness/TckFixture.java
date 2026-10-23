@@ -174,6 +174,17 @@ public final class TckFixture {
             ps.setLong(4, width);
             ps.setBigDecimal(5, decimals[i - 1]);
         });
+        // Group 1 holds a tie on its greatest key and a NULL key; group 2 only NULL keys; group 3 a NULL value.
+        Object[][] firstBy = {{1, 10, "a", "P"}, {1, 30, "b", "C"}, {1, 30, "c", "P"}, {1, null, "d", "F"},
+                {2, null, "e", "C"}, {2, null, "f", "P"}, {3, 5, null, null}};
+        insert(c, "INSERT INTO first_by_rows (id, grp, k, v, state) VALUES (?,?,?,?,?)", firstBy.length, (ps, i) -> {
+            Object[] row = firstBy[i - 1];
+            ps.setLong(1, i);
+            ps.setInt(2, (Integer) row[0]);
+            ps.setObject(3, row[1], Types.INTEGER);
+            ps.setString(4, (String) row[2]);
+            ps.setString(5, (String) row[3]);
+        });
         insert(c, "INSERT INTO composite_key_items (tenant_id, item_no, label, amount) VALUES (?,?,?,?)",
                 COMPOSITE_KEY_ITEMS, (ps, i) -> {
             int tenant = (i - 1) / COMPOSITE_ITEMS_PER_TENANT + 1;

@@ -156,7 +156,8 @@ public enum MqCode {
     MQ1411("An exact average takes a BigDecimal, Long, Integer or Short input, and a round scale is 0 to 30"),
 
     /** An aggregate's {@code filter} that cannot be placed: repeated, on {@code Agg.of} or correlated (R-AGG-17). */
-    MQ1412("An aggregate filter is repeated, sits on Agg.of, or reads a correlated value or a to-many path"),
+    MQ1412("An aggregate filter is repeated, sits on Agg.of, or reads a correlated value or a to-many path; "
+            + "a firstBy value or order key is read through a to-many join"),
 
     /** An expression reads a column with a {@code ColumnConverter} (R-COL-17). */
     MQ1501("An expression reads a column with a ColumnConverter, which the database computes over without applying it"),
@@ -557,18 +558,18 @@ public enum MqCode {
     /**
      * The persistence provider lacks a source, ordered sub-query or source-feature renderer, including a tree's
      * duplicate-key check, or can't render an operator feature; raised at build time, before any statement (R-SRC-11,
-     * R-SRC-14, R-COL-32, R-VND-25, R-VND-23, R-AGG-18, R-VND-30).
+     * R-SRC-14, R-COL-32, R-VND-25, R-VND-23, R-AGG-16, R-AGG-18, R-VND-30).
      */
     MQ4014("The persistence provider lacks a renderer for a source, ordered sub-query, source feature, "
-            + "treated path, operator feature or exact average"),
+            + "treated path, operator feature, exact average or first-by aggregate"),
 
     /**
-     * The target's vendor lacks a source or operator feature the query uses, {@code VendorProfile#sources} or
-     * {@code VendorProfile#operators} returning false for it, or a recursion deeper than {@code maxRecursionDepth()};
-     * raised before any statement (R-SRC-11, R-VND-23).
+     * The target's vendor lacks a source, operator or aggregate feature the query uses, {@code VendorProfile#sources},
+     * {@code VendorProfile#operators} or {@code VendorProfile#aggregates} returning false for it, or a recursion
+     * deeper than {@code maxRecursionDepth()}; raised before any statement (R-SRC-11, R-VND-23, R-AGG-16).
      */
-    MQ4015("The target's vendor lacks a source or operator feature the query uses, or the recursion is deeper than "
-            + "it allows"),
+    MQ4015("The target's vendor lacks a source, operator or aggregate feature the query uses, or the recursion is "
+            + "deeper than it allows"),
 
     /** A treated statement cannot preserve R-COL-35 for its shape, anchoring or uses (R-VND-26). */
     @Incubating
