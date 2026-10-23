@@ -13,15 +13,21 @@ import com.rey.modelquery.annotations.GroupBy;
 import com.rey.modelquery.annotations.InsertModel;
 import com.rey.modelquery.annotations.Join;
 import com.rey.modelquery.annotations.JoinKind;
+import com.rey.modelquery.annotations.JoinSource;
+import com.rey.modelquery.annotations.JoinSources;
 import com.rey.modelquery.annotations.PrimaryKey;
 import com.rey.modelquery.annotations.QueryModel;
 import com.rey.modelquery.annotations.Selected;
+import com.rey.modelquery.annotations.SourceColumn;
 import com.rey.modelquery.annotations.SourceModel;
 import com.rey.modelquery.annotations.Subtype;
 import com.rey.modelquery.annotations.Transient;
 import com.rey.modelquery.annotations.UpdateModel;
 import com.rey.modelquery.annotations.Window;
 import com.rey.modelquery.processor.ModelDefinition.AggregateDefinition;
+import com.rey.modelquery.processor.ModelDefinition.JoinOn;
+import com.rey.modelquery.processor.ModelDefinition.JoinSourceDefinition;
+import com.rey.modelquery.processor.ModelDefinition.SourceColumnDefinition;
 import com.rey.modelquery.processor.ModelDefinition.ChildDefinition;
 import com.rey.modelquery.processor.ModelDefinition.FilterColumnDefinition;
 import com.rey.modelquery.processor.ModelDefinition.JoinDefinition;
@@ -175,7 +181,8 @@ final class QueryModelReader {
                     discriminator(field),
                     mirror(field, Depth.class) != null,
                     treat(field, Column.class),
-                    mirror(field, Subtype.class) != null));
+                    mirror(field, Subtype.class) != null,
+                    sourceColumn(field)));
         }
         // Both kinds of read may be rooted at a source (R-PROC-39, R-PROC-40). Writes still need an entity.
         TypeElement rootElement = (TypeElement) rootType.asElement();
@@ -191,7 +198,51 @@ final class QueryModelReader {
                 ? read((TypeElement) shapeType.asElement(), Kind.SOURCE) : null;
         return new ModelDefinition(
                 type, rootElement, prefix + type.getSimpleName() + suffix, selectSets, singleGroup, fields,
-                filterColumns(type), kind, generateChanges, generateInserts, origin, source, shape);
+                filterColumns(type), kind, generateChanges, generateInserts, origin, source, shape,
+                kind == Kind.UPDATE || kind == Kind.INSERT ? List.of() : joinSources(type));
+    }
+
+    /** What {@code @SourceColumn} says of {@code field}, or {@code null} when it carries none. */
+    private static SourceColumnDefinition sourceColumn(VariableElement field) {
+        AnnotationMirror mirror = mirror(field, SourceColumn.class);
+        return mirror == null ? null : new SourceColumnDefinition(
+                explicit(mirror, "join") instanceof String join ? join : "",
+                explicit(mirror, "field") instanceof String name ? name : "");
+    }
+
+    /** The {@code @JoinSource}s of {@code type}, written once or repeated inside a {@code @JoinSources}. */
+    private List<JoinSourceDefinition> joinSources(TypeElement type) {
+        var mirrors = new ArrayList<AnnotationMirror>();
+        AnnotationMirror single = mirror(type, JoinSource.class);
+        if (single != null) {
+            mirrors.add(single);
+        }
+        AnnotationMirror container = mirror(type, JoinSources.class);
+        if (container != null && explicit(container, "value") instanceof List<?> repeated) {
+            for (Object value : repeated) {
+                mirrors.add((AnnotationMirror) ((AnnotationValue) value).getValue());
+            }
+        }
+        var joins = new ArrayList<JoinSourceDefinition>();
+        for (AnnotationMirror mirror : mirrors) {
+            TypeMirror source = type(mirror, "source");
+            // A class that is no source model is left for the validator to report (MQ3044).
+            ModelDefinition sourceModel = source instanceof DeclaredType declared && isSourceModel(declared.asElement())
+                    ? read((TypeElement) declared.asElement(), Kind.SOURCE) : null;
+            var on = new ArrayList<JoinOn>();
+            if (explicit(mirror, "on") instanceof List<?> pairs) {
+                for (Object pair : pairs) {
+                    AnnotationMirror each = (AnnotationMirror) ((AnnotationValue) pair).getValue();
+                    on.add(new JoinOn(explicit(each, "column") instanceof String column ? column : "",
+                            explicit(each, "key") instanceof String key ? key : ""));
+                }
+            }
+            joins.add(new JoinSourceDefinition(
+                    explicit(mirror, "name") instanceof String name ? name : "", source, sourceModel,
+                    explicit(mirror, "type") instanceof Element kind ? kind.getSimpleName().toString()
+                            : JoinKind.LEFT.name(), on));
+        }
+        return joins;
     }
 
     /**
@@ -308,7 +359,9 @@ final class QueryModelReader {
                 explicit(mirror, "fn") instanceof Element fn ? fn.getSimpleName().toString() : "",
                 explicit(mirror, "attribute") instanceof String attribute ? attribute : "",
                 expression == null ? bound : expression,
-                Boolean.TRUE.equals(explicit(mirror, "distinct")));
+                Boolean.TRUE.equals(explicit(mirror, "distinct")),
+                strings(mirror, "orderBy"), type(mirror, "filter"),
+                explicit(mirror, "scale") instanceof Integer scale && scale != -1 ? scale : null);
     }
 
     /**

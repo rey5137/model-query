@@ -50,7 +50,7 @@ record ExpressionDefinitionType(TypeElement type, TypeMirror model, TypeMirror v
         return TypeVisibility.hasVisibleConstructor(type, fromPackage);
     }
 
-    private static DeclaredType implemented(Types types, TypeMirror type, String name) {
+    static DeclaredType implemented(Types types, TypeMirror type, String name) {
         if (type.getKind() != TypeKind.DECLARED) {
             return null;
         }

@@ -12,6 +12,7 @@ import com.rey.modelquery.annotations.PrimaryKey;
 import com.rey.modelquery.annotations.Transient;
 import com.rey.modelquery.processor.EntityMetamodel.Resolution;
 import com.rey.modelquery.processor.ModelDefinition.AggregateDefinition;
+import com.rey.modelquery.processor.ModelDefinition.AggregateOrder;
 import com.rey.modelquery.processor.ModelDefinition.FilterColumnDefinition;
 import com.rey.modelquery.processor.ModelDefinition.JoinDefinition;
 import com.rey.modelquery.processor.ModelDefinition.ModelField;
@@ -74,6 +75,10 @@ final class ModelValidator {
 
     private static final String LONG = "java.lang.Long";
     private static final String DOUBLE = "java.lang.Double";
+    private static final String BIG_DECIMAL = "java.math.BigDecimal";
+    /** What {@code Agg.avgExact} averages exactly (R-AGG-18). */
+    private static final Set<String> EXACTLY_AVERAGED =
+            Set.of(BIG_DECIMAL, LONG, "java.lang.Integer", "java.lang.Short");
     private static final String NUMBER = "java.lang.Number";
     private static final String COMPARABLE = "java.lang.Comparable";
     /** What {@code Agg.sum} sums to the column's own type (api/13 R-AGG-03). */
@@ -97,6 +102,7 @@ final class ModelValidator {
     private final ChildChecks childChecks;
     private final SourceModelChecks sourceChecks;
     private final TreatChecks treatChecks;
+    private final JoinSourceChecks joinSourceChecks;
 
     ModelValidator(
             Types types, EntityMetamodel metamodel, NestedModels nestedModels, BuiltInConverters builtIns,
@@ -109,6 +115,7 @@ final class ModelValidator {
         this.childChecks = new ChildChecks(types, metamodel, nestedModels);
         this.sourceChecks = new SourceModelChecks(metamodel, sources);
         this.treatChecks = new TreatChecks(types, metamodel);
+        this.joinSourceChecks = new JoinSourceChecks(types, metamodel);
     }
 
     void validate(ModelDefinition model, Diagnostics diagnostics) {
@@ -193,6 +200,16 @@ final class ModelValidator {
                         + " of treat of " + subtype.getQualifiedName() + " is also generated for " + earlier);
             }
         }
+        joinSourceChecks.check(model, diagnostics);
+        for (var join : model.joinSources()) {
+            String constant = QueryModelReader.constantName(join.name());
+            String earlier = reserved.contains(constant) ? "the generated class"
+                    : constants.putIfAbsent(constant, "join '" + join.name() + "'");
+            if (earlier != null && !earlier.equals("join '" + join.name() + "'")) {
+                diagnostics.error(model.type(), DiagnosticCode.MQ3044, model.name() + " join '" + join.name()
+                        + "': constant " + constant + " is also generated for " + earlier);
+            }
+        }
         var joined = new ArrayList<JoinedTable>();
         // An update model's @Join is MQ3302, an insert model's MQ3502, and joins nothing.
         for (ModelField join : model.readModel() ? model.joins() : List.<ModelField>of()) {
@@ -204,6 +221,11 @@ final class ModelValidator {
                 continue;
             }
             ModelDefinition nested = checkJoin(model, join, where, diagnostics);
+            if (nested != null && !nested.joinSources().isEmpty()) {
+                diagnostics.error(join.element(), DiagnosticCode.MQ3044, where + nested.name()
+                        + " joins a source; a @Join model reads entity columns only");
+                nested = null;
+            }
             if (nested != null) {
                 List<JoinedTable> tables = nestedModels.tables(model, join, nested);
                 claimJoined(tables, constants, reserved, where, diagnostics);
@@ -255,7 +277,8 @@ final class ModelValidator {
             }
             // A branch's @Discriminator is a constant, never a path into the root: read the attribute check as
             // satisfied (R-PROC-38). A @Depth is the CTE's level column, read from no attribute either (R-PROC-37).
-            if (field.column() && !field.discriminated() && !field.depth() && !field.subtype()) {
+            if (field.column() && !field.discriminated() && !field.depth() && !field.subtype()
+                    && field.sourceColumn() == null) {
                 checkAttribute(model, field, where, diagnostics);
             }
             if (field.column() && model.isRecord() && model.readModel() && field.type().getKind().isPrimitive()
@@ -932,6 +955,7 @@ final class ModelValidator {
             diagnostics.error(field.element(), DiagnosticCode.MQ3206,
                     where + "distinct only applies to COUNT, found " + fn);
         }
+        checkAggregateOptions(model, field, where, diagnostics);
         if (aggregate.expression() != null) {
             if (!aggregate.attribute().isEmpty()) {
                 diagnostics.error(field.element(), DiagnosticCode.MQ3208,
@@ -942,6 +966,82 @@ final class ModelValidator {
             return;
         }
         reportAggregate(field, fn, expected(model, field, where, diagnostics), where, diagnostics);
+    }
+
+    /**
+     * {@code MQ3045} for an {@code orderBy} without {@code FIRST_BY} or {@code FIRST_BY} without one, an
+     * {@code orderBy} key that is malformed or names no basic attribute, a {@code filter} class that is no usable
+     * {@code FilterDefinition<Model>}, and a {@code scale} on a field that is not a {@code BigDecimal} or outside 0 to
+     * 30 (R-PROC-45).
+     */
+    private void checkAggregateOptions(ModelDefinition model, ModelField field, String where, Diagnostics diagnostics) {
+        AggregateDefinition aggregate = field.aggregate();
+        boolean firstBy = aggregate.fn().equals("FIRST_BY");
+        if (firstBy && aggregate.orderBy().isEmpty()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3045,
+                    where + "FIRST_BY needs an orderBy; write @Aggregate(orderBy = \"key desc\")");
+        } else if (!firstBy && !aggregate.orderBy().isEmpty()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3045,
+                    where + "orderBy only applies to FIRST_BY, found " + aggregate.fn());
+        }
+        for (String entry : aggregate.orderBy()) {
+            AggregateOrder order = AggregateOrder.parse(entry);
+            if (order == null) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3045, where + "orderBy key '" + entry
+                        + "' is malformed; write 'path [asc|desc] [nulls first|nulls last]'");
+            } else {
+                orderKeyType(model, order.path(), field, where, diagnostics);
+            }
+        }
+        if (aggregate.filter() != null) {
+            FilterDefinitionType definition = FilterDefinitionType.of(types, aggregate.filter());
+            if (definition == null || !types.isSameType(definition.model(), model.type().asType())
+                    || !definition.isVisibleTo(model.packageName())
+                    || !definition.hasInstance() && !definition.hasVisibleConstructor(model.packageName())) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3045, where + display(aggregate.filter())
+                        + " is not a public FilterDefinition<" + model.name()
+                        + ">, or has neither INSTANCE nor a no-arg constructor");
+            }
+        }
+        if (aggregate.scale() != null) {
+            if (!qualified(boxed(field.type())).equals(BIG_DECIMAL)) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3045, where
+                        + "scale rounds a BigDecimal; the field is " + display(boxed(field.type())));
+            }
+            if (aggregate.scale() < 0 || aggregate.scale() > 30) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3045,
+                        where + "scale " + aggregate.scale() + " is outside 0 to 30");
+            }
+        }
+    }
+
+    /**
+     * The type of the basic attribute {@code path} names in the aggregated root, or {@code null} with {@code MQ3045}
+     * when it names none: an {@code orderBy} key is a field of the root (R-PROC-45).
+     */
+    private TypeMirror orderKeyType(
+            ModelDefinition model, String path, ModelField field, String where, Diagnostics diagnostics) {
+        if (model.readsSource()) {
+            ModelField source = model.sourceField(path);
+            if (source == null) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3045, where + "orderBy key '" + path
+                        + "' is no field of " + model.source().name() + ", the source this model reads");
+            }
+            return source == null ? null : boxed(source.type());
+        }
+        Resolution resolution = metamodel.resolve(model.root(), path);
+        if (resolution.attribute() == null) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3045,
+                    where + "orderBy key '" + path + "': " + resolution.problem());
+            return null;
+        }
+        EntityAttribute attribute = resolution.attribute();
+        if (attribute.kind() == EntityAttribute.Kind.TO_ONE || attribute.kind() == EntityAttribute.Kind.COLLECTION) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3045, where + "orderBy key '" + path
+                    + "' is an association on " + model.root().getSimpleName() + "; order by a basic attribute");
+            return null;
+        }
+        return boxed(attribute.type());
     }
 
     /**
@@ -1111,7 +1211,19 @@ final class ModelValidator {
                 diagnostics.error(field.element(), DiagnosticCode.MQ3202, where + "SUM over " + sourceName
                         + " is not supported; it sums BigDecimal, Double, Long, Integer, Short and Byte");
             }
+            case "FIRST_BY" -> {
+                return new Expected(qualified(source), over, false);
+            }
             case "AVG" -> {
+                if (qualified(boxed(field.type())).equals(BIG_DECIMAL) && isSubtypeOf(source, NUMBER)) {
+                    // The exact average, as sum / count in BigDecimal (R-AGG-18).
+                    if (EXACTLY_AVERAGED.contains(qualified(source))) {
+                        return new Expected(BIG_DECIMAL, over, false);
+                    }
+                    diagnostics.error(field.element(), DiagnosticCode.MQ3045, where + over + " is inexact; an "
+                            + "exact average takes a BigDecimal, Long, Integer or Short attribute");
+                    return null;
+                }
                 if (isSubtypeOf(source, NUMBER)) {
                     return new Expected(DOUBLE, over, false);
                 }

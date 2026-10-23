@@ -154,6 +154,14 @@ enum DiagnosticCode {
     /** A {@code @Subtype} is repeated, has another type or annotation, or is source-rooted or written. */
     MQ3043("Invalid @Subtype declaration"),
 
+    /** A {@code @JoinSource} whose {@code on} misses or exceeds the source key, mismatches a type or names an unknown
+     * field or a non-unique source, or a {@code @SourceColumn} naming an unknown join or field (R-PROC-44). */
+    MQ3044("Invalid @JoinSource or @SourceColumn declaration"),
+
+    /** An {@code @Aggregate} {@code orderBy}, {@code filter} or {@code scale} that does not fit its function or
+     * field, or an {@code AVG} field over an input an exact average refuses (R-PROC-45). */
+    MQ3045("Invalid @Aggregate orderBy, filter or scale"),
+
     /** An {@code @Aggregate} field is primitive, though an aggregate can be {@code NULL}. */
     MQ3201("@Aggregate field is primitive"),
 

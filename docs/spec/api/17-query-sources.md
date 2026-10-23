@@ -14,7 +14,7 @@ check site, the grouped count and the composite node key — land with M26.1, as
 unique, completes AC-SRC-18 and AC-SRC-22 for every statement kind, and adds `R-SRC-15` and AC-SRC-17, AC-SRC-19,
 AC-SRC-20 and AC-SRC-23. A plain `recursive(...)` source keeps R-SRC-09's non-unique refusals. M32.6 adds `R-SRC-21`
 and `R-SRC-22` with AC-SRC-42 to AC-SRC-50 (D-185 Part A, D-187), and names the joined source in `R-SRC-08`,
-`R-SRC-11`, `R-SRC-12`, `R-SRC-14`, `R-SRC-15` and `R-SRC-18`; `@JoinSource` and `@SourceColumn` land with M32.7.
+`R-SRC-11`, `R-SRC-12`, `R-SRC-14`, `R-SRC-15` and `R-SRC-18`; `@JoinSource` and `@SourceColumn` are `processor/30` R-PROC-44.
 
 ---
 
@@ -580,9 +580,9 @@ and index advice.
 ## 9. Joining a source to an entity-rooted query
 
 **R-SRC-21** *(D-185, D-187; `@Incubating`)* **A unique source, on its full key.** A query rooted at an entity joins a
-source with `ModelQuery.Builder#joinSource(SourceJoin<M, S>, SourceQuery<S>)` (RFC 0020 A.1, A.2). `@JoinSource`,
-`@SourceColumn` and the generated `query(...)` that takes each joined source land with M32.7; this rule is the runtime
-API they generate against.
+source with `ModelQuery.Builder#joinSource(SourceJoin<M, S>, SourceQuery<S>)` (RFC 0020 A.1, A.2). `@JoinSource`
+and `@SourceColumn` (`processor/30` R-PROC-44) generate a `query(...)` that takes each joined source; this rule is the
+runtime API they generate against.
 
 - **`SourceJoin`.** `SourceJoin<M, S>` (`core`) is immutable (INV-9): a name, the source model, a `JoinKind` (`LEFT`,
   or `INNER` to keep only the outer rows a source row matches; no other kind) and the key pairs
@@ -637,7 +637,7 @@ returns, refuses a joined source with `MQ4014` and still renders every other sou
   R-SRC-14's order; the message names the join (`join 'nodes' of FolderNode`). An outer row is checked whether or not
   the walk reached it; only an empty result is not (R-SRC-14).
 - **Locks, children, writes.** A lock is `MQ1903` (R-SRC-11); a `@Child` whose child model joins a source is `MQ3039`
-  (M32.7); `ModelUpdate`, `ModelDelete`, `InsertColumns` and `ModelInsert.select` take no source.
+  (R-PROC-44); `ModelUpdate`, `ModelDelete`, `InsertColumns` and `ModelInsert.select` take no source.
 
 ## 10. Acceptance criteria
 
@@ -687,8 +687,8 @@ returns, refuses a joined source with `MQ4014` and still renders every other sou
 | AC-SRC-42 | On every Tier-1 vendor and both Hibernate lines, two `LEFT` joins of one grouped source model return the hand-written SQL's rows, an outer row with no source row reading NULL and the joins staying apart; `Agg.count` over a `LEFT`-joined source is `0` for an unmatched row (R-SRC-21, AC-AGG-29). |
 | AC-SRC-43 | The join is in every statement of R-SRC-12's list (content, count, both primary-key-first steps, keyset page, `byKeys`, `one(q, key)`, every export page) with each body's parameters bound once per statement; a provider without `SourceRenderer#join`, or a Hibernate line without `JpaFrom#join(JpaCteCriteria, SqmJoinType)`, is `MQ4014` before any statement; a fetch plan whose enricher reads a joined column runs (R-SRC-21, R-SRC-22). |
 | AC-SRC-44 | `INNER` drops an unmatched outer row in content and count alike; keyset pages and a keyset export ordered by a joined column lose no row (R-SRC-21). |
-| AC-SRC-45 | `MQ1910` for a partial key, an extra pair, a key field paired twice, a join bound twice, a non-unique source and a plain `recursive(...)` source (naming `tree(...)`), before any statement; the same join over a `tree(...)` source builds; a `join.root()` as a `ModelQuery` or `SourceQuery` builder root is `MQ1203`, and a returning query that joins a source, `INNER` or `LEFT`, is `MQ1809` before any statement (R-SRC-21, R-WRT-48). `MQ3044` lands with M32.7. |
-| AC-SRC-46 | `withLock(...)` on a query that joins a source is `MQ1903` before any statement (R-SRC-11). `MQ3039` for a child model that joins a source lands with M32.7. |
+| AC-SRC-45 | `MQ1910` for a partial key, an extra pair, a key field paired twice, a join bound twice, a non-unique source and a plain `recursive(...)` source (naming `tree(...)`), before any statement, whether hand-written or passed to a generated `query(...)` (the processor does not check uniqueness, D-190); the same join over a `tree(...)` source builds; a `join.root()` as a `ModelQuery` or `SourceQuery` builder root is `MQ1203`, and a returning query that joins a source, `INNER` or `LEFT`, is `MQ1809` before any statement (R-SRC-21, R-WRT-48). `MQ3044` for a malformed generated join is `processor/32` AC-PROC-46; a non-unique source is not a compile-time error, only `MQ1910` at build time (D-190, narrowing RFC 0020's compile-time check). |
+| AC-SRC-46 | `withLock(...)` on a query that joins a source is `MQ1903` before any statement (R-SRC-11). `MQ3039` for a child model that joins a source (`processor/32` AC-PROC-46, R-PROC-44). |
 | AC-SRC-47 | A profile without `SourceFeature.CTE` is `MQ4015` before any statement, and `PortabilityCheck` reports `MQ4015` on an `OTHER` target alone (R-SRC-11). |
 | AC-SRC-48 | Per vendor and Hibernate line, a SQL snapshot of a `LEFT`-joined tree: `with recursive` on H2 too, the walk filter in the join's `on`, the depth, cycle and duplicate-key sub-selects in the selection, and every outer row kept (R-SRC-22). |
 | AC-SRC-49 | Through a joined tree, `MQ2701`, `MQ2702` and `MQ2703` name the join on content, count, count over groups, offset, primary-key-first and keyset pages, both `one` calls, `byKeys`, every export, a stream, a fetch plan's parent read and a `through` child load; an unreached `LEFT` row still raises, an empty `INNER` read returns empty; `MQ2703` precedes `MQ2003`, `MQ2005` and `MQ2202`; `Agg.count` over the `LEFT` join is `0` for an unreached node (R-SRC-14, R-SRC-15, R-SRC-22). |

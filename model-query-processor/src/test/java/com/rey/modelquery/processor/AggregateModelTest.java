@@ -308,7 +308,7 @@ class AggregateModelTest {
                 public record SalesSummary(
                         @Aggregate(fn = AggregateFunction.COUNT) Integer lines,
                         @Aggregate(fn = AggregateFunction.SUM, attribute = "amount") Double revenue,
-                        @Aggregate(fn = AggregateFunction.AVG, attribute = "amount") BigDecimal average,
+                        @Aggregate(fn = AggregateFunction.AVG, attribute = "amount") Long average,
                         @Aggregate(fn = AggregateFunction.MAX, attribute = "placedOn") String latest) {}
                 """);
 
@@ -317,7 +317,7 @@ class AggregateModelTest {
                 message(DiagnosticCode.MQ3202,
                         "SalesSummary.revenue: SUM over BigDecimal returns BigDecimal, field is Double"),
                 message(DiagnosticCode.MQ3202,
-                        "SalesSummary.average: AVG over BigDecimal returns Double, field is BigDecimal"),
+                        "SalesSummary.average: AVG over BigDecimal returns Double, field is Long"),
                 message(DiagnosticCode.MQ3202,
                         "SalesSummary.latest: MAX over LocalDate returns LocalDate, field is String"));
     }
@@ -555,5 +555,143 @@ class AggregateModelTest {
         assertThat(errors(compilation)).containsExactly(message(DiagnosticCode.MQ3002,
                 "OrderSales.buyers: @Aggregate attribute 'customer' is an association on OrderEntity; "
                         + "aggregate a basic attribute"));
+    }
+
+    private static final JavaFileObject REFUNDS_ONLY = source("shop.RefundsOnly", """
+            package shop;
+
+            import com.rey.modelquery.core.FilterDefinition;
+            import com.rey.modelquery.core.Filters;
+            import java.util.function.UnaryOperator;
+
+            public final class RefundsOnly implements FilterDefinition<SalesSummary> {
+                @Override
+                public UnaryOperator<Filters<SalesSummary>> condition() {
+                    return f -> f.eq(QSalesSummary.REGION, "refund");
+                }
+            }
+            """);
+
+    @Test
+    void ac_agg_26_an_avg_on_a_big_decimal_is_the_exact_average_and_scale_rounds_it() {
+        Compilation compilation = compileSummary("""
+                @QueryModel(root = SaleEntity.class)
+                public record SalesSummary(
+                        @GroupBy String region,
+                        @Aggregate(fn = AggregateFunction.AVG, attribute = "amount") BigDecimal average,
+                        @Aggregate(fn = AggregateFunction.AVG, attribute = "units", scale = 2) BigDecimal perUnit,
+                        @Aggregate(fn = AggregateFunction.AVG, attribute = "weight") Double weight) {}
+                """);
+
+        assertThat(compilation).succeededWithoutWarnings();
+        String generated = generatedFlat(compilation, "shop.QSalesSummary");
+        assertThat(generated)
+                .contains("Agg.avgExact( ColumnField.of(SalesSummary.class, ROOT, \"amount\", BigDecimal.class))"
+                        + ".named(\"average\");")
+                .contains("Agg.round(Agg.avgExact( ColumnField.of(SalesSummary.class, ROOT, \"units\", "
+                        + "Integer.class)), 2).named(\"perUnit\");")
+                .contains("Agg.avg( ColumnField.of(SalesSummary.class, ROOT, \"weight\", Double.class))");
+    }
+
+    @Test
+    void ac_proc_45_an_explicit_scale_of_minus_one_is_unset() {
+        Compilation compilation = compileSummary("""
+                @QueryModel(root = SaleEntity.class)
+                public record SalesSummary(
+                        @GroupBy String region,
+                        @Aggregate(fn = AggregateFunction.AVG, attribute = "amount", scale = -1) BigDecimal average) {}
+                """);
+
+        assertThat(compilation).succeededWithoutWarnings();
+        assertThat(generatedFlat(compilation, "shop.QSalesSummary")).doesNotContain("Agg.round(");
+    }
+
+    @Test
+    void ac_agg_26_a_filter_is_applied_to_the_aggregate_before_it_is_rounded() {
+        Compilation compilation = compile(SALE_ENTITY, REFUNDS_ONLY, summary("""
+                @QueryModel(root = SaleEntity.class)
+                public record SalesSummary(
+                        @GroupBy String region,
+                        @Aggregate(fn = AggregateFunction.SUM, attribute = "amount", filter = RefundsOnly.class)
+                        BigDecimal refunds,
+                        @Aggregate(fn = AggregateFunction.AVG, attribute = "amount", filter = RefundsOnly.class,
+                                scale = 2) BigDecimal averageRefund) {}
+                """));
+
+        assertThat(compilation).succeededWithoutWarnings();
+        String generated = generatedFlat(compilation, "shop.QSalesSummary");
+        assertThat(generated)
+                .contains("BigDecimal.class)).filter(new RefundsOnly().condition()).named(\"refunds\");")
+                .contains("Agg.round(Agg.avgExact( ColumnField.of(SalesSummary.class, ROOT, \"amount\", "
+                        + "BigDecimal.class)).filter(new RefundsOnly().condition()), 2).named(\"averageRefund\");");
+    }
+
+    @Test
+    void ac_agg_26_first_by_orders_the_group_by_its_keys() {
+        Compilation compilation = compileSummary("""
+                @QueryModel(root = SaleEntity.class)
+                public record SalesSummary(
+                        @GroupBy String region,
+                        @Aggregate(fn = AggregateFunction.FIRST_BY, attribute = "product",
+                                orderBy = {"amount desc nulls last", "units"}) String top) {}
+                """);
+
+        assertThat(compilation).succeededWithoutWarnings();
+        assertThat(generatedFlat(compilation, "shop.QSalesSummary")).contains("Agg.firstBy( ColumnField.of("
+                + "SalesSummary.class, ROOT, \"product\", String.class), ColumnField.of(SalesSummary.class, ROOT, "
+                + "\"amount\", BigDecimal.class).desc().nullsLast(), ColumnField.of(SalesSummary.class, ROOT, "
+                + "\"units\", Integer.class).asc()).named(\"top\");");
+    }
+
+    @Test
+    void ac_agg_26_mq3045_for_every_orderby_filter_and_scale_misfit() {
+        Compilation compilation = compile(SALE_ENTITY, REFUNDS_ONLY, summary("""
+                @QueryModel(root = SaleEntity.class)
+                public record SalesSummary(
+                        @GroupBy String region,
+                        @Aggregate(fn = AggregateFunction.FIRST_BY, attribute = "product") String noOrder,
+                        @Aggregate(fn = AggregateFunction.MAX, attribute = "amount", orderBy = "units")
+                        BigDecimal strayOrder,
+                        @Aggregate(fn = AggregateFunction.FIRST_BY, attribute = "product", orderBy = "units up")
+                        String malformed,
+                        @Aggregate(fn = AggregateFunction.FIRST_BY, attribute = "product", orderBy = "nope")
+                        String unknown,
+                        @Aggregate(fn = AggregateFunction.SUM, attribute = "units", scale = 2) Long scaledLong,
+                        @Aggregate(fn = AggregateFunction.SUM, attribute = "amount", scale = 31) BigDecimal tooFine,
+                        @Aggregate(fn = AggregateFunction.AVG, attribute = "weight") BigDecimal inexact,
+                        @Aggregate(fn = AggregateFunction.SUM, attribute = "amount", filter = String.class)
+                        BigDecimal badFilter) {}
+                """));
+
+        assertThat(errors(compilation)).containsExactlyInAnyOrder(
+                message(DiagnosticCode.MQ3045, "SalesSummary.noOrder: FIRST_BY needs an orderBy; "
+                        + "write @Aggregate(orderBy = \"key desc\")"),
+                message(DiagnosticCode.MQ3045, "SalesSummary.strayOrder: orderBy only applies to FIRST_BY, found MAX"),
+                message(DiagnosticCode.MQ3045, "SalesSummary.malformed: orderBy key 'units up' is malformed; "
+                        + "write 'path [asc|desc] [nulls first|nulls last]'"),
+                message(DiagnosticCode.MQ3045, "SalesSummary.unknown: orderBy key 'nope': "
+                        + "no attribute 'nope' on SaleEntity"),
+                message(DiagnosticCode.MQ3045, "SalesSummary.scaledLong: scale rounds a BigDecimal; the field is Long"),
+                message(DiagnosticCode.MQ3045, "SalesSummary.tooFine: scale 31 is outside 0 to 30"),
+                message(DiagnosticCode.MQ3045, "SalesSummary.inexact: AVG over Double is inexact; an exact average "
+                        + "takes a BigDecimal, Long, Integer or Short attribute"),
+                message(DiagnosticCode.MQ3045, "SalesSummary.badFilter: String is not a public FilterDefinition<"
+                        + "SalesSummary>, or has neither INSTANCE nor a no-arg constructor"));
+    }
+
+    @Test
+    void ac_agg_26_an_association_as_an_orderby_key_is_mq3045() {
+        JavaFileObject view = source("shop.OrderSales", IMPORTS + """
+                @QueryModel(root = OrderEntity.class, singleGroup = true)
+                public record OrderSales(
+                        @Aggregate(fn = AggregateFunction.FIRST_BY, attribute = "id", orderBy = "customer")
+                        Long first) {}
+                """);
+
+        Compilation compilation = compile(CUSTOMER_ENTITY, ORDER_ENTITY, view);
+
+        assertThat(errors(compilation)).containsExactly(message(DiagnosticCode.MQ3045,
+                "OrderSales.first: orderBy key 'customer' is an association on OrderEntity; "
+                        + "order by a basic attribute"));
     }
 }

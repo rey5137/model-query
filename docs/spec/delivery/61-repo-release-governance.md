@@ -228,7 +228,9 @@ The RFC 0018 members (D-177, M30) are `@Incubating` through 1.0: `CountMode.INLI
 `ParameterSink` and `ChildLoad` also carry `@Incubating`, which marks a change to them breaking (R-REL-08).
 
 The RFC 0020 Part A members (D-185, D-187, M32.6) are `@Incubating` through 1.0: `SourceJoin` with its nested `On`,
-`ModelQuery.Builder#joinSource`, `SourceRenderer#join` and `MqCode.MQ1910` (`api/17` R-SRC-21, R-SRC-22).
+`ModelQuery.Builder#joinSource`, `SourceRenderer#join` and `MqCode.MQ1910` (`api/17` R-SRC-21, R-SRC-22). The processor side (D-188, D-189, M32.7) is `@Incubating` too: `@JoinSource` with its
+nested `On`, `@JoinSources`, `@SourceColumn`, `@Aggregate`'s `orderBy`, `filter` and `scale`, `AggregateFunction.FIRST_BY` and the
+core `FilterDefinition` (`processor/30` R-PROC-44, R-PROC-45).
 `ModelQuery#joinsSource()` and `BuiltQuery#recursionJoin()`, which names a joined walk in its check messages, are
 `@EngineFacing`, so they are not API; they also carry `@Incubating`, which marks a change to them breaking (R-REL-08).
 

@@ -61,6 +61,13 @@ final class ChildChecks {
                     + child.source().name() + ", a @SourceModel; a fetch plan has no source to pass it");
             return;
         }
+        if (child != null && !child.joinSources().isEmpty()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3039, where + child.name() + " joins "
+                    + child.joinSources().stream().map(join -> "'" + join.name() + "'")
+                            .collect(java.util.stream.Collectors.joining(", "))
+                    + ", a @SourceModel; a fetch plan has no source to pass it");
+            return;
+        }
         if (child == null && model.origin() != model.type() && field.child().model() != null
                 && !nestedModels.isModel((TypeElement) ((DeclaredType) field.child().model()).asElement())) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3026,
