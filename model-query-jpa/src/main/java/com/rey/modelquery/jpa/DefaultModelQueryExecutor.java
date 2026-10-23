@@ -479,6 +479,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         TypedQuery<Tuple> query = limited(q, built, limit);
         applyLock(lock, q, query);
+        if (isFlatEligible(q, built)) {
+            return mapFlat(q, built, query);
+        }
         return models(q, mapAll(q, built, query));
     }
 
@@ -3297,6 +3300,30 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         int ownBinds = em.createQuery(byKeys.query()).getParameters().size() + byKeys.joins().repeatedExpressionBinds();
         withinBindLimit(q, ownBinds + key.columns().size(), 0);
         return keyLimits.clamp(ownBinds, key.columns().size(), primaryKeyFirstBatchSize);
+    }
+
+    /**
+     * Whether {@code q} and {@code built} are eligible for flat-row mapping: no fetch plan, no to-many join in the
+     * statement (a customizer's or one R-EXE-16 keeps), and no customizer (D-184).
+     */
+    static boolean isFlatEligible(ModelQuery<?, ?, ?> q, BuiltQuery<?> built) {
+        return q.fetch().isEmpty()
+                && !q.hasCustomizer()
+                && built.query().getRoots().stream().noneMatch(DefaultModelQueryExecutor::hasToManyJoin);
+    }
+
+    /**
+     * Maps {@code query}'s tuples directly to models without {@link Loaded} or {@link Row} retention (P-B.2, D-184).
+     * Presizes the list to the materialized result size (exact, never from {@code Limit.of(Integer.MAX_VALUE)}).
+     */
+    private <M> List<M> mapFlat(Object label, BuiltQuery<M> built, TypedQuery<Tuple> query) {
+        List<Tuple> tuples = rows(label, built, query);
+        List<M> result = new ArrayList<>(tuples.size());
+        for (Tuple tuple : tuples) {
+            Row row = built.selection().row(tuple);
+            result.add(built.map(row));
+        }
+        return result;
     }
 
     private <M> List<Loaded<M>> mapAll(Object label, BuiltQuery<M> built, TypedQuery<Tuple> query) {
