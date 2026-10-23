@@ -1,0 +1,1151 @@
+### POSTGRESQL | A.1/page of 20 | a correlated | no index
+-- select bd1_0.id,bd1_0.business_date,bd1_0.counted_cash,(select sum(s1_0.cash_total) from sale s1_0 where s1_0.business_date=bd1_0.business_date),(select sum(s2_0.total) from sale s2_0 where s2_0.business_date=bd1_0.business_date) from business_day bd1_0 where not(bd1_0.counted_cash=(select sum(s3_0.cash_total) from sale s3_0 where s3_0.business_date=bd1_0.business_date) and bd1_0.counted_cash is not null and (select sum(s4_0.cash_total) from sale s4_0 where s4_0.business_date=bd1_0.business_date) is not null or bd1_0.counted_cash is null and (select sum(s5_0.cash_total) from sale s5_0 where s5_0.business_date=bd1_0.business_date) is null) order by 2 desc fetch first ? rows only || 20
+Limit  (cost=0.15..71187.07 rows=20 width=84) (actual time=2.511..49.674 rows=20 loops=1)
+  Buffers: shared hit=19922
+  ->  Index Scan Backward using business_day_business_date_key on business_day bd1_0  (cost=0.15..1292042.80 rows=363 width=84) (actual time=2.511..49.672 rows=20 loops=1)
+        Filter: (((counted_cash IS NOT NULL) OR ((SubPlan 5) IS NOT NULL)) AND ((counted_cash <> (SubPlan 3)) OR (counted_cash IS NULL) OR ((SubPlan 4) IS NULL)))
+        Buffers: shared hit=19922
+        SubPlan 1
+          ->  Aggregate  (cost=709.50..709.51 rows=1 width=32) (actual time=0.821..0.821 rows=1 loops=20)
+                Buffers: shared hit=6640
+                ->  Seq Scan on sale s1_0  (cost=0.00..707.00 rows=1000 width=4) (actual time=0.491..0.774 rows=1000 loops=20)
+                      Filter: (business_date = bd1_0.business_date)
+                      Rows Removed by Filter: 29000
+                      Buffers: shared hit=6640
+        SubPlan 2
+          ->  Aggregate  (cost=709.50..709.51 rows=1 width=32) (actual time=0.831..0.831 rows=1 loops=20)
+                Buffers: shared hit=6640
+                ->  Seq Scan on sale s2_0  (cost=0.00..707.00 rows=1000 width=6) (actual time=0.494..0.778 rows=1000 loops=20)
+                      Filter: (business_date = bd1_0.business_date)
+                      Rows Removed by Filter: 29000
+                      Buffers: shared hit=6640
+        SubPlan 5
+          ->  Aggregate  (cost=709.50..709.51 rows=1 width=32) (never executed)
+                ->  Seq Scan on sale s5_0  (cost=0.00..707.00 rows=1000 width=4) (never executed)
+                      Filter: (business_date = bd1_0.business_date)
+        SubPlan 3
+          ->  Aggregate  (cost=709.50..709.51 rows=1 width=32) (actual time=0.831..0.831 rows=1 loops=20)
+                Buffers: shared hit=6640
+                ->  Seq Scan on sale s3_0  (cost=0.00..707.00 rows=1000 width=4) (actual time=0.497..0.783 rows=1000 loops=20)
+                      Filter: (business_date = bd1_0.business_date)
+                      Rows Removed by Filter: 29000
+                      Buffers: shared hit=6640
+        SubPlan 4
+          ->  Aggregate  (cost=709.50..709.51 rows=1 width=32) (never executed)
+                ->  Seq Scan on sale s4_0  (cost=0.00..707.00 rows=1000 width=4) (never executed)
+                      Filter: (business_date = bd1_0.business_date)
+Planning Time: 0.045 ms
+Execution Time: 49.706 ms
+
+### POSTGRESQL | A.1/page of 20 | b cte | no index
+-- with cte0 (mq_businessDate,mq_cash,mq_total) as (select s1_0.business_date,sum(s1_0.cash_total),sum(s1_0.total) from sale s1_0 group by 1) select bd1_0.id,bd1_0.business_date,bd1_0.counted_cash,var_1_11_0.mq_cash,var_1_11_0.mq_total from business_day bd1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_businessDate=bd1_0.business_date where not(bd1_0.counted_cash=var_1_11_0.mq_cash and bd1_0.counted_cash is not null and var_1_11_0.mq_cash is not null or bd1_0.counted_cash is null and var_1_11_0.mq_cash is null) order by 2 desc fetch first ? rows only || 20
+Limit  (cost=858.63..859.78 rows=20 width=84) (actual time=3.987..3.993 rows=20 loops=1)
+  Buffers: shared hit=334
+  ->  Merge Left Join  (cost=858.63..879.55 rows=364 width=84) (actual time=3.987..3.993 rows=20 loops=1)
+        Merge Cond: (bd1_0.business_date = var_1_11_0.mq_businessdate)
+        Filter: (((bd1_0.counted_cash IS NOT NULL) OR (var_1_11_0.mq_cash IS NOT NULL)) AND ((bd1_0.counted_cash <> var_1_11_0.mq_cash) OR (bd1_0.counted_cash IS NULL) OR (var_1_11_0.mq_cash IS NULL)))
+        Buffers: shared hit=334
+        ->  Index Scan Backward using business_day_business_date_key on business_day bd1_0  (cost=0.15..19.62 rows=365 width=20) (actual time=0.004..0.006 rows=20 loops=1)
+              Buffers: shared hit=2
+        ->  Sort  (cost=858.49..858.56 rows=30 width=68) (actual time=3.981..3.982 rows=20 loops=1)
+              Sort Key: var_1_11_0.mq_businessdate DESC
+              Sort Method: quicksort  Memory: 26kB
+              Buffers: shared hit=332
+              ->  Subquery Scan on var_1_11_0  (cost=857.00..857.75 rows=30 width=68) (actual time=3.971..3.976 rows=30 loops=1)
+                    Buffers: shared hit=332
+                    ->  HashAggregate  (cost=857.00..857.45 rows=30 width=68) (actual time=3.970..3.975 rows=30 loops=1)
+                          Group Key: s1_0.business_date
+                          Batches: 1  Memory Usage: 48kB
+                          Buffers: shared hit=332
+                          ->  Seq Scan on sale s1_0  (cost=0.00..632.00 rows=30000 width=14) (actual time=0.003..0.990 rows=30000 loops=1)
+                                Buffers: shared hit=332
+Planning Time: 0.034 ms
+Execution Time: 4.012 ms
+
+### POSTGRESQL | A.1/page of 20 | c derived | no index
+-- select bd1_0.id,bd1_0.business_date,bd1_0.counted_cash,var_1_11_0.mq_cash,var_1_11_0.mq_total from business_day bd1_0 left join (select s1_0.business_date,sum(s1_0.cash_total),sum(s1_0.total) from sale s1_0 group by 1) var_1_11_0(mq_businessDate,mq_cash,mq_total) on var_1_11_0.mq_businessDate=bd1_0.business_date where not(bd1_0.counted_cash=var_1_11_0.mq_cash and bd1_0.counted_cash is not null and var_1_11_0.mq_cash is not null or bd1_0.counted_cash is null and var_1_11_0.mq_cash is null) order by 2 desc fetch first ? rows only || 20
+Limit  (cost=858.63..859.78 rows=20 width=84) (actual time=3.967..3.974 rows=20 loops=1)
+  Buffers: shared hit=334
+  ->  Merge Left Join  (cost=858.63..879.55 rows=364 width=84) (actual time=3.967..3.973 rows=20 loops=1)
+        Merge Cond: (bd1_0.business_date = var_1_11_0.mq_businessdate)
+        Filter: (((bd1_0.counted_cash IS NOT NULL) OR (var_1_11_0.mq_cash IS NOT NULL)) AND ((bd1_0.counted_cash <> var_1_11_0.mq_cash) OR (bd1_0.counted_cash IS NULL) OR (var_1_11_0.mq_cash IS NULL)))
+        Buffers: shared hit=334
+        ->  Index Scan Backward using business_day_business_date_key on business_day bd1_0  (cost=0.15..19.62 rows=365 width=20) (actual time=0.004..0.005 rows=20 loops=1)
+              Buffers: shared hit=2
+        ->  Sort  (cost=858.49..858.56 rows=30 width=68) (actual time=3.962..3.962 rows=20 loops=1)
+              Sort Key: var_1_11_0.mq_businessdate DESC
+              Sort Method: quicksort  Memory: 26kB
+              Buffers: shared hit=332
+              ->  Subquery Scan on var_1_11_0  (cost=857.00..857.75 rows=30 width=68) (actual time=3.951..3.957 rows=30 loops=1)
+                    Buffers: shared hit=332
+                    ->  HashAggregate  (cost=857.00..857.45 rows=30 width=68) (actual time=3.951..3.955 rows=30 loops=1)
+                          Group Key: s1_0.business_date
+                          Batches: 1  Memory Usage: 48kB
+                          Buffers: shared hit=332
+                          ->  Seq Scan on sale s1_0  (cost=0.00..632.00 rows=30000 width=14) (actual time=0.003..0.990 rows=30000 loops=1)
+                                Buffers: shared hit=332
+Planning Time: 0.025 ms
+Execution Time: 3.993 ms
+
+### POSTGRESQL | A.1/full export | a correlated | no index
+-- select bd1_0.id,bd1_0.business_date,bd1_0.counted_cash,(select sum(s1_0.cash_total) from sale s1_0 where s1_0.business_date=bd1_0.business_date),(select sum(s2_0.total) from sale s2_0 where s2_0.business_date=bd1_0.business_date) from business_day bd1_0 where not(bd1_0.counted_cash=(select sum(s3_0.cash_total) from sale s3_0 where s3_0.business_date=bd1_0.business_date) and bd1_0.counted_cash is not null and (select sum(s4_0.cash_total) from sale s4_0 where s4_0.business_date=bd1_0.business_date) is not null or bd1_0.counted_cash is null and (select sum(s5_0.cash_total) from sale s5_0 where s5_0.business_date=bd1_0.business_date) is null) order by 1
+Index Scan using business_day_pkey on business_day bd1_0  (cost=0.15..1292042.80 rows=363 width=84) (actual time=79.221..815.267 rows=365 loops=1)
+  Filter: (((counted_cash IS NOT NULL) OR ((SubPlan 5) IS NOT NULL)) AND ((counted_cash <> (SubPlan 3)) OR (counted_cash IS NULL) OR ((SubPlan 4) IS NULL)))
+  Buffers: shared hit=474764
+  SubPlan 1
+    ->  Aggregate  (cost=709.50..709.51 rows=1 width=32) (actual time=0.517..0.517 rows=1 loops=365)
+          Buffers: shared hit=121180
+          ->  Seq Scan on sale s1_0  (cost=0.00..707.00 rows=1000 width=4) (actual time=0.489..0.513 rows=82 loops=365)
+                Filter: (business_date = bd1_0.business_date)
+                Rows Removed by Filter: 29918
+                Buffers: shared hit=121180
+  SubPlan 2
+    ->  Aggregate  (cost=709.50..709.51 rows=1 width=32) (actual time=0.517..0.517 rows=1 loops=365)
+          Buffers: shared hit=121180
+          ->  Seq Scan on sale s2_0  (cost=0.00..707.00 rows=1000 width=6) (actual time=0.490..0.513 rows=82 loops=365)
+                Filter: (business_date = bd1_0.business_date)
+                Rows Removed by Filter: 29918
+                Buffers: shared hit=121180
+  SubPlan 5
+    ->  Aggregate  (cost=709.50..709.51 rows=1 width=32) (never executed)
+          ->  Seq Scan on sale s5_0  (cost=0.00..707.00 rows=1000 width=4) (never executed)
+                Filter: (business_date = bd1_0.business_date)
+  SubPlan 3
+    ->  Aggregate  (cost=709.50..709.51 rows=1 width=32) (actual time=0.517..0.517 rows=1 loops=365)
+          Buffers: shared hit=121180
+          ->  Seq Scan on sale s3_0  (cost=0.00..707.00 rows=1000 width=4) (actual time=0.490..0.513 rows=82 loops=365)
+                Filter: (business_date = bd1_0.business_date)
+                Rows Removed by Filter: 29918
+                Buffers: shared hit=121180
+  SubPlan 4
+    ->  Aggregate  (cost=709.50..709.51 rows=1 width=32) (actual time=0.513..0.513 rows=1 loops=335)
+          Buffers: shared hit=111220
+          ->  Seq Scan on sale s4_0  (cost=0.00..707.00 rows=1000 width=4) (actual time=0.512..0.512 rows=0 loops=335)
+                Filter: (business_date = bd1_0.business_date)
+                Rows Removed by Filter: 30000
+                Buffers: shared hit=111220
+Planning Time: 0.158 ms
+JIT:
+  Functions: 39
+  Options: Inlining true, Optimization true, Expressions true, Deforming true
+  Timing: Generation 1.407 ms, Inlining 6.152 ms, Optimization 31.679 ms, Emission 39.039 ms, Total 78.277 ms
+Execution Time: 816.792 ms
+
+### POSTGRESQL | A.1/full export | b cte | no index
+-- with cte0 (mq_businessDate,mq_cash,mq_total) as (select s1_0.business_date,sum(s1_0.cash_total),sum(s1_0.total) from sale s1_0 group by 1) select bd1_0.id,bd1_0.business_date,bd1_0.counted_cash,var_1_11_0.mq_cash,var_1_11_0.mq_total from business_day bd1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_businessDate=bd1_0.business_date where not(bd1_0.counted_cash=var_1_11_0.mq_cash and bd1_0.counted_cash is not null and var_1_11_0.mq_cash is not null or bd1_0.counted_cash is null and var_1_11_0.mq_cash is null) order by 1
+Sort  (cost=881.23..882.14 rows=364 width=84) (actual time=4.088..4.098 rows=365 loops=1)
+  Sort Key: bd1_0.id
+  Sort Method: quicksort  Memory: 42kB
+  Buffers: shared hit=335
+  ->  Hash Left Join  (cost=858.12..865.75 rows=364 width=84) (actual time=4.009..4.056 rows=365 loops=1)
+        Hash Cond: (bd1_0.business_date = var_1_11_0.mq_businessdate)
+        Filter: (((bd1_0.counted_cash IS NOT NULL) OR (var_1_11_0.mq_cash IS NOT NULL)) AND ((bd1_0.counted_cash <> var_1_11_0.mq_cash) OR (bd1_0.counted_cash IS NULL) OR (var_1_11_0.mq_cash IS NULL)))
+        Buffers: shared hit=335
+        ->  Seq Scan on business_day bd1_0  (cost=0.00..6.65 rows=365 width=20) (actual time=0.004..0.016 rows=365 loops=1)
+              Buffers: shared hit=3
+        ->  Hash  (cost=857.75..857.75 rows=30 width=68) (actual time=4.003..4.003 rows=30 loops=1)
+              Buckets: 1024  Batches: 1  Memory Usage: 10kB
+              Buffers: shared hit=332
+              ->  Subquery Scan on var_1_11_0  (cost=857.00..857.75 rows=30 width=68) (actual time=3.991..3.997 rows=30 loops=1)
+                    Buffers: shared hit=332
+                    ->  HashAggregate  (cost=857.00..857.45 rows=30 width=68) (actual time=3.991..3.996 rows=30 loops=1)
+                          Group Key: s1_0.business_date
+                          Batches: 1  Memory Usage: 48kB
+                          Buffers: shared hit=332
+                          ->  Seq Scan on sale s1_0  (cost=0.00..632.00 rows=30000 width=14) (actual time=0.001..1.006 rows=30000 loops=1)
+                                Buffers: shared hit=332
+Planning Time: 0.088 ms
+Execution Time: 4.136 ms
+
+### POSTGRESQL | A.1/full export | c derived | no index
+-- select bd1_0.id,bd1_0.business_date,bd1_0.counted_cash,var_1_11_0.mq_cash,var_1_11_0.mq_total from business_day bd1_0 left join (select s1_0.business_date,sum(s1_0.cash_total),sum(s1_0.total) from sale s1_0 group by 1) var_1_11_0(mq_businessDate,mq_cash,mq_total) on var_1_11_0.mq_businessDate=bd1_0.business_date where not(bd1_0.counted_cash=var_1_11_0.mq_cash and bd1_0.counted_cash is not null and var_1_11_0.mq_cash is not null or bd1_0.counted_cash is null and var_1_11_0.mq_cash is null) order by 1
+Sort  (cost=881.23..882.14 rows=364 width=84) (actual time=4.051..4.060 rows=365 loops=1)
+  Sort Key: bd1_0.id
+  Sort Method: quicksort  Memory: 42kB
+  Buffers: shared hit=335
+  ->  Hash Left Join  (cost=858.12..865.75 rows=364 width=84) (actual time=3.977..4.023 rows=365 loops=1)
+        Hash Cond: (bd1_0.business_date = var_1_11_0.mq_businessdate)
+        Filter: (((bd1_0.counted_cash IS NOT NULL) OR (var_1_11_0.mq_cash IS NOT NULL)) AND ((bd1_0.counted_cash <> var_1_11_0.mq_cash) OR (bd1_0.counted_cash IS NULL) OR (var_1_11_0.mq_cash IS NULL)))
+        Buffers: shared hit=335
+        ->  Seq Scan on business_day bd1_0  (cost=0.00..6.65 rows=365 width=20) (actual time=0.003..0.014 rows=365 loops=1)
+              Buffers: shared hit=3
+        ->  Hash  (cost=857.75..857.75 rows=30 width=68) (actual time=3.971..3.971 rows=30 loops=1)
+              Buckets: 1024  Batches: 1  Memory Usage: 10kB
+              Buffers: shared hit=332
+              ->  Subquery Scan on var_1_11_0  (cost=857.00..857.75 rows=30 width=68) (actual time=3.961..3.967 rows=30 loops=1)
+                    Buffers: shared hit=332
+                    ->  HashAggregate  (cost=857.00..857.45 rows=30 width=68) (actual time=3.961..3.965 rows=30 loops=1)
+                          Group Key: s1_0.business_date
+                          Batches: 1  Memory Usage: 48kB
+                          Buffers: shared hit=332
+                          ->  Seq Scan on sale s1_0  (cost=0.00..632.00 rows=30000 width=14) (actual time=0.001..1.007 rows=30000 loops=1)
+                                Buffers: shared hit=332
+Planning Time: 0.050 ms
+Execution Time: 4.084 ms
+
+### POSTGRESQL | A.1/count | a correlated | no index
+-- select count(bd1_0.id) from business_day bd1_0 where not(bd1_0.counted_cash=(select sum(s1_0.cash_total) from sale s1_0 where s1_0.business_date=bd1_0.business_date) and bd1_0.counted_cash is not null and (select sum(s2_0.cash_total) from sale s2_0 where s2_0.business_date=bd1_0.business_date) is not null or bd1_0.counted_cash is null and (select sum(s3_0.cash_total) from sale s3_0 where s3_0.business_date=bd1_0.business_date) is null)
+Aggregate  (cost=776924.66..776924.67 rows=1 width=8) (actual time=413.602..413.603 rows=1 loops=1)
+  Buffers: shared hit=232403
+  ->  Seq Scan on business_day bd1_0  (cost=0.00..776923.75 rows=363 width=8) (actual time=55.996..413.574 rows=365 loops=1)
+        Filter: (((counted_cash IS NOT NULL) OR ((SubPlan 3) IS NOT NULL)) AND ((counted_cash <> (SubPlan 1)) OR (counted_cash IS NULL) OR ((SubPlan 2) IS NULL)))
+        Buffers: shared hit=232403
+        SubPlan 3
+          ->  Aggregate  (cost=709.50..709.51 rows=1 width=32) (never executed)
+                ->  Seq Scan on sale s3_0  (cost=0.00..707.00 rows=1000 width=4) (never executed)
+                      Filter: (business_date = bd1_0.business_date)
+        SubPlan 1
+          ->  Aggregate  (cost=709.50..709.51 rows=1 width=32) (actual time=0.515..0.515 rows=1 loops=365)
+                Buffers: shared hit=121180
+                ->  Seq Scan on sale s1_0  (cost=0.00..707.00 rows=1000 width=4) (actual time=0.488..0.511 rows=82 loops=365)
+                      Filter: (business_date = bd1_0.business_date)
+                      Rows Removed by Filter: 29918
+                      Buffers: shared hit=121180
+        SubPlan 2
+          ->  Aggregate  (cost=709.50..709.51 rows=1 width=32) (actual time=0.509..0.509 rows=1 loops=335)
+                Buffers: shared hit=111220
+                ->  Seq Scan on sale s2_0  (cost=0.00..707.00 rows=1000 width=4) (actual time=0.509..0.509 rows=0 loops=335)
+                      Filter: (business_date = bd1_0.business_date)
+                      Rows Removed by Filter: 30000
+                      Buffers: shared hit=111220
+Planning Time: 0.066 ms
+JIT:
+  Functions: 26
+  Options: Inlining true, Optimization true, Expressions true, Deforming true
+  Timing: Generation 0.457 ms, Inlining 5.126 ms, Optimization 22.403 ms, Emission 27.187 ms, Total 55.173 ms
+Execution Time: 414.110 ms
+
+### POSTGRESQL | A.1/count | b cte | no index
+-- with cte0 (mq_businessDate,mq_cash,mq_total) as (select s1_0.business_date,sum(s1_0.cash_total),sum(s1_0.total) from sale s1_0 group by 1) select count(bd1_0.id) from business_day bd1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_businessDate=bd1_0.business_date where not(bd1_0.counted_cash=var_1_11_0.mq_cash and bd1_0.counted_cash is not null and var_1_11_0.mq_cash is not null or bd1_0.counted_cash is null and var_1_11_0.mq_cash is null)
+Aggregate  (cost=791.58..791.59 rows=1 width=8) (actual time=3.592..3.594 rows=1 loops=1)
+  Buffers: shared hit=335
+  ->  Hash Left Join  (cost=783.05..790.67 rows=364 width=8) (actual time=3.534..3.578 rows=365 loops=1)
+        Hash Cond: (bd1_0.business_date = var_1_11_0.mq_businessdate)
+        Filter: (((bd1_0.counted_cash IS NOT NULL) OR (var_1_11_0.mq_cash IS NOT NULL)) AND ((bd1_0.counted_cash <> var_1_11_0.mq_cash) OR (bd1_0.counted_cash IS NULL) OR (var_1_11_0.mq_cash IS NULL)))
+        Buffers: shared hit=335
+        ->  Seq Scan on business_day bd1_0  (cost=0.00..6.65 rows=365 width=20) (actual time=0.003..0.015 rows=365 loops=1)
+              Buffers: shared hit=3
+        ->  Hash  (cost=782.67..782.67 rows=30 width=36) (actual time=3.528..3.529 rows=30 loops=1)
+              Buckets: 1024  Batches: 1  Memory Usage: 10kB
+              Buffers: shared hit=332
+              ->  Subquery Scan on var_1_11_0  (cost=782.00..782.67 rows=30 width=36) (actual time=3.517..3.522 rows=30 loops=1)
+                    Buffers: shared hit=332
+                    ->  HashAggregate  (cost=782.00..782.38 rows=30 width=68) (actual time=3.517..3.521 rows=30 loops=1)
+                          Group Key: s1_0.business_date
+                          Batches: 1  Memory Usage: 32kB
+                          Buffers: shared hit=332
+                          ->  Seq Scan on sale s1_0  (cost=0.00..632.00 rows=30000 width=8) (actual time=0.001..1.030 rows=30000 loops=1)
+                                Buffers: shared hit=332
+Planning Time: 0.067 ms
+Execution Time: 3.624 ms
+
+### POSTGRESQL | A.1/count | c derived | no index
+-- select count(bd1_0.id) from business_day bd1_0 left join (select s1_0.business_date,sum(s1_0.cash_total),sum(s1_0.total) from sale s1_0 group by 1) var_1_11_0(mq_businessDate,mq_cash,mq_total) on var_1_11_0.mq_businessDate=bd1_0.business_date where not(bd1_0.counted_cash=var_1_11_0.mq_cash and bd1_0.counted_cash is not null and var_1_11_0.mq_cash is not null or bd1_0.counted_cash is null and var_1_11_0.mq_cash is null)
+Aggregate  (cost=791.58..791.59 rows=1 width=8) (actual time=3.503..3.504 rows=1 loops=1)
+  Buffers: shared hit=335
+  ->  Hash Left Join  (cost=783.05..790.67 rows=364 width=8) (actual time=3.444..3.489 rows=365 loops=1)
+        Hash Cond: (bd1_0.business_date = var_1_11_0.mq_businessdate)
+        Filter: (((bd1_0.counted_cash IS NOT NULL) OR (var_1_11_0.mq_cash IS NOT NULL)) AND ((bd1_0.counted_cash <> var_1_11_0.mq_cash) OR (bd1_0.counted_cash IS NULL) OR (var_1_11_0.mq_cash IS NULL)))
+        Buffers: shared hit=335
+        ->  Seq Scan on business_day bd1_0  (cost=0.00..6.65 rows=365 width=20) (actual time=0.002..0.014 rows=365 loops=1)
+              Buffers: shared hit=3
+        ->  Hash  (cost=782.67..782.67 rows=30 width=36) (actual time=3.441..3.441 rows=30 loops=1)
+              Buckets: 1024  Batches: 1  Memory Usage: 10kB
+              Buffers: shared hit=332
+              ->  Subquery Scan on var_1_11_0  (cost=782.00..782.67 rows=30 width=36) (actual time=3.431..3.436 rows=30 loops=1)
+                    Buffers: shared hit=332
+                    ->  HashAggregate  (cost=782.00..782.38 rows=30 width=68) (actual time=3.431..3.434 rows=30 loops=1)
+                          Group Key: s1_0.business_date
+                          Batches: 1  Memory Usage: 32kB
+                          Buffers: shared hit=332
+                          ->  Seq Scan on sale s1_0  (cost=0.00..632.00 rows=30000 width=8) (actual time=0.001..1.005 rows=30000 loops=1)
+                                Buffers: shared hit=332
+Planning Time: 0.040 ms
+Execution Time: 3.520 ms
+
+### POSTGRESQL | A.1/count unfiltered | a correlated | no index
+-- select count(bd1_0.id) from business_day bd1_0
+Aggregate  (cost=7.56..7.57 rows=1 width=8) (actual time=0.024..0.024 rows=1 loops=1)
+  Buffers: shared hit=3
+  ->  Seq Scan on business_day bd1_0  (cost=0.00..6.65 rows=365 width=8) (actual time=0.001..0.012 rows=365 loops=1)
+        Buffers: shared hit=3
+Planning Time: 0.009 ms
+Execution Time: 0.027 ms
+
+### POSTGRESQL | A.1/count unfiltered | b cte | no index
+-- with cte0 (mq_businessDate,mq_cash,mq_total) as (select s1_0.business_date,sum(s1_0.cash_total),sum(s1_0.total) from sale s1_0 group by 1) select count(bd1_0.id) from business_day bd1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_businessDate=bd1_0.business_date
+Aggregate  (cost=7.56..7.57 rows=1 width=8) (actual time=0.024..0.024 rows=1 loops=1)
+  Buffers: shared hit=3
+  ->  Seq Scan on business_day bd1_0  (cost=0.00..6.65 rows=365 width=8) (actual time=0.002..0.012 rows=365 loops=1)
+        Buffers: shared hit=3
+Planning Time: 0.010 ms
+Execution Time: 0.026 ms
+
+### POSTGRESQL | A.1/count unfiltered | c derived | no index
+-- select count(bd1_0.id) from business_day bd1_0 left join (select s1_0.business_date,sum(s1_0.cash_total),sum(s1_0.total) from sale s1_0 group by 1) var_1_11_0(mq_businessDate,mq_cash,mq_total) on var_1_11_0.mq_businessDate=bd1_0.business_date
+Aggregate  (cost=7.56..7.57 rows=1 width=8) (actual time=0.023..0.024 rows=1 loops=1)
+  Buffers: shared hit=3
+  ->  Seq Scan on business_day bd1_0  (cost=0.00..6.65 rows=365 width=8) (actual time=0.001..0.012 rows=365 loops=1)
+        Buffers: shared hit=3
+Planning Time: 0.007 ms
+Execution Time: 0.025 ms
+
+### POSTGRESQL | A.1/page of 20 | a correlated | with ix_sale_business_date
+-- select bd1_0.id,bd1_0.business_date,bd1_0.counted_cash,(select sum(s1_0.cash_total) from sale s1_0 where s1_0.business_date=bd1_0.business_date),(select sum(s2_0.total) from sale s2_0 where s2_0.business_date=bd1_0.business_date) from business_day bd1_0 where not(bd1_0.counted_cash=(select sum(s3_0.cash_total) from sale s3_0 where s3_0.business_date=bd1_0.business_date) and bd1_0.counted_cash is not null and (select sum(s4_0.cash_total) from sale s4_0 where s4_0.business_date=bd1_0.business_date) is not null or bd1_0.counted_cash is null and (select sum(s5_0.cash_total) from sale s5_0 where s5_0.business_date=bd1_0.business_date) is null) order by 2 desc fetch first ? rows only || 20
+Limit  (cost=0.15..3944.26 rows=20 width=84) (actual time=0.359..6.025 rows=20 loops=1)
+  Buffers: shared hit=890
+  ->  Index Scan Backward using business_day_business_date_key on business_day bd1_0  (cost=0.15..71585.83 rows=363 width=84) (actual time=0.359..6.024 rows=20 loops=1)
+        Filter: (((counted_cash IS NOT NULL) OR ((SubPlan 5) IS NOT NULL)) AND ((counted_cash <> (SubPlan 3)) OR (counted_cash IS NULL) OR ((SubPlan 4) IS NULL)))
+        Buffers: shared hit=890
+        SubPlan 1
+          ->  Aggregate  (cost=39.29..39.30 rows=1 width=32) (actual time=0.099..0.099 rows=1 loops=20)
+                Buffers: shared hit=296
+                ->  Index Scan using ix_sale_business_date on sale s1_0  (cost=0.29..36.79 rows=1000 width=4) (actual time=0.002..0.049 rows=1000 loops=20)
+                      Index Cond: (business_date = bd1_0.business_date)
+                      Buffers: shared hit=296
+        SubPlan 2
+          ->  Aggregate  (cost=39.29..39.30 rows=1 width=32) (actual time=0.102..0.102 rows=1 loops=20)
+                Buffers: shared hit=296
+                ->  Index Scan using ix_sale_business_date on sale s2_0  (cost=0.29..36.79 rows=1000 width=6) (actual time=0.001..0.048 rows=1000 loops=20)
+                      Index Cond: (business_date = bd1_0.business_date)
+                      Buffers: shared hit=296
+        SubPlan 5
+          ->  Aggregate  (cost=39.29..39.30 rows=1 width=32) (never executed)
+                ->  Index Scan using ix_sale_business_date on sale s5_0  (cost=0.29..36.79 rows=1000 width=4) (never executed)
+                      Index Cond: (business_date = bd1_0.business_date)
+        SubPlan 3
+          ->  Aggregate  (cost=39.29..39.30 rows=1 width=32) (actual time=0.099..0.099 rows=1 loops=20)
+                Buffers: shared hit=296
+                ->  Index Scan using ix_sale_business_date on sale s3_0  (cost=0.29..36.79 rows=1000 width=4) (actual time=0.001..0.049 rows=1000 loops=20)
+                      Index Cond: (business_date = bd1_0.business_date)
+                      Buffers: shared hit=296
+        SubPlan 4
+          ->  Aggregate  (cost=39.29..39.30 rows=1 width=32) (never executed)
+                ->  Index Scan using ix_sale_business_date on sale s4_0  (cost=0.29..36.79 rows=1000 width=4) (never executed)
+                      Index Cond: (business_date = bd1_0.business_date)
+Planning Time: 0.062 ms
+Execution Time: 6.061 ms
+
+### POSTGRESQL | A.1/page of 20 | b cte | with ix_sale_business_date
+-- with cte0 (mq_businessDate,mq_cash,mq_total) as (select s1_0.business_date,sum(s1_0.cash_total),sum(s1_0.total) from sale s1_0 group by 1) select bd1_0.id,bd1_0.business_date,bd1_0.counted_cash,var_1_11_0.mq_cash,var_1_11_0.mq_total from business_day bd1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_businessDate=bd1_0.business_date where not(bd1_0.counted_cash=var_1_11_0.mq_cash and bd1_0.counted_cash is not null and var_1_11_0.mq_cash is not null or bd1_0.counted_cash is null and var_1_11_0.mq_cash is null) order by 2 desc fetch first ? rows only || 20
+Limit  (cost=858.63..859.78 rows=20 width=84) (actual time=4.001..4.007 rows=20 loops=1)
+  Buffers: shared hit=334
+  ->  Merge Left Join  (cost=858.63..879.55 rows=364 width=84) (actual time=4.001..4.006 rows=20 loops=1)
+        Merge Cond: (bd1_0.business_date = var_1_11_0.mq_businessdate)
+        Filter: (((bd1_0.counted_cash IS NOT NULL) OR (var_1_11_0.mq_cash IS NOT NULL)) AND ((bd1_0.counted_cash <> var_1_11_0.mq_cash) OR (bd1_0.counted_cash IS NULL) OR (var_1_11_0.mq_cash IS NULL)))
+        Buffers: shared hit=334
+        ->  Index Scan Backward using business_day_business_date_key on business_day bd1_0  (cost=0.15..19.62 rows=365 width=20) (actual time=0.005..0.006 rows=20 loops=1)
+              Buffers: shared hit=2
+        ->  Sort  (cost=858.49..858.56 rows=30 width=68) (actual time=3.995..3.995 rows=20 loops=1)
+              Sort Key: var_1_11_0.mq_businessdate DESC
+              Sort Method: quicksort  Memory: 26kB
+              Buffers: shared hit=332
+              ->  Subquery Scan on var_1_11_0  (cost=857.00..857.75 rows=30 width=68) (actual time=3.984..3.990 rows=30 loops=1)
+                    Buffers: shared hit=332
+                    ->  HashAggregate  (cost=857.00..857.45 rows=30 width=68) (actual time=3.984..3.989 rows=30 loops=1)
+                          Group Key: s1_0.business_date
+                          Batches: 1  Memory Usage: 48kB
+                          Buffers: shared hit=332
+                          ->  Seq Scan on sale s1_0  (cost=0.00..632.00 rows=30000 width=14) (actual time=0.003..1.003 rows=30000 loops=1)
+                                Buffers: shared hit=332
+Planning Time: 0.031 ms
+Execution Time: 4.022 ms
+
+### POSTGRESQL | A.1/page of 20 | c derived | with ix_sale_business_date
+-- select bd1_0.id,bd1_0.business_date,bd1_0.counted_cash,var_1_11_0.mq_cash,var_1_11_0.mq_total from business_day bd1_0 left join (select s1_0.business_date,sum(s1_0.cash_total),sum(s1_0.total) from sale s1_0 group by 1) var_1_11_0(mq_businessDate,mq_cash,mq_total) on var_1_11_0.mq_businessDate=bd1_0.business_date where not(bd1_0.counted_cash=var_1_11_0.mq_cash and bd1_0.counted_cash is not null and var_1_11_0.mq_cash is not null or bd1_0.counted_cash is null and var_1_11_0.mq_cash is null) order by 2 desc fetch first ? rows only || 20
+Limit  (cost=858.63..859.78 rows=20 width=84) (actual time=3.970..3.977 rows=20 loops=1)
+  Buffers: shared hit=334
+  ->  Merge Left Join  (cost=858.63..879.55 rows=364 width=84) (actual time=3.970..3.976 rows=20 loops=1)
+        Merge Cond: (bd1_0.business_date = var_1_11_0.mq_businessdate)
+        Filter: (((bd1_0.counted_cash IS NOT NULL) OR (var_1_11_0.mq_cash IS NOT NULL)) AND ((bd1_0.counted_cash <> var_1_11_0.mq_cash) OR (bd1_0.counted_cash IS NULL) OR (var_1_11_0.mq_cash IS NULL)))
+        Buffers: shared hit=334
+        ->  Index Scan Backward using business_day_business_date_key on business_day bd1_0  (cost=0.15..19.62 rows=365 width=20) (actual time=0.006..0.007 rows=20 loops=1)
+              Buffers: shared hit=2
+        ->  Sort  (cost=858.49..858.56 rows=30 width=68) (actual time=3.963..3.964 rows=20 loops=1)
+              Sort Key: var_1_11_0.mq_businessdate DESC
+              Sort Method: quicksort  Memory: 26kB
+              Buffers: shared hit=332
+              ->  Subquery Scan on var_1_11_0  (cost=857.00..857.75 rows=30 width=68) (actual time=3.953..3.959 rows=30 loops=1)
+                    Buffers: shared hit=332
+                    ->  HashAggregate  (cost=857.00..857.45 rows=30 width=68) (actual time=3.953..3.958 rows=30 loops=1)
+                          Group Key: s1_0.business_date
+                          Batches: 1  Memory Usage: 48kB
+                          Buffers: shared hit=332
+                          ->  Seq Scan on sale s1_0  (cost=0.00..632.00 rows=30000 width=14) (actual time=0.003..1.002 rows=30000 loops=1)
+                                Buffers: shared hit=332
+Planning Time: 0.030 ms
+Execution Time: 3.990 ms
+
+### POSTGRESQL | A.1/full export | a correlated | with ix_sale_business_date
+-- select bd1_0.id,bd1_0.business_date,bd1_0.counted_cash,(select sum(s1_0.cash_total) from sale s1_0 where s1_0.business_date=bd1_0.business_date),(select sum(s2_0.total) from sale s2_0 where s2_0.business_date=bd1_0.business_date) from business_day bd1_0 where not(bd1_0.counted_cash=(select sum(s3_0.cash_total) from sale s3_0 where s3_0.business_date=bd1_0.business_date) and bd1_0.counted_cash is not null and (select sum(s4_0.cash_total) from sale s4_0 where s4_0.business_date=bd1_0.business_date) is not null or bd1_0.counted_cash is null and (select sum(s5_0.cash_total) from sale s5_0 where s5_0.business_date=bd1_0.business_date) is null) order by 1
+Index Scan using business_day_pkey on business_day bd1_0  (cost=0.15..71585.83 rows=363 width=84) (actual time=0.026..9.642 rows=365 loops=1)
+  Filter: (((counted_cash IS NOT NULL) OR ((SubPlan 5) IS NOT NULL)) AND ((counted_cash <> (SubPlan 3)) OR (counted_cash IS NULL) OR ((SubPlan 4) IS NULL)))
+  Buffers: shared hit=4013
+  SubPlan 1
+    ->  Aggregate  (cost=39.29..39.30 rows=1 width=32) (actual time=0.008..0.008 rows=1 loops=365)
+          Buffers: shared hit=1113
+          ->  Index Scan using ix_sale_business_date on sale s1_0  (cost=0.29..36.79 rows=1000 width=4) (actual time=0.000..0.004 rows=82 loops=365)
+                Index Cond: (business_date = bd1_0.business_date)
+                Buffers: shared hit=1113
+  SubPlan 2
+    ->  Aggregate  (cost=39.29..39.30 rows=1 width=32) (actual time=0.009..0.009 rows=1 loops=365)
+          Buffers: shared hit=1113
+          ->  Index Scan using ix_sale_business_date on sale s2_0  (cost=0.29..36.79 rows=1000 width=6) (actual time=0.000..0.004 rows=82 loops=365)
+                Index Cond: (business_date = bd1_0.business_date)
+                Buffers: shared hit=1113
+  SubPlan 5
+    ->  Aggregate  (cost=39.29..39.30 rows=1 width=32) (never executed)
+          ->  Index Scan using ix_sale_business_date on sale s5_0  (cost=0.29..36.79 rows=1000 width=4) (never executed)
+                Index Cond: (business_date = bd1_0.business_date)
+  SubPlan 3
+    ->  Aggregate  (cost=39.29..39.30 rows=1 width=32) (actual time=0.008..0.008 rows=1 loops=365)
+          Buffers: shared hit=1113
+          ->  Index Scan using ix_sale_business_date on sale s3_0  (cost=0.29..36.79 rows=1000 width=4) (actual time=0.000..0.004 rows=82 loops=365)
+                Index Cond: (business_date = bd1_0.business_date)
+                Buffers: shared hit=1113
+  SubPlan 4
+    ->  Aggregate  (cost=39.29..39.30 rows=1 width=32) (actual time=0.000..0.000 rows=1 loops=335)
+          Buffers: shared hit=670
+          ->  Index Scan using ix_sale_business_date on sale s4_0  (cost=0.29..36.79 rows=1000 width=4) (actual time=0.000..0.000 rows=0 loops=335)
+                Index Cond: (business_date = bd1_0.business_date)
+                Buffers: shared hit=670
+Planning Time: 0.073 ms
+Execution Time: 9.684 ms
+
+### POSTGRESQL | A.1/full export | b cte | with ix_sale_business_date
+-- with cte0 (mq_businessDate,mq_cash,mq_total) as (select s1_0.business_date,sum(s1_0.cash_total),sum(s1_0.total) from sale s1_0 group by 1) select bd1_0.id,bd1_0.business_date,bd1_0.counted_cash,var_1_11_0.mq_cash,var_1_11_0.mq_total from business_day bd1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_businessDate=bd1_0.business_date where not(bd1_0.counted_cash=var_1_11_0.mq_cash and bd1_0.counted_cash is not null and var_1_11_0.mq_cash is not null or bd1_0.counted_cash is null and var_1_11_0.mq_cash is null) order by 1
+Sort  (cost=881.23..882.14 rows=364 width=84) (actual time=4.056..4.064 rows=365 loops=1)
+  Sort Key: bd1_0.id
+  Sort Method: quicksort  Memory: 42kB
+  Buffers: shared hit=335
+  ->  Hash Left Join  (cost=858.12..865.75 rows=364 width=84) (actual time=3.984..4.030 rows=365 loops=1)
+        Hash Cond: (bd1_0.business_date = var_1_11_0.mq_businessdate)
+        Filter: (((bd1_0.counted_cash IS NOT NULL) OR (var_1_11_0.mq_cash IS NOT NULL)) AND ((bd1_0.counted_cash <> var_1_11_0.mq_cash) OR (bd1_0.counted_cash IS NULL) OR (var_1_11_0.mq_cash IS NULL)))
+        Buffers: shared hit=335
+        ->  Seq Scan on business_day bd1_0  (cost=0.00..6.65 rows=365 width=20) (actual time=0.003..0.014 rows=365 loops=1)
+              Buffers: shared hit=3
+        ->  Hash  (cost=857.75..857.75 rows=30 width=68) (actual time=3.977..3.977 rows=30 loops=1)
+              Buckets: 1024  Batches: 1  Memory Usage: 10kB
+              Buffers: shared hit=332
+              ->  Subquery Scan on var_1_11_0  (cost=857.00..857.75 rows=30 width=68) (actual time=3.967..3.973 rows=30 loops=1)
+                    Buffers: shared hit=332
+                    ->  HashAggregate  (cost=857.00..857.45 rows=30 width=68) (actual time=3.966..3.971 rows=30 loops=1)
+                          Group Key: s1_0.business_date
+                          Batches: 1  Memory Usage: 48kB
+                          Buffers: shared hit=332
+                          ->  Seq Scan on sale s1_0  (cost=0.00..632.00 rows=30000 width=14) (actual time=0.001..1.001 rows=30000 loops=1)
+                                Buffers: shared hit=332
+Planning Time: 0.043 ms
+Execution Time: 4.085 ms
+
+### POSTGRESQL | A.1/full export | c derived | with ix_sale_business_date
+-- select bd1_0.id,bd1_0.business_date,bd1_0.counted_cash,var_1_11_0.mq_cash,var_1_11_0.mq_total from business_day bd1_0 left join (select s1_0.business_date,sum(s1_0.cash_total),sum(s1_0.total) from sale s1_0 group by 1) var_1_11_0(mq_businessDate,mq_cash,mq_total) on var_1_11_0.mq_businessDate=bd1_0.business_date where not(bd1_0.counted_cash=var_1_11_0.mq_cash and bd1_0.counted_cash is not null and var_1_11_0.mq_cash is not null or bd1_0.counted_cash is null and var_1_11_0.mq_cash is null) order by 1
+Sort  (cost=881.23..882.14 rows=364 width=84) (actual time=4.039..4.050 rows=365 loops=1)
+  Sort Key: bd1_0.id
+  Sort Method: quicksort  Memory: 42kB
+  Buffers: shared hit=335
+  ->  Hash Left Join  (cost=858.12..865.75 rows=364 width=84) (actual time=3.966..4.012 rows=365 loops=1)
+        Hash Cond: (bd1_0.business_date = var_1_11_0.mq_businessdate)
+        Filter: (((bd1_0.counted_cash IS NOT NULL) OR (var_1_11_0.mq_cash IS NOT NULL)) AND ((bd1_0.counted_cash <> var_1_11_0.mq_cash) OR (bd1_0.counted_cash IS NULL) OR (var_1_11_0.mq_cash IS NULL)))
+        Buffers: shared hit=335
+        ->  Seq Scan on business_day bd1_0  (cost=0.00..6.65 rows=365 width=20) (actual time=0.004..0.016 rows=365 loops=1)
+              Buffers: shared hit=3
+        ->  Hash  (cost=857.75..857.75 rows=30 width=68) (actual time=3.959..3.960 rows=30 loops=1)
+              Buckets: 1024  Batches: 1  Memory Usage: 10kB
+              Buffers: shared hit=332
+              ->  Subquery Scan on var_1_11_0  (cost=857.00..857.75 rows=30 width=68) (actual time=3.948..3.954 rows=30 loops=1)
+                    Buffers: shared hit=332
+                    ->  HashAggregate  (cost=857.00..857.45 rows=30 width=68) (actual time=3.948..3.952 rows=30 loops=1)
+                          Group Key: s1_0.business_date
+                          Batches: 1  Memory Usage: 48kB
+                          Buffers: shared hit=332
+                          ->  Seq Scan on sale s1_0  (cost=0.00..632.00 rows=30000 width=14) (actual time=0.001..0.990 rows=30000 loops=1)
+                                Buffers: shared hit=332
+Planning Time: 0.027 ms
+Execution Time: 4.077 ms
+
+### POSTGRESQL | A.1/count | a correlated | with ix_sale_business_date
+-- select count(bd1_0.id) from business_day bd1_0 where not(bd1_0.counted_cash=(select sum(s1_0.cash_total) from sale s1_0 where s1_0.business_date=bd1_0.business_date) and bd1_0.counted_cash is not null and (select sum(s2_0.cash_total) from sale s2_0 where s2_0.business_date=bd1_0.business_date) is not null or bd1_0.counted_cash is null and (select sum(s3_0.cash_total) from sale s3_0 where s3_0.business_date=bd1_0.business_date) is null)
+Aggregate  (cost=43041.97..43041.98 rows=1 width=8) (actual time=3.329..3.330 rows=1 loops=1)
+  Buffers: shared hit=1786
+  ->  Seq Scan on business_day bd1_0  (cost=0.00..43041.06 rows=363 width=8) (actual time=0.009..3.313 rows=365 loops=1)
+        Filter: (((counted_cash IS NOT NULL) OR ((SubPlan 3) IS NOT NULL)) AND ((counted_cash <> (SubPlan 1)) OR (counted_cash IS NULL) OR ((SubPlan 2) IS NULL)))
+        Buffers: shared hit=1786
+        SubPlan 3
+          ->  Aggregate  (cost=39.29..39.30 rows=1 width=32) (never executed)
+                ->  Index Scan using ix_sale_business_date on sale s3_0  (cost=0.29..36.79 rows=1000 width=4) (never executed)
+                      Index Cond: (business_date = bd1_0.business_date)
+        SubPlan 1
+          ->  Aggregate  (cost=39.29..39.30 rows=1 width=32) (actual time=0.008..0.008 rows=1 loops=365)
+                Buffers: shared hit=1113
+                ->  Index Scan using ix_sale_business_date on sale s1_0  (cost=0.29..36.79 rows=1000 width=4) (actual time=0.000..0.004 rows=82 loops=365)
+                      Index Cond: (business_date = bd1_0.business_date)
+                      Buffers: shared hit=1113
+        SubPlan 2
+          ->  Aggregate  (cost=39.29..39.30 rows=1 width=32) (actual time=0.000..0.000 rows=1 loops=335)
+                Buffers: shared hit=670
+                ->  Index Scan using ix_sale_business_date on sale s2_0  (cost=0.29..36.79 rows=1000 width=4) (actual time=0.000..0.000 rows=0 loops=335)
+                      Index Cond: (business_date = bd1_0.business_date)
+                      Buffers: shared hit=670
+Planning Time: 0.038 ms
+Execution Time: 3.347 ms
+
+### POSTGRESQL | A.1/count | b cte | with ix_sale_business_date
+-- with cte0 (mq_businessDate,mq_cash,mq_total) as (select s1_0.business_date,sum(s1_0.cash_total),sum(s1_0.total) from sale s1_0 group by 1) select count(bd1_0.id) from business_day bd1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_businessDate=bd1_0.business_date where not(bd1_0.counted_cash=var_1_11_0.mq_cash and bd1_0.counted_cash is not null and var_1_11_0.mq_cash is not null or bd1_0.counted_cash is null and var_1_11_0.mq_cash is null)
+Aggregate  (cost=791.58..791.59 rows=1 width=8) (actual time=3.587..3.588 rows=1 loops=1)
+  Buffers: shared hit=335
+  ->  Hash Left Join  (cost=783.05..790.67 rows=364 width=8) (actual time=3.532..3.576 rows=365 loops=1)
+        Hash Cond: (bd1_0.business_date = var_1_11_0.mq_businessdate)
+        Filter: (((bd1_0.counted_cash IS NOT NULL) OR (var_1_11_0.mq_cash IS NOT NULL)) AND ((bd1_0.counted_cash <> var_1_11_0.mq_cash) OR (bd1_0.counted_cash IS NULL) OR (var_1_11_0.mq_cash IS NULL)))
+        Buffers: shared hit=335
+        ->  Seq Scan on business_day bd1_0  (cost=0.00..6.65 rows=365 width=20) (actual time=0.002..0.013 rows=365 loops=1)
+              Buffers: shared hit=3
+        ->  Hash  (cost=782.67..782.67 rows=30 width=36) (actual time=3.527..3.527 rows=30 loops=1)
+              Buckets: 1024  Batches: 1  Memory Usage: 10kB
+              Buffers: shared hit=332
+              ->  Subquery Scan on var_1_11_0  (cost=782.00..782.67 rows=30 width=36) (actual time=3.518..3.523 rows=30 loops=1)
+                    Buffers: shared hit=332
+                    ->  HashAggregate  (cost=782.00..782.38 rows=30 width=68) (actual time=3.518..3.521 rows=30 loops=1)
+                          Group Key: s1_0.business_date
+                          Batches: 1  Memory Usage: 32kB
+                          Buffers: shared hit=332
+                          ->  Seq Scan on sale s1_0  (cost=0.00..632.00 rows=30000 width=8) (actual time=0.001..1.040 rows=30000 loops=1)
+                                Buffers: shared hit=332
+Planning Time: 0.028 ms
+Execution Time: 3.603 ms
+
+### POSTGRESQL | A.1/count | c derived | with ix_sale_business_date
+-- select count(bd1_0.id) from business_day bd1_0 left join (select s1_0.business_date,sum(s1_0.cash_total),sum(s1_0.total) from sale s1_0 group by 1) var_1_11_0(mq_businessDate,mq_cash,mq_total) on var_1_11_0.mq_businessDate=bd1_0.business_date where not(bd1_0.counted_cash=var_1_11_0.mq_cash and bd1_0.counted_cash is not null and var_1_11_0.mq_cash is not null or bd1_0.counted_cash is null and var_1_11_0.mq_cash is null)
+Aggregate  (cost=791.58..791.59 rows=1 width=8) (actual time=3.500..3.500 rows=1 loops=1)
+  Buffers: shared hit=335
+  ->  Hash Left Join  (cost=783.05..790.67 rows=364 width=8) (actual time=3.439..3.484 rows=365 loops=1)
+        Hash Cond: (bd1_0.business_date = var_1_11_0.mq_businessdate)
+        Filter: (((bd1_0.counted_cash IS NOT NULL) OR (var_1_11_0.mq_cash IS NOT NULL)) AND ((bd1_0.counted_cash <> var_1_11_0.mq_cash) OR (bd1_0.counted_cash IS NULL) OR (var_1_11_0.mq_cash IS NULL)))
+        Buffers: shared hit=335
+        ->  Seq Scan on business_day bd1_0  (cost=0.00..6.65 rows=365 width=20) (actual time=0.002..0.013 rows=365 loops=1)
+              Buffers: shared hit=3
+        ->  Hash  (cost=782.67..782.67 rows=30 width=36) (actual time=3.435..3.435 rows=30 loops=1)
+              Buckets: 1024  Batches: 1  Memory Usage: 10kB
+              Buffers: shared hit=332
+              ->  Subquery Scan on var_1_11_0  (cost=782.00..782.67 rows=30 width=36) (actual time=3.426..3.431 rows=30 loops=1)
+                    Buffers: shared hit=332
+                    ->  HashAggregate  (cost=782.00..782.38 rows=30 width=68) (actual time=3.426..3.429 rows=30 loops=1)
+                          Group Key: s1_0.business_date
+                          Batches: 1  Memory Usage: 32kB
+                          Buffers: shared hit=332
+                          ->  Seq Scan on sale s1_0  (cost=0.00..632.00 rows=30000 width=8) (actual time=0.001..0.989 rows=30000 loops=1)
+                                Buffers: shared hit=332
+Planning Time: 0.022 ms
+Execution Time: 3.514 ms
+
+### POSTGRESQL | A.1/count unfiltered | a correlated | with ix_sale_business_date
+-- select count(bd1_0.id) from business_day bd1_0
+Aggregate  (cost=7.56..7.57 rows=1 width=8) (actual time=0.024..0.024 rows=1 loops=1)
+  Buffers: shared hit=3
+  ->  Seq Scan on business_day bd1_0  (cost=0.00..6.65 rows=365 width=8) (actual time=0.001..0.012 rows=365 loops=1)
+        Buffers: shared hit=3
+Planning Time: 0.008 ms
+Execution Time: 0.026 ms
+
+### POSTGRESQL | A.1/count unfiltered | b cte | with ix_sale_business_date
+-- with cte0 (mq_businessDate,mq_cash,mq_total) as (select s1_0.business_date,sum(s1_0.cash_total),sum(s1_0.total) from sale s1_0 group by 1) select count(bd1_0.id) from business_day bd1_0 left join cte0 var_1_11_0 on var_1_11_0.mq_businessDate=bd1_0.business_date
+Aggregate  (cost=7.56..7.57 rows=1 width=8) (actual time=0.023..0.023 rows=1 loops=1)
+  Buffers: shared hit=3
+  ->  Seq Scan on business_day bd1_0  (cost=0.00..6.65 rows=365 width=8) (actual time=0.001..0.011 rows=365 loops=1)
+        Buffers: shared hit=3
+Planning Time: 0.009 ms
+Execution Time: 0.025 ms
+
+### POSTGRESQL | A.1/count unfiltered | c derived | with ix_sale_business_date
+-- select count(bd1_0.id) from business_day bd1_0 left join (select s1_0.business_date,sum(s1_0.cash_total),sum(s1_0.total) from sale s1_0 group by 1) var_1_11_0(mq_businessDate,mq_cash,mq_total) on var_1_11_0.mq_businessDate=bd1_0.business_date
+Aggregate  (cost=7.56..7.57 rows=1 width=8) (actual time=0.025..0.025 rows=1 loops=1)
+  Buffers: shared hit=3
+  ->  Seq Scan on business_day bd1_0  (cost=0.00..6.65 rows=365 width=8) (actual time=0.001..0.012 rows=365 loops=1)
+        Buffers: shared hit=3
+Planning Time: 0.008 ms
+Execution Time: 0.026 ms
+
+### POSTGRESQL | E.1/filter | eq baseline | with ix_sale_promo_code
+-- select s1_0.id from sale s1_0 where s1_0.promo_code=? || P7
+Bitmap Heap Scan on sale s1_0  (cost=6.34..338.45 rows=265 width=8) (actual time=0.008..0.060 rows=265 loops=1)
+  Recheck Cond: ((promo_code)::text = 'P7'::text)
+  Heap Blocks: exact=185
+  Buffers: shared hit=187
+  ->  Bitmap Index Scan on ix_sale_promo_code  (cost=0.00..6.27 rows=265 width=0) (actual time=0.004..0.004 rows=265 loops=1)
+        Index Cond: ((promo_code)::text = 'P7'::text)
+        Buffers: shared hit=2
+Planning Time: 0.007 ms
+Execution Time: 0.073 ms
+
+### POSTGRESQL | E.1/filter | value form (= ? and is not null) | with ix_sale_promo_code
+-- select s1_0.id from sale s1_0 where s1_0.promo_code=? and s1_0.promo_code is not null || P7
+Bitmap Heap Scan on sale s1_0  (cost=5.66..260.18 rows=134 width=8) (actual time=0.008..0.057 rows=265 loops=1)
+  Recheck Cond: ((promo_code IS NOT NULL) AND ((promo_code)::text = 'P7'::text))
+  Heap Blocks: exact=185
+  Buffers: shared hit=187
+  ->  Bitmap Index Scan on ix_sale_promo_code  (cost=0.00..5.63 rows=134 width=0) (actual time=0.004..0.004 rows=265 loops=1)
+        Index Cond: ((promo_code IS NOT NULL) AND ((promo_code)::text = 'P7'::text))
+        Buffers: shared hit=2
+Planning Time: 0.011 ms
+Execution Time: 0.071 ms
+
+### POSTGRESQL | E.1/filter | native notDistinctFrom(col, ?) | with ix_sale_promo_code
+-- select s1_0.id from sale s1_0 where s1_0.promo_code is not distinct from ? || P7
+Seq Scan on sale s1_0  (cost=0.00..707.00 rows=265 width=8) (actual time=0.013..1.589 rows=265 loops=1)
+  Filter: (NOT ((promo_code)::text IS DISTINCT FROM 'P7'::text))
+  Rows Removed by Filter: 29735
+  Buffers: shared hit=332
+Planning Time: 0.006 ms
+Execution Time: 1.595 ms
+
+### POSTGRESQL | E.1/filter-2op | eq baseline | with ix_sale_promo_code, ix_promo_code
+-- select s1_0.id,p1_0.id from sale s1_0,promo p1_0 where s1_0.promo_code=p1_0.code and p1_0.id in (?,?,?,?,?) || 7, 51, 61, 62, 63
+Hash Join  (cost=2.36..756.32 rows=946 width=16) (actual time=0.041..2.877 rows=265 loops=1)
+  Hash Cond: ((s1_0.promo_code)::text = (p1_0.code)::text)
+  Buffers: shared hit=333
+  ->  Seq Scan on sale s1_0  (cost=0.00..632.00 rows=30000 width=11) (actual time=0.002..1.045 rows=30000 loops=1)
+        Buffers: shared hit=332
+  ->  Hash  (cost=2.30..2.30 rows=5 width=11) (actual time=0.015..0.015 rows=4 loops=1)
+        Buckets: 1024  Batches: 1  Memory Usage: 9kB
+        Buffers: shared hit=1
+        ->  Seq Scan on promo p1_0  (cost=0.00..2.30 rows=5 width=11) (actual time=0.002..0.011 rows=5 loops=1)
+              Filter: (id = ANY ('{7,51,61,62,63}'::bigint[]))
+              Rows Removed by Filter: 75
+              Buffers: shared hit=1
+Planning:
+  Buffers: shared hit=2
+Planning Time: 0.080 ms
+Execution Time: 2.892 ms
+
+### POSTGRESQL | E.1/filter-2op | or-form | with ix_sale_promo_code, ix_promo_code
+-- select s1_0.id,p1_0.id from sale s1_0,promo p1_0 where (s1_0.promo_code=p1_0.code and s1_0.promo_code is not null and p1_0.code is not null or s1_0.promo_code is null and p1_0.code is null) and p1_0.id in (?,?,?,?,?) || 7, 51, 61, 62, 63
+Nested Loop  (cost=0.00..1984.37 rows=8698 width=16) (actual time=0.009..14.973 rows=15131 loops=1)
+  Join Filter: ((((s1_0.promo_code)::text = (p1_0.code)::text) AND (s1_0.promo_code IS NOT NULL) AND (p1_0.code IS NOT NULL)) OR ((s1_0.promo_code IS NULL) AND (p1_0.code IS NULL)))
+  Rows Removed by Join Filter: 134869
+  Buffers: shared hit=333
+  ->  Seq Scan on sale s1_0  (cost=0.00..632.00 rows=22501 width=11) (actual time=0.002..2.277 rows=30000 loops=1)
+        Filter: ((promo_code IS NOT NULL) OR (promo_code IS NULL))
+        Buffers: shared hit=332
+  ->  Materialize  (cost=0.00..2.32 rows=4 width=11) (actual time=0.000..0.000 rows=5 loops=30000)
+        Buffers: shared hit=1
+        ->  Seq Scan on promo p1_0  (cost=0.00..2.30 rows=4 width=11) (actual time=0.002..0.005 rows=5 loops=1)
+              Filter: (((code IS NOT NULL) OR (code IS NULL)) AND (id = ANY ('{7,51,61,62,63}'::bigint[])))
+              Rows Removed by Filter: 75
+              Buffers: shared hit=1
+Planning Time: 0.033 ms
+Execution Time: 15.287 ms
+
+### POSTGRESQL | E.1/filter-2op | bare-or | with ix_sale_promo_code, ix_promo_code
+-- select s1_0.id,p1_0.id from sale s1_0,promo p1_0 where (s1_0.promo_code=p1_0.code or s1_0.promo_code is null and p1_0.code is null) and p1_0.id in (?,?,?,?,?) || 7, 51, 61, 62, 63
+Nested Loop  (cost=181.72..2763.19 rows=10179 width=16) (actual time=0.191..6.199 rows=15131 loops=1)
+  Buffers: shared hit=1739
+  ->  Seq Scan on promo p1_0  (cost=0.00..2.30 rows=5 width=11) (actual time=0.002..0.006 rows=5 loops=1)
+        Filter: (id = ANY ('{7,51,61,62,63}'::bigint[]))
+        Rows Removed by Filter: 75
+        Buffers: shared hit=1
+  ->  Bitmap Heap Scan on sale s1_0  (cost=181.72..548.69 rows=349 width=11) (actual time=0.667..1.097 rows=3026 loops=5)
+        Recheck Cond: (((promo_code)::text = (p1_0.code)::text) OR (promo_code IS NULL))
+        Filter: (((promo_code)::text = (p1_0.code)::text) OR ((promo_code IS NULL) AND (p1_0.code IS NULL)))
+        Rows Removed by Filter: 11893
+        Heap Blocks: exact=1660
+        Buffers: shared hit=1738
+        ->  BitmapOr  (cost=181.72..181.72 rows=15141 width=0) (actual time=0.125..0.125 rows=0 loops=5)
+              Buffers: shared hit=78
+              ->  Bitmap Index Scan on ix_sale_promo_code  (cost=0.00..6.35 rows=275 width=0) (actual time=0.003..0.003 rows=53 loops=5)
+                    Index Cond: ((promo_code)::text = (p1_0.code)::text)
+                    Buffers: shared hit=8
+              ->  Bitmap Index Scan on ix_sale_promo_code  (cost=0.00..167.78 rows=14866 width=0) (actual time=0.122..0.122 rows=14866 loops=5)
+                    Index Cond: (promo_code IS NULL)
+                    Buffers: shared hit=70
+Planning Time: 0.029 ms
+Execution Time: 6.522 ms
+
+### POSTGRESQL | E.1/filter-2op | native | with ix_sale_promo_code, ix_promo_code
+-- select s1_0.id,p1_0.id from sale s1_0,promo p1_0 where s1_0.promo_code is not distinct from p1_0.code and p1_0.id in (?,?,?,?,?) || 7, 51, 61, 62, 63
+Nested Loop  (cost=0.00..2884.31 rows=946 width=16) (actual time=0.008..13.746 rows=15131 loops=1)
+  Join Filter: (NOT ((s1_0.promo_code)::text IS DISTINCT FROM (p1_0.code)::text))
+  Rows Removed by Join Filter: 134869
+  Buffers: shared hit=333
+  ->  Seq Scan on sale s1_0  (cost=0.00..632.00 rows=30000 width=11) (actual time=0.001..1.106 rows=30000 loops=1)
+        Buffers: shared hit=332
+  ->  Materialize  (cost=0.00..2.32 rows=5 width=11) (actual time=0.000..0.000 rows=5 loops=30000)
+        Buffers: shared hit=1
+        ->  Seq Scan on promo p1_0  (cost=0.00..2.30 rows=5 width=11) (actual time=0.002..0.004 rows=5 loops=1)
+              Filter: (id = ANY ('{7,51,61,62,63}'::bigint[]))
+              Rows Removed by Filter: 75
+              Buffers: shared hit=1
+Planning Time: 0.020 ms
+Execution Time: 14.053 ms
+
+### POSTGRESQL | E.1/exists | eq baseline | with ix_sale_promo_code, ix_promo_code
+-- select p1_0.id from promo p1_0 where exists(select s1_0.id from sale s1_0 where s1_0.promo_code=p1_0.code) order by 1
+Sort  (cost=38.65..38.78 rows=55 width=8) (actual time=0.064..0.065 rows=50 loops=1)
+  Sort Key: p1_0.id
+  Sort Method: quicksort  Memory: 25kB
+  Buffers: shared hit=191
+  ->  Nested Loop Semi Join  (cost=0.29..37.06 rows=55 width=8) (actual time=0.005..0.062 rows=50 loops=1)
+        Buffers: shared hit=191
+        ->  Seq Scan on promo p1_0  (cost=0.00..1.80 rows=80 width=11) (actual time=0.001..0.004 rows=80 loops=1)
+              Buffers: shared hit=1
+        ->  Index Only Scan using ix_sale_promo_code on sale s1_0  (cost=0.29..23.10 rows=275 width=3) (actual time=0.001..0.001 rows=1 loops=80)
+              Index Cond: (promo_code = (p1_0.code)::text)
+              Heap Fetches: 50
+              Buffers: shared hit=190
+Planning:
+  Buffers: shared hit=2
+Planning Time: 0.066 ms
+Execution Time: 0.076 ms
+
+### POSTGRESQL | E.1/exists | eq baseline, non-null codes | with ix_sale_promo_code, ix_promo_code
+-- select p1_0.id from promo p1_0 where exists(select s1_0.id from sale s1_0 where s1_0.promo_code=p1_0.code) and p1_0.code is not null order by 1
+Sort  (cost=35.08..35.20 rows=48 width=8) (actual time=0.063..0.065 rows=50 loops=1)
+  Sort Key: p1_0.id
+  Sort Method: quicksort  Memory: 25kB
+  Buffers: shared hit=191
+  ->  Nested Loop Semi Join  (cost=0.29..33.74 rows=48 width=8) (actual time=0.006..0.062 rows=50 loops=1)
+        Buffers: shared hit=191
+        ->  Seq Scan on promo p1_0  (cost=0.00..1.80 rows=70 width=11) (actual time=0.001..0.005 rows=70 loops=1)
+              Filter: (code IS NOT NULL)
+              Rows Removed by Filter: 10
+              Buffers: shared hit=1
+        ->  Index Only Scan using ix_sale_promo_code on sale s1_0  (cost=0.29..25.67 rows=275 width=3) (actual time=0.001..0.001 rows=1 loops=70)
+              Index Cond: (promo_code = (p1_0.code)::text)
+              Heap Fetches: 50
+              Buffers: shared hit=190
+Planning:
+  Buffers: shared hit=2
+Planning Time: 0.040 ms
+Execution Time: 0.070 ms
+
+### POSTGRESQL | E.1/exists | or-form | with ix_sale_promo_code, ix_promo_code
+-- select p1_0.id from promo p1_0 where exists(select s1_0.id from sale s1_0 where s1_0.promo_code=p1_0.code and s1_0.promo_code is not null and p1_0.code is not null or s1_0.promo_code is null and p1_0.code is null) order by 1
+Nested Loop Semi Join  (cost=0.14..16229.97 rows=25 width=8) (actual time=0.009..44.744 rows=60 loops=1)
+  Join Filter: ((((s1_0.promo_code)::text = (p1_0.code)::text) AND (s1_0.promo_code IS NOT NULL) AND (p1_0.code IS NOT NULL)) OR ((s1_0.promo_code IS NULL) AND (p1_0.code IS NULL)))
+  Rows Removed by Join Filter: 605822
+  Buffers: shared hit=334
+  ->  Index Scan using promo_pkey on promo p1_0  (cost=0.14..13.34 rows=71 width=11) (actual time=0.005..0.012 rows=80 loops=1)
+        Filter: ((code IS NOT NULL) OR (code IS NULL))
+        Buffers: shared hit=2
+  ->  Materialize  (cost=0.00..744.50 rows=22501 width=3) (actual time=0.000..0.225 rows=7574 loops=80)
+        Buffers: shared hit=332
+        ->  Seq Scan on sale s1_0  (cost=0.00..632.00 rows=22501 width=3) (actual time=0.001..2.215 rows=30000 loops=1)
+              Filter: ((promo_code IS NOT NULL) OR (promo_code IS NULL))
+              Buffers: shared hit=332
+Planning Time: 0.030 ms
+Execution Time: 44.830 ms
+
+### POSTGRESQL | E.1/exists | bare-or | with ix_sale_promo_code, ix_promo_code
+-- select p1_0.id from promo p1_0 where exists(select s1_0.id from sale s1_0 where s1_0.promo_code=p1_0.code or s1_0.promo_code is null and p1_0.code is null) order by 1
+Nested Loop Semi Join  (cost=0.14..11088.15 rows=57 width=8) (actual time=0.008..44.158 rows=60 loops=1)
+  Join Filter: (((s1_0.promo_code)::text = (p1_0.code)::text) OR ((s1_0.promo_code IS NULL) AND (p1_0.code IS NULL)))
+  Rows Removed by Join Filter: 605822
+  Buffers: shared hit=334
+  ->  Index Scan using promo_pkey on promo p1_0  (cost=0.14..13.34 rows=80 width=11) (actual time=0.005..0.009 rows=80 loops=1)
+        Buffers: shared hit=2
+  ->  Materialize  (cost=0.00..782.00 rows=30000 width=3) (actual time=0.000..0.221 rows=7574 loops=80)
+        Buffers: shared hit=332
+        ->  Seq Scan on sale s1_0  (cost=0.00..632.00 rows=30000 width=3) (actual time=0.001..2.034 rows=30000 loops=1)
+              Buffers: shared hit=332
+Planning Time: 0.023 ms
+Execution Time: 44.258 ms
+
+### POSTGRESQL | E.1/exists | native | with ix_sale_promo_code, ix_promo_code
+-- select p1_0.id from promo p1_0 where exists(select s1_0.id from sale s1_0 where s1_0.promo_code is not distinct from p1_0.code) order by 1
+Nested Loop Semi Join  (cost=0.14..12149.58 rows=55 width=8) (actual time=0.009..40.268 rows=60 loops=1)
+  Join Filter: (NOT ((s1_0.promo_code)::text IS DISTINCT FROM (p1_0.code)::text))
+  Rows Removed by Join Filter: 605822
+  Buffers: shared hit=334
+  ->  Index Scan using promo_pkey on promo p1_0  (cost=0.14..13.34 rows=80 width=11) (actual time=0.005..0.010 rows=80 loops=1)
+        Buffers: shared hit=2
+  ->  Materialize  (cost=0.00..782.00 rows=30000 width=3) (actual time=0.000..0.218 rows=7574 loops=80)
+        Buffers: shared hit=332
+        ->  Seq Scan on sale s1_0  (cost=0.00..632.00 rows=30000 width=3) (actual time=0.002..2.025 rows=30000 loops=1)
+              Buffers: shared hit=332
+Planning Time: 0.025 ms
+Execution Time: 40.367 ms
+
+### POSTGRESQL | E.1/filter-2op | eq baseline | with ix_sale_promo_code, ix_promo_code, enable_seqscan=off
+-- select s1_0.id,p1_0.id from sale s1_0,promo p1_0 where s1_0.promo_code=p1_0.code and p1_0.id in (?,?,?,?,?) || 7, 51, 61, 62, 63
+Nested Loop  (cost=6.56..964.36 rows=946 width=16) (actual time=0.020..0.100 rows=265 loops=1)
+  Buffers: shared hit=199
+  ->  Index Scan using promo_pkey on promo p1_0  (cost=0.14..12.80 rows=5 width=11) (actual time=0.004..0.005 rows=5 loops=1)
+        Index Cond: (id = ANY ('{7,51,61,62,63}'::bigint[]))
+        Buffers: shared hit=6
+  ->  Bitmap Heap Scan on sale s1_0  (cost=6.42..187.56 rows=275 width=11) (actual time=0.003..0.015 rows=53 loops=5)
+        Recheck Cond: ((promo_code)::text = (p1_0.code)::text)
+        Heap Blocks: exact=185
+        Buffers: shared hit=193
+        ->  Bitmap Index Scan on ix_sale_promo_code  (cost=0.00..6.35 rows=275 width=0) (actual time=0.002..0.002 rows=53 loops=5)
+              Index Cond: ((promo_code)::text = (p1_0.code)::text)
+              Buffers: shared hit=8
+Planning:
+  Buffers: shared hit=2
+Planning Time: 0.076 ms
+Execution Time: 0.122 ms
+
+### POSTGRESQL | E.1/filter-2op | or-form | with ix_sale_promo_code, ix_promo_code, enable_seqscan=off
+-- select s1_0.id,p1_0.id from sale s1_0,promo p1_0 where (s1_0.promo_code=p1_0.code and s1_0.promo_code is not null and p1_0.code is not null or s1_0.promo_code is null and p1_0.code is null) and p1_0.id in (?,?,?,?,?) || 7, 51, 61, 62, 63
+Nested Loop  (cost=179.27..2315.91 rows=8698 width=16) (actual time=0.190..6.305 rows=15131 loops=1)
+  Buffers: shared hit=1744
+  ->  Index Scan using promo_pkey on promo p1_0  (cost=0.14..12.80 rows=4 width=11) (actual time=0.005..0.007 rows=5 loops=1)
+        Index Cond: (id = ANY ('{7,51,61,62,63}'::bigint[]))
+        Filter: ((code IS NOT NULL) OR (code IS NULL))
+        Buffers: shared hit=6
+  ->  Bitmap Heap Scan on sale s1_0  (cost=179.12..574.19 rows=159 width=11) (actual time=0.673..1.117 rows=3026 loops=5)
+        Recheck Cond: ((((promo_code)::text = (p1_0.code)::text) AND (promo_code IS NOT NULL)) OR (promo_code IS NULL))
+        Filter: ((((promo_code)::text = (p1_0.code)::text) AND (promo_code IS NOT NULL) AND (p1_0.code IS NOT NULL)) OR ((promo_code IS NULL) AND (p1_0.code IS NULL)))
+        Rows Removed by Filter: 11893
+        Heap Blocks: exact=1660
+        Buffers: shared hit=1738
+        ->  BitmapOr  (cost=179.12..179.12 rows=15005 width=0) (actual time=0.121..0.121 rows=0 loops=5)
+              Buffers: shared hit=78
+              ->  Bitmap Index Scan on ix_sale_promo_code  (cost=0.00..5.68 rows=139 width=0) (actual time=0.001..0.001 rows=53 loops=5)
+                    Index Cond: (((promo_code)::text = (p1_0.code)::text) AND (promo_code IS NOT NULL))
+                    Buffers: shared hit=8
+              ->  Bitmap Index Scan on ix_sale_promo_code  (cost=0.00..167.78 rows=14866 width=0) (actual time=0.120..0.120 rows=14866 loops=5)
+                    Index Cond: (promo_code IS NULL)
+                    Buffers: shared hit=70
+Planning Time: 0.054 ms
+Execution Time: 6.617 ms
+
+### POSTGRESQL | E.1/filter-2op | bare-or | with ix_sale_promo_code, ix_promo_code, enable_seqscan=off
+-- select s1_0.id,p1_0.id from sale s1_0,promo p1_0 where (s1_0.promo_code=p1_0.code or s1_0.promo_code is null and p1_0.code is null) and p1_0.id in (?,?,?,?,?) || 7, 51, 61, 62, 63
+Nested Loop  (cost=181.86..2773.69 rows=10179 width=16) (actual time=0.169..5.890 rows=15131 loops=1)
+  Buffers: shared hit=1744
+  ->  Index Scan using promo_pkey on promo p1_0  (cost=0.14..12.80 rows=5 width=11) (actual time=0.003..0.005 rows=5 loops=1)
+        Index Cond: (id = ANY ('{7,51,61,62,63}'::bigint[]))
+        Buffers: shared hit=6
+  ->  Bitmap Heap Scan on sale s1_0  (cost=181.72..548.69 rows=349 width=11) (actual time=0.628..1.035 rows=3026 loops=5)
+        Recheck Cond: (((promo_code)::text = (p1_0.code)::text) OR (promo_code IS NULL))
+        Filter: (((promo_code)::text = (p1_0.code)::text) OR ((promo_code IS NULL) AND (p1_0.code IS NULL)))
+        Rows Removed by Filter: 11893
+        Heap Blocks: exact=1660
+        Buffers: shared hit=1738
+        ->  BitmapOr  (cost=181.72..181.72 rows=15141 width=0) (actual time=0.116..0.116 rows=0 loops=5)
+              Buffers: shared hit=78
+              ->  Bitmap Index Scan on ix_sale_promo_code  (cost=0.00..6.35 rows=275 width=0) (actual time=0.001..0.001 rows=53 loops=5)
+                    Index Cond: ((promo_code)::text = (p1_0.code)::text)
+                    Buffers: shared hit=8
+              ->  Bitmap Index Scan on ix_sale_promo_code  (cost=0.00..167.78 rows=14866 width=0) (actual time=0.114..0.114 rows=14866 loops=5)
+                    Index Cond: (promo_code IS NULL)
+                    Buffers: shared hit=70
+Planning Time: 0.025 ms
+Execution Time: 6.189 ms
+
+### POSTGRESQL | E.1/filter-2op | native | with ix_sale_promo_code, ix_promo_code, enable_seqscan=off
+-- select s1_0.id,p1_0.id from sale s1_0,promo p1_0 where s1_0.promo_code is not distinct from p1_0.code and p1_0.id in (?,?,?,?,?) || 7, 51, 61, 62, 63
+Nested Loop  (cost=10000000000.14..10000002894.81 rows=946 width=16) (actual time=45.678..57.842 rows=15131 loops=1)
+  Join Filter: (NOT ((s1_0.promo_code)::text IS DISTINCT FROM (p1_0.code)::text))
+  Rows Removed by Join Filter: 134869
+  Buffers: shared hit=338
+  ->  Seq Scan on sale s1_0  (cost=10000000000.00..10000000632.00 rows=30000 width=11) (actual time=0.002..1.286 rows=30000 loops=1)
+        Buffers: shared hit=332
+  ->  Materialize  (cost=0.14..12.83 rows=5 width=11) (actual time=0.002..0.002 rows=5 loops=30000)
+        Buffers: shared hit=6
+        ->  Index Scan using promo_pkey on promo p1_0  (cost=0.14..12.80 rows=5 width=11) (actual time=45.658..45.667 rows=5 loops=1)
+              Index Cond: (id = ANY ('{7,51,61,62,63}'::bigint[]))
+              Buffers: shared hit=6
+Planning Time: 0.025 ms
+JIT:
+  Functions: 10
+  Options: Inlining true, Optimization true, Expressions true, Deforming true
+  Timing: Generation 0.227 ms, Inlining 3.534 ms, Optimization 22.056 ms, Emission 20.063 ms, Total 45.880 ms
+Execution Time: 58.397 ms
+
+### POSTGRESQL | E.1/exists | eq baseline | with ix_sale_promo_code, ix_promo_code, enable_seqscan=off
+-- select p1_0.id from promo p1_0 where exists(select s1_0.id from sale s1_0 where s1_0.promo_code=p1_0.code) order by 1
+Nested Loop Semi Join  (cost=0.43..48.60 rows=55 width=8) (actual time=0.007..0.065 rows=50 loops=1)
+  Buffers: shared hit=192
+  ->  Index Scan using promo_pkey on promo p1_0  (cost=0.14..13.34 rows=80 width=11) (actual time=0.003..0.007 rows=80 loops=1)
+        Buffers: shared hit=2
+  ->  Index Only Scan using ix_sale_promo_code on sale s1_0  (cost=0.29..23.10 rows=275 width=3) (actual time=0.001..0.001 rows=1 loops=80)
+        Index Cond: (promo_code = (p1_0.code)::text)
+        Heap Fetches: 50
+        Buffers: shared hit=190
+Planning:
+  Buffers: shared hit=2
+Planning Time: 0.082 ms
+Execution Time: 0.073 ms
+
+### POSTGRESQL | E.1/exists | eq baseline, non-null codes | with ix_sale_promo_code, ix_promo_code, enable_seqscan=off
+-- select p1_0.id from promo p1_0 where exists(select s1_0.id from sale s1_0 where s1_0.promo_code=p1_0.code) and p1_0.code is not null order by 1
+Nested Loop Semi Join  (cost=0.43..45.28 rows=48 width=8) (actual time=0.007..0.064 rows=50 loops=1)
+  Buffers: shared hit=192
+  ->  Index Scan using promo_pkey on promo p1_0  (cost=0.14..13.34 rows=70 width=11) (actual time=0.003..0.008 rows=70 loops=1)
+        Filter: (code IS NOT NULL)
+        Rows Removed by Filter: 10
+        Buffers: shared hit=2
+  ->  Index Only Scan using ix_sale_promo_code on sale s1_0  (cost=0.29..25.67 rows=275 width=3) (actual time=0.001..0.001 rows=1 loops=70)
+        Index Cond: (promo_code = (p1_0.code)::text)
+        Heap Fetches: 50
+        Buffers: shared hit=190
+Planning:
+  Buffers: shared hit=2
+Planning Time: 0.043 ms
+Execution Time: 0.071 ms
+
+### POSTGRESQL | E.1/exists | or-form | with ix_sale_promo_code, ix_promo_code, enable_seqscan=off
+-- select p1_0.id from promo p1_0 where exists(select s1_0.id from sale s1_0 where s1_0.promo_code=p1_0.code and s1_0.promo_code is not null and p1_0.code is not null or s1_0.promo_code is null and p1_0.code is null) order by 1
+Nested Loop Semi Join  (cost=268.06..16497.89 rows=25 width=8) (actual time=0.336..45.402 rows=60 loops=1)
+  Join Filter: ((((s1_0.promo_code)::text = (p1_0.code)::text) AND (s1_0.promo_code IS NOT NULL) AND (p1_0.code IS NOT NULL)) OR ((s1_0.promo_code IS NULL) AND (p1_0.code IS NULL)))
+  Rows Removed by Join Filter: 605822
+  Buffers: shared hit=361
+  ->  Index Scan using promo_pkey on promo p1_0  (cost=0.14..13.34 rows=71 width=11) (actual time=0.003..0.011 rows=80 loops=1)
+        Filter: ((code IS NOT NULL) OR (code IS NULL))
+        Buffers: shared hit=2
+  ->  Materialize  (cost=267.91..1012.42 rows=22501 width=3) (actual time=0.004..0.230 rows=7574 loops=80)
+        Buffers: shared hit=359
+        ->  Bitmap Heap Scan on sale s1_0  (cost=267.91..899.91 rows=22501 width=3) (actual time=0.330..2.781 rows=30000 loops=1)
+              Filter: ((promo_code IS NOT NULL) OR (promo_code IS NULL))
+              Heap Blocks: exact=332
+              Buffers: shared hit=359
+              ->  Bitmap Index Scan on ix_sale_promo_code  (cost=0.00..262.29 rows=30000 width=0) (actual time=0.310..0.311 rows=30000 loops=1)
+                    Buffers: shared hit=27
+Planning Time: 0.036 ms
+Execution Time: 45.511 ms
+
+### POSTGRESQL | E.1/exists | bare-or | with ix_sale_promo_code, ix_promo_code, enable_seqscan=off
+-- select p1_0.id from promo p1_0 where exists(select s1_0.id from sale s1_0 where s1_0.promo_code=p1_0.code or s1_0.promo_code is null and p1_0.code is null) order by 1
+Nested Loop Semi Join  (cost=269.93..11357.94 rows=57 width=8) (actual time=0.336..43.804 rows=60 loops=1)
+  Join Filter: (((s1_0.promo_code)::text = (p1_0.code)::text) OR ((s1_0.promo_code IS NULL) AND (p1_0.code IS NULL)))
+  Rows Removed by Join Filter: 605822
+  Buffers: shared hit=361
+  ->  Index Scan using promo_pkey on promo p1_0  (cost=0.14..13.34 rows=80 width=11) (actual time=0.003..0.008 rows=80 loops=1)
+        Buffers: shared hit=2
+  ->  Materialize  (cost=269.79..1051.79 rows=30000 width=3) (actual time=0.004..0.224 rows=7574 loops=80)
+        Buffers: shared hit=359
+        ->  Bitmap Heap Scan on sale s1_0  (cost=269.79..901.79 rows=30000 width=3) (actual time=0.331..2.550 rows=30000 loops=1)
+              Heap Blocks: exact=332
+              Buffers: shared hit=359
+              ->  Bitmap Index Scan on ix_sale_promo_code  (cost=0.00..262.29 rows=30000 width=0) (actual time=0.316..0.317 rows=30000 loops=1)
+                    Buffers: shared hit=27
+Planning Time: 0.024 ms
+Execution Time: 43.926 ms
+
+### POSTGRESQL | E.1/exists | native | with ix_sale_promo_code, ix_promo_code, enable_seqscan=off
+-- select p1_0.id from promo p1_0 where exists(select s1_0.id from sale s1_0 where s1_0.promo_code is not distinct from p1_0.code) order by 1
+Nested Loop Semi Join  (cost=269.93..12419.37 rows=55 width=8) (actual time=0.302..41.459 rows=60 loops=1)
+  Join Filter: (NOT ((s1_0.promo_code)::text IS DISTINCT FROM (p1_0.code)::text))
+  Rows Removed by Join Filter: 605822
+  Buffers: shared hit=361
+  ->  Index Scan using promo_pkey on promo p1_0  (cost=0.14..13.34 rows=80 width=11) (actual time=0.003..0.009 rows=80 loops=1)
+        Buffers: shared hit=2
+  ->  Materialize  (cost=269.79..1051.79 rows=30000 width=3) (actual time=0.004..0.231 rows=7574 loops=80)
+        Buffers: shared hit=359
+        ->  Bitmap Heap Scan on sale s1_0  (cost=269.79..901.79 rows=30000 width=3) (actual time=0.295..2.538 rows=30000 loops=1)
+              Heap Blocks: exact=332
+              Buffers: shared hit=359
+              ->  Bitmap Index Scan on ix_sale_promo_code  (cost=0.00..262.29 rows=30000 width=0) (actual time=0.283..0.283 rows=30000 loops=1)
+                    Buffers: shared hit=27
+Planning Time: 0.015 ms
+Execution Time: 41.563 ms
+
+### POSTGRESQL | B/litepos day | B.1/litepos/day/pattern | no index
+-- select s1_0.business_date,(array_agg(i1_0.name order by sl1_0.qty desc,sl1_0.id))[1] from sale_line sl1_0 join sale s1_0 on s1_0.id=sl1_0.sale_id join item i1_0 on i1_0.id=sl1_0.item_id group by 1 order by 1
+GroupAggregate  (cost=12702.98..13378.35 rows=30 width=36) (actual time=83.595..93.013 rows=30 loops=1)
+  Group Key: s1_0.business_date
+  Buffers: shared hit=1084, temp read=464 written=465
+  ->  Sort  (cost=12702.98..12927.98 rows=90000 width=25) (actual time=83.253..86.583 rows=90000 loops=1)
+        Sort Key: s1_0.business_date, sl1_0.qty DESC, sl1_0.id
+        Sort Method: external merge  Disk: 3712kB
+        Buffers: shared hit=1084, temp read=464 written=465
+        ->  Hash Join  (cost=1013.50..3141.04 rows=90000 width=25) (actual time=3.845..23.230 rows=90000 loops=1)
+              Hash Cond: (sl1_0.item_id = i1_0.id)
+              Buffers: shared hit=1084
+              ->  Hash Join  (cost=1007.00..2893.28 rows=90000 width=24) (actual time=3.810..16.320 rows=90000 loops=1)
+                    Hash Cond: (sl1_0.sale_id = s1_0.id)
+                    Buffers: shared hit=1082
+                    ->  Seq Scan on sale_line sl1_0  (cost=0.00..1650.00 rows=90000 width=28) (actual time=0.002..3.490 rows=90000 loops=1)
+                          Buffers: shared hit=750
+                    ->  Hash  (cost=632.00..632.00 rows=30000 width=12) (actual time=3.780..3.780 rows=30000 loops=1)
+                          Buckets: 32768  Batches: 1  Memory Usage: 1663kB
+                          Buffers: shared hit=332
+                          ->  Seq Scan on sale s1_0  (cost=0.00..632.00 rows=30000 width=12) (actual time=0.001..1.975 rows=30000 loops=1)
+                                Buffers: shared hit=332
+              ->  Hash  (cost=4.00..4.00 rows=200 width=17) (actual time=0.031..0.031 rows=200 loops=1)
+                    Buckets: 1024  Batches: 1  Memory Usage: 19kB
+                    Buffers: shared hit=2
+                    ->  Seq Scan on item i1_0  (cost=0.00..4.00 rows=200 width=17) (actual time=0.003..0.014 rows=200 loops=1)
+                          Buffers: shared hit=2
+Planning:
+  Buffers: shared hit=10
+Planning Time: 0.114 ms
+Execution Time: 93.304 ms
+
+### POSTGRESQL | B/litepos day | B.2/litepos/day | no index
+-- with cte0 (mq_key,mq_name,mq_rank) as (select s1_0.business_date,i1_0.name,row_number() over(partition by s1_0.business_date order by sl1_0.qty desc,sl1_0.id) from sale_line sl1_0 join sale s1_0 on s1_0.id=sl1_0.sale_id join item i1_0 on i1_0.id=sl1_0.item_id),cte1 (mq_key,mq_name) as (select cte01_0.mq_key,cte01_0.mq_name from cte0 cte01_0 where cte01_0.mq_rank=?) select bd1_0.business_date,var_1_11_0.mq_name from business_day bd1_0 left join cte1 var_1_11_0 on var_1_11_0.mq_key=bd1_0.business_date where var_1_11_0.mq_key is not null order by bd1_0.id || 1
+Sort  (cost=15885.21..15886.34 rows=450 width=21) (actual time=58.629..58.632 rows=30 loops=1)
+  Sort Key: bd1_0.id
+  Sort Method: quicksort  Memory: 26kB
+  Buffers: shared hit=1087, temp read=386 written=387
+  ->  Hash Join  (cost=12714.19..15865.38 rows=450 width=21) (actual time=52.612..58.623 rows=30 loops=1)
+        Hash Cond: (cte01_0.mq_key = bd1_0.business_date)
+        Buffers: shared hit=1087, temp read=386 written=387
+        ->  Subquery Scan on cte01_0  (cost=12702.98..15852.98 rows=450 width=13) (actual time=52.548..58.552 rows=30 loops=1)
+              Filter: (cte01_0.mq_rank = '1'::bigint)
+              Buffers: shared hit=1084, temp read=386 written=387
+              ->  WindowAgg  (cost=12702.98..14727.98 rows=90000 width=33) (actual time=52.548..58.549 rows=30 loops=1)
+                    Run Condition: (row_number() OVER (?) <= '1'::bigint)
+                    Buffers: shared hit=1084, temp read=386 written=387
+                    ->  Sort  (cost=12702.98..12927.98 rows=90000 width=25) (actual time=52.544..55.787 rows=90000 loops=1)
+                          Sort Key: s1_0.business_date, sl1_0.qty DESC, sl1_0.id
+                          Sort Method: external merge  Disk: 3088kB
+                          Buffers: shared hit=1084, temp read=386 written=387
+                          ->  Hash Join  (cost=1013.50..3141.04 rows=90000 width=25) (actual time=4.389..24.111 rows=90000 loops=1)
+                                Hash Cond: (sl1_0.item_id = i1_0.id)
+                                Buffers: shared hit=1084
+                                ->  Hash Join  (cost=1007.00..2893.28 rows=90000 width=24) (actual time=4.343..17.059 rows=90000 loops=1)
+                                      Hash Cond: (sl1_0.sale_id = s1_0.id)
+                                      Buffers: shared hit=1082
+                                      ->  Seq Scan on sale_line sl1_0  (cost=0.00..1650.00 rows=90000 width=28) (actual time=0.002..3.636 rows=90000 loops=1)
+                                            Buffers: shared hit=750
+                                      ->  Hash  (cost=632.00..632.00 rows=30000 width=12) (actual time=4.278..4.278 rows=30000 loops=1)
+                                            Buckets: 32768  Batches: 1  Memory Usage: 1663kB
+                                            Buffers: shared hit=332
+                                            ->  Seq Scan on sale s1_0  (cost=0.00..632.00 rows=30000 width=12) (actual time=0.003..2.255 rows=30000 loops=1)
+                                                  Filter: (business_date IS NOT NULL)
+                                                  Buffers: shared hit=332
+                                ->  Hash  (cost=4.00..4.00 rows=200 width=17) (actual time=0.026..0.027 rows=200 loops=1)
+                                      Buckets: 1024  Batches: 1  Memory Usage: 19kB
+                                      Buffers: shared hit=2
+                                      ->  Seq Scan on item i1_0  (cost=0.00..4.00 rows=200 width=17) (actual time=0.003..0.012 rows=200 loops=1)
+                                            Buffers: shared hit=2
+        ->  Hash  (cost=6.65..6.65 rows=365 width=12) (actual time=0.060..0.060 rows=365 loops=1)
+              Buckets: 1024  Batches: 1  Memory Usage: 26kB
+              Buffers: shared hit=3
+              ->  Seq Scan on business_day bd1_0  (cost=0.00..6.65 rows=365 width=12) (actual time=0.004..0.033 rows=365 loops=1)
+                    Buffers: shared hit=3
+Planning:
+  Buffers: shared hit=12
+Planning Time: 0.220 ms
+Execution Time: 58.884 ms
+
+### POSTGRESQL | B/litepos category | B.1/litepos/category/pattern | no index
+-- select i1_0.category,(array_agg(i1_0.name order by sl1_0.qty desc,sl1_0.id))[1] from sale_line sl1_0 join item i1_0 on i1_0.id=sl1_0.item_id group by 1 order by 1
+GroupAggregate  (cost=11151.69..11826.82 rows=10 width=35) (actual time=94.380..107.638 rows=10 loops=1)
+  Group Key: i1_0.category
+  Buffers: shared hit=752, temp read=376 written=377
+  ->  Sort  (cost=11151.69..11376.69 rows=90000 width=24) (actual time=92.923..100.134 rows=90000 loops=1)
+        Sort Key: i1_0.category, sl1_0.qty DESC, sl1_0.id
+        Sort Method: external merge  Disk: 3008kB
+        Buffers: shared hit=752, temp read=376 written=377
+        ->  Hash Join  (cost=6.50..1897.76 rows=90000 width=24) (actual time=0.043..11.900 rows=90000 loops=1)
+              Hash Cond: (sl1_0.item_id = i1_0.id)
+              Buffers: shared hit=752
+              ->  Seq Scan on sale_line sl1_0  (cost=0.00..1650.00 rows=90000 width=20) (actual time=0.005..3.684 rows=90000 loops=1)
+                    Buffers: shared hit=750
+              ->  Hash  (cost=4.00..4.00 rows=200 width=20) (actual time=0.032..0.033 rows=200 loops=1)
+                    Buckets: 1024  Batches: 1  Memory Usage: 19kB
+                    Buffers: shared hit=2
+                    ->  Seq Scan on item i1_0  (cost=0.00..4.00 rows=200 width=20) (actual time=0.003..0.013 rows=200 loops=1)
+                          Buffers: shared hit=2
+Planning:
+  Buffers: shared hit=4
+Planning Time: 0.109 ms
+Execution Time: 107.830 ms
+
+### POSTGRESQL | B/litepos category | B.2/litepos/category | no index
+-- with cte0 (mq_key,mq_name,mq_rank) as (select i1_0.category,i1_0.name,row_number() over(partition by i1_0.category order by sl1_0.qty desc,sl1_0.id) from sale_line sl1_0 join item i1_0 on i1_0.id=sl1_0.item_id),cte1 (mq_key,mq_name) as (select cte01_0.mq_key,cte01_0.mq_name from cte0 cte01_0 where cte01_0.mq_rank=?) select cte11_0.mq_key,cte11_0.mq_name from cte1 cte11_0 order by 1 || 1
+Subquery Scan on cte01_0  (cost=11151.69..14301.69 rows=450 width=12) (actual time=78.826..88.824 rows=10 loops=1)
+  Filter: (cte01_0.mq_rank = '1'::bigint)
+  Buffers: shared hit=752, temp read=386 written=387
+  ->  WindowAgg  (cost=11151.69..13176.69 rows=90000 width=32) (actual time=78.825..88.823 rows=10 loops=1)
+        Run Condition: (row_number() OVER (?) <= '1'::bigint)
+        Buffers: shared hit=752, temp read=386 written=387
+        ->  Sort  (cost=11151.69..11376.69 rows=90000 width=24) (actual time=78.822..84.861 rows=90000 loops=1)
+              Sort Key: i1_0.category, sl1_0.qty DESC, sl1_0.id
+              Sort Method: external merge  Disk: 3088kB
+              Buffers: shared hit=752, temp read=386 written=387
+              ->  Hash Join  (cost=6.50..1897.76 rows=90000 width=24) (actual time=0.034..11.774 rows=90000 loops=1)
+                    Hash Cond: (sl1_0.item_id = i1_0.id)
+                    Buffers: shared hit=752
+                    ->  Seq Scan on sale_line sl1_0  (cost=0.00..1650.00 rows=90000 width=20) (actual time=0.003..3.527 rows=90000 loops=1)
+                          Buffers: shared hit=750
+                    ->  Hash  (cost=4.00..4.00 rows=200 width=20) (actual time=0.026..0.026 rows=200 loops=1)
+                          Buckets: 1024  Batches: 1  Memory Usage: 19kB
+                          Buffers: shared hit=2
+                          ->  Seq Scan on item i1_0  (cost=0.00..4.00 rows=200 width=20) (actual time=0.002..0.011 rows=200 loops=1)
+                                Buffers: shared hit=2
+Planning:
+  Buffers: shared hit=4
+Planning Time: 0.091 ms
+Execution Time: 88.959 ms
+
+### POSTGRESQL | F.1/grouped | F.1/grouped/id | no index
+-- select s1_0.kind,count(s1_0.id) from sale s1_0 group by 1 order by 1
+Sort  (cost=782.03..782.03 rows=2 width=13) (actual time=4.026..4.026 rows=2 loops=1)
+  Sort Key: kind
+  Sort Method: quicksort  Memory: 25kB
+  Buffers: shared hit=332
+  ->  HashAggregate  (cost=782.00..782.02 rows=2 width=13) (actual time=4.025..4.025 rows=2 loops=1)
+        Group Key: kind
+        Batches: 1  Memory Usage: 24kB
+        Buffers: shared hit=332
+        ->  Seq Scan on sale s1_0  (cost=0.00..632.00 rows=30000 width=13) (actual time=0.001..0.977 rows=30000 loops=1)
+              Buffers: shared hit=332
+Planning Time: 0.008 ms
+Execution Time: 4.030 ms
+
+### POSTGRESQL | F.1/grouped | F.1/grouped/one | no index
+-- select s1_0.kind,count(1) from sale s1_0 group by 1 order by 1
+Sort  (cost=782.03..782.03 rows=2 width=13) (actual time=3.961..3.961 rows=2 loops=1)
+  Sort Key: kind
+  Sort Method: quicksort  Memory: 25kB
+  Buffers: shared hit=332
+  ->  HashAggregate  (cost=782.00..782.02 rows=2 width=13) (actual time=3.960..3.960 rows=2 loops=1)
+        Group Key: kind
+        Batches: 1  Memory Usage: 24kB
+        Buffers: shared hit=332
+        ->  Seq Scan on sale s1_0  (cost=0.00..632.00 rows=30000 width=5) (actual time=0.001..0.968 rows=30000 loops=1)
+              Buffers: shared hit=332
+Planning Time: 0.007 ms
+Execution Time: 3.965 ms
+
+### POSTGRESQL | F.1/grouped | F.1/grouped/star | no index
+-- select s1_0.kind,count(*) from sale s1_0 group by 1 order by 1
+Sort  (cost=782.03..782.03 rows=2 width=13) (actual time=3.732..3.732 rows=2 loops=1)
+  Sort Key: kind
+  Sort Method: quicksort  Memory: 25kB
+  Buffers: shared hit=332
+  ->  HashAggregate  (cost=782.00..782.02 rows=2 width=13) (actual time=3.731..3.731 rows=2 loops=1)
+        Group Key: kind
+        Batches: 1  Memory Usage: 24kB
+        Buffers: shared hit=332
+        ->  Seq Scan on sale s1_0  (cost=0.00..632.00 rows=30000 width=5) (actual time=0.001..0.953 rows=30000 loops=1)
+              Buffers: shared hit=332
+Planning Time: 0.007 ms
+Execution Time: 3.745 ms
+
+### POSTGRESQL | F.1/page-total | F.1/page-total/id | no index
+-- select count(sl1_0.id) from sale_line sl1_0 where sl1_0.qty>=? || 3
+Aggregate  (cost=2010.20..2010.21 rows=1 width=8) (actual time=5.322..5.322 rows=1 loops=1)
+  Buffers: shared hit=750
+  ->  Seq Scan on sale_line sl1_0  (cost=0.00..1875.00 rows=54081 width=8) (actual time=0.002..3.655 rows=54010 loops=1)
+        Filter: (qty >= 3)
+        Rows Removed by Filter: 35990
+        Buffers: shared hit=750
+Planning Time: 0.006 ms
+Execution Time: 5.326 ms
+
+### POSTGRESQL | F.1/page-total | F.1/page-total/one | no index
+-- select count(1) from sale_line sl1_0 where sl1_0.qty>=? || 3
+Aggregate  (cost=2010.20..2010.21 rows=1 width=8) (actual time=5.456..5.457 rows=1 loops=1)
+  Buffers: shared hit=750
+  ->  Seq Scan on sale_line sl1_0  (cost=0.00..1875.00 rows=54081 width=0) (actual time=0.002..3.503 rows=54010 loops=1)
+        Filter: (qty >= 3)
+        Rows Removed by Filter: 35990
+        Buffers: shared hit=750
+Planning Time: 0.006 ms
+Execution Time: 5.459 ms
+
+### POSTGRESQL | F.1/page-total | F.1/page-total/star | no index
+-- select count(*) from sale_line sl1_0 where sl1_0.qty>=? || 3
+Aggregate  (cost=2010.20..2010.21 rows=1 width=8) (actual time=4.906..4.906 rows=1 loops=1)
+  Buffers: shared hit=750
+  ->  Seq Scan on sale_line sl1_0  (cost=0.00..1875.00 rows=54081 width=0) (actual time=0.001..3.513 rows=54010 loops=1)
+        Filter: (qty >= 3)
+        Rows Removed by Filter: 35990
+        Buffers: shared hit=750
+Planning Time: 0.006 ms
+Execution Time: 4.908 ms
+

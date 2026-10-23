@@ -366,6 +366,15 @@
                 <module>spike-rfc0019</module>
             </modules>
         </profile>
+        <profile>
+            <id>spike-rfc0020</id>
+            <activation>
+                <activeByDefault>false</activeByDefault>
+            </activation>
+            <modules>
+                <module>spike-rfc0020</module>
+            </modules>
+        </profile>
         <!-- -Djapicmp.baseline=<version> switches the API compatibility check on. -->
         <profile>
             <id>japicmp-baseline</id>
