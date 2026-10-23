@@ -144,13 +144,16 @@ public enum MqCode {
     MQ1407("having(...) needs a grouped query: a groupBy or a selected aggregate"),
 
     /** An aggregate function over a column that has a {@code ColumnConverter} (R-AGG-04). */
-    MQ1408("An aggregate function does not take a column that has a ColumnConverter"),
+    MQ1408("An aggregate function, or round over a min or max, does not take a column that has a ColumnConverter"),
 
     /** A grouped query selects a column under a {@code presentBy} join whose key is not grouped by (R-AGG-09). */
     MQ1409("A grouped query selects a column under a presentBy join whose key columns are not all group keys"),
 
     /** A group key reads a to-one as its whole entity, which has no portable {@code GROUP BY} (R-AGG-05, D-137). */
     MQ1410("A group key reads a to-one as its whole entity; group by its id or a column of the target"),
+
+    /** An exact average over an input with no exact rendering, or a round scale outside 0 to 30 (R-AGG-18). */
+    MQ1411("An exact average takes a BigDecimal, Long, Integer or Short input, and a round scale is 0 to 30"),
 
     /** An aggregate's {@code filter} that cannot be placed: repeated, on {@code Agg.of} or correlated (R-AGG-17). */
     MQ1412("An aggregate filter is repeated, sits on Agg.of, or reads a correlated value or a to-many path"),
@@ -554,10 +557,10 @@ public enum MqCode {
     /**
      * The persistence provider lacks a source, ordered sub-query or source-feature renderer, including a tree's
      * duplicate-key check, or can't render an operator feature; raised at build time, before any statement (R-SRC-11,
-     * R-SRC-14, R-COL-32, R-VND-25, R-VND-23).
+     * R-SRC-14, R-COL-32, R-VND-25, R-VND-23, R-AGG-18, R-VND-30).
      */
     MQ4014("The persistence provider lacks a renderer for a source, ordered sub-query, source feature, "
-            + "treated path or operator feature"),
+            + "treated path, operator feature or exact average"),
 
     /**
      * The target's vendor lacks a source or operator feature the query uses, {@code VendorProfile#sources} or

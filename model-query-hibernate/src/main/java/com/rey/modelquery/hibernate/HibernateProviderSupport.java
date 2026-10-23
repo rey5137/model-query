@@ -33,6 +33,7 @@ import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Subquery;
 import java.io.Serializable;
 import java.lang.reflect.Method;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
@@ -607,6 +608,25 @@ public final class HibernateProviderSupport implements ProviderSupport {
                     case MAX -> hcb.functionAggregate("max", argument.getJavaType(), filter, argument);
                     default -> AggregateRenderer.super.filtered(cb, kind, argument, condition);
                 };
+            }
+
+            /**
+             * {@code sum(x) / count(x)} with the numerator typed {@code BigDecimal} (R-AGG-18): every vendor divides
+             * exactly. An integer input is cast to {@code numeric} first, since integer division truncates on
+             * PostgreSQL and H2; a {@code BigDecimal} is not, as the cast's default scale would round it.
+             */
+            @Override
+            @Incubating
+            @SuppressWarnings({"unchecked", "rawtypes"})
+            public Expression<BigDecimal> exactAverage(CriteriaBuilder cb, Expression<? extends Number> argument) {
+                var hcb = (HibernateCriteriaBuilder) cb;
+                Class<?> type = argument.getJavaType();
+                Expression<? extends Number> input = argument;
+                if (type != BigDecimal.class) {
+                    input = hcb.cast((JpaExpression<?>) argument, BigDecimal.class);
+                }
+                Expression<BigDecimal> sum = hcb.sum((Expression<BigDecimal>) input);
+                return hcb.quot(sum, hcb.count(argument)).as(BigDecimal.class);
             }
 
             /** {@code count(*)} on both lines, from 6.4 (R-AGG-19). */

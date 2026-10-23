@@ -180,6 +180,7 @@ public final class JoinTestSupport {
                 .addAnnotatedClass(DatedRowEntity.class)
                 .addAnnotatedClass(ConstantRowEntity.class)
                 .addAnnotatedClass(CounterRowEntity.class)
+                .addAnnotatedClass(SampleValueEntity.class)
                 .addAnnotatedClass(LabelEntity.class)
                 .addAnnotatedClass(CustomerNoteEntity.class)
                 .addAnnotatedClass(PatronEntity.class)

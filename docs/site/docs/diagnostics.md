@@ -75,10 +75,11 @@ throws when it affects no rows (see [Bulk writes](bulk-writes.md)).
 | `MQ1405` | Grouped query: Agg.of expression returned `null`, or Java type does not match declared type. |
 | `MQ1406` | Grouped query: orderBy key does not fit the grouping (non-group-key column on grouped query, or aggregate on ungrouped one). |
 | `MQ1407` | Grouped query: `having(...)` on an ungrouped query. |
-| `MQ1408` | Grouped query: aggregate function over a column with a ColumnConverter (`sum`, `sumAsLong` and `avg`; `min`, `max` and `countDistinct` take an `OrderedColumnField` and do not compile over any other converted column). |
+| `MQ1408` | Grouped query: aggregate function over a column with a ColumnConverter (`sum`, `sumAsLong`, `avg` and `avgExact`, and `round` over a `min` or `max` of a converted column; `min`, `max` and `countDistinct` take an `OrderedColumnField` and do not compile over any other converted column). |
 | `MQ1409` | Grouped query: column selected under a `presentBy` join whose key columns are not all group keys. |
 | `MQ1410` | Runtime `groupBy` or group key over a column that selects a whole to-one entity. Group by the id form instead. |
-| `MQ1412` | `filter(...)` on an `Agg.of` field or an already filtered aggregate, with a condition that leaves no filter, reads a correlated value, or is a filtered `count(table)` over an embedded or composite id with no usable first id attribute, or adds a to-many join. |
+| `MQ1411` | `Agg.avgExact` over a `Double`, `Float` or another input with no exact rendering, or `Agg.round` / `Expr.round` with a scale below 0 or above 30. Use `Agg.avg` for an approximate average, and a scale from 0 to 30. |
+| `MQ1412` | `filter(...)` on a rounded aggregate (filter the aggregate it rounds), an `Agg.of` field or an already filtered aggregate, with a condition that leaves no filter, reads a correlated value, or is a filtered `count(table)` over an embedded or composite id with no usable first id attribute, or adds a to-many join. |
 | `MQ1502` | An expression, operator, key, cursor or assignment value cannot bind, or binder failed; see below. |
 | `MQ1505` | A CASE condition uses `add`, `exists`, a sub-select, a correlated value or `op`. |
 | `MQ1508` | An `Expr.constant` cannot be rendered as a literal: its value is not a `String`, `Number` or `Boolean` after the column's converter, the column is not a basic attribute of a root table, the provider has no constant renderer, or it is used other than as a comparison or `in` operand. The message names the cause. |
@@ -273,7 +274,7 @@ See [Models and QModels](models.md).
 
 For `MQ4014`, `ProviderSupport#sources()` is empty, there is no `ProviderSupport`, or the provider's `SourceRenderer`
 returned no duplicate-key check for `tree(...)`. An operator requiring a feature also needs an operator gate and a
-provider that serves that feature (`ProviderSupport#operators`), after the vendor check passes. All are refused before
+provider that serves that feature (`ProviderSupport#operators`), after the vendor check passes. An `Agg.avgExact` with no `AggregateRenderer#exactAverage` is also `MQ4014`. All are refused before
 any statement; the [portability check](portability.md) reports them per declared target with no database attached.
 
 For `MQ4015`, `VendorProfile#operators` refuses an operator's required feature before the provider check (`MQ4014`).

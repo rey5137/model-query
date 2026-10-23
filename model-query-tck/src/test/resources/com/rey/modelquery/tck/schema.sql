@@ -166,6 +166,15 @@ CREATE TABLE constant_rows (
     tags    @JSONB@ NULL,
     state   VARCHAR(1) @COLLATE@ NULL
 );
+-- Four rows an exact average and a round read (TCK AC-AGG-23 to AC-AGG-25): the integer widths hold 1, 2, 2, 1, and
+-- dec_value the half-way values 2.345, -2.345, 2.5 and -2.5.
+CREATE TABLE sample_values (
+    id          BIGINT NOT NULL PRIMARY KEY,
+    small_value SMALLINT NOT NULL,
+    int_value   INT NOT NULL,
+    big_value   BIGINT NOT NULL,
+    dec_value   DECIMAL(12,3) NOT NULL
+);
 -- The counter a conflict setExpression increments (TCK AC-WRT-44): next_value is the value of the row the insert
 -- added, then the stored value plus one on each further insert of the same key; empty in the seed.
 CREATE TABLE counter_rows (

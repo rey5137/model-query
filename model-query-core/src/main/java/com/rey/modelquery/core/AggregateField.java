@@ -7,6 +7,7 @@ import jakarta.persistence.criteria.From;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.metamodel.EntityType;
 import jakarta.persistence.metamodel.SingularAttribute;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -43,6 +44,10 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
         SUM("sum"),
         SUM_AS_LONG("sumAsLong"),
         AVG("avg"),
+        /** {@code sum(x) / count(x)} typed {@code BigDecimal}, from {@link AggregateRenderer#exactAverage}. */
+        AVG_EXACT("avgExact"),
+        /** An {@code Agg.round} over another aggregate, which is its {@code inner}. */
+        ROUND("round"),
         MIN("min"),
         MAX("max"),
         OF(null);
@@ -55,6 +60,10 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
     }
 
     private final Kind kind;
+    /** The aggregate a {@link Kind#ROUND} rounds; {@code null} for any other. */
+    private final AggregateField<?, ?> inner;
+    /** The decimals a {@link Kind#ROUND} keeps; 0 for any other. */
+    private final int scale;
     /** The join key of the source column's table, or of the counted table; {@code null} for {@code Agg.of}. */
     private final JoinKey source;
     /** The source column's attribute, the counted table's name, or the {@code Agg.of} name. */
@@ -84,22 +93,30 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
             ColumnField<?, ?, C> converted, ExpressionField<?, ?> sourceExpression,
             BiFunction<JoinContext, CriteriaBuilder, Expression<?>> argument) {
         this(kind, source, attribute, alias, type, converted, sourceExpression, null, argument, null, List.of(),
-                List.of());
+                List.of(), null, 0);
     }
 
     /** An {@link Agg#of} aggregate, whose expression is the caller's. */
     static <M, C> AggregateField<M, C> custom(String name, Class<C> type,
             BiFunction<JoinContext, CriteriaBuilder, Expression<C>> expression) {
         return new AggregateField<>(Kind.OF, null, name, "", type, null, null, null, null, expression, List.of(),
-                List.of());
+                List.of(), null, 0);
+    }
+
+    /** An {@link Agg#round} aggregate: {@code inner} rounded to {@code scale} decimals. */
+    static <M> AggregateField<M, BigDecimal> rounding(AggregateField<M, BigDecimal> inner, int scale) {
+        return new AggregateField<>(Kind.ROUND, null, "", "", BigDecimal.class, null, null, null, null, null,
+                List.of(), List.of(), inner, scale);
     }
 
     private AggregateField(Kind kind, JoinKey source, String attribute, String alias, Class<C> type,
             ColumnField<?, ?, C> converted, ExpressionField<?, ?> sourceExpression, String property,
             BiFunction<JoinContext, CriteriaBuilder, Expression<?>> argument,
             BiFunction<JoinContext, CriteriaBuilder, Expression<C>> expression, List<Filter> filters,
-            List<Condition> conditions) {
+            List<Condition> conditions, AggregateField<?, ?> inner, int scale) {
         this.kind = kind;
+        this.inner = inner;
+        this.scale = scale;
         this.source = source;
         this.attribute = attribute;
         this.alias = alias;
@@ -111,7 +128,8 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
         this.expression = expression;
         this.filters = filters;
         this.conditions = conditions;
-        this.hash = Objects.hash(kind, source, attribute, alias, converterClass(), sourceExpression, conditions);
+        this.hash = Objects.hash(kind, source, attribute, alias, converterClass(), sourceExpression, conditions, inner,
+                scale);
     }
 
     /**
@@ -120,7 +138,7 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
      */
     public AggregateField<M, C> as(String alias) {
         return new AggregateField<>(kind, source, attribute, Objects.requireNonNull(alias, "alias"), type, converted,
-                sourceExpression, property, argument, expression, filters, conditions);
+                sourceExpression, property, argument, expression, filters, conditions, inner, scale);
     }
 
     /**
@@ -141,6 +159,10 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
             throw refused(this + ": Agg.of cannot be filtered, as the engine cannot place a condition inside the "
                     + "expression of a function; put the condition inside it");
         }
+        if (kind == Kind.ROUND) {
+            throw refused(this + ": a rounded aggregate cannot be filtered; filter the aggregate it rounds, "
+                    + "Agg.round(aggregate.filter(...), scale)");
+        }
         if (!conditions.isEmpty()) {
             throw refused(this + " is already filtered; combine the conditions in one filter(...)");
         }
@@ -157,7 +179,7 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
             }
         }
         return new AggregateField<>(kind, source, attribute, alias, type, converted, sourceExpression, property,
-                argument, expression, List.copyOf(recorded), List.copyOf(structure));
+                argument, expression, List.copyOf(recorded), List.copyOf(structure), inner, scale);
     }
 
     private static ModelQueryDefinitionException refused(String message) {
@@ -171,7 +193,7 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
      */
     public AggregateField<M, C> named(String property) {
         return new AggregateField<>(kind, source, attribute, alias, type, converted, sourceExpression,
-                Objects.requireNonNull(property, "property"), argument, expression, filters, conditions);
+                Objects.requireNonNull(property, "property"), argument, expression, filters, conditions, inner, scale);
     }
 
     /** The name given to {@link #named}; empty with none. */
@@ -192,6 +214,9 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
         }
         if (sourceExpression != null) {
             return kind.function + "(" + sourceExpression.name() + ")";
+        }
+        if (kind == Kind.ROUND) {
+            return "round(" + inner.name() + ", " + scale + ")";
         }
         return kind == Kind.OF ? attribute : kind.function + "(" + attribute + ")";
     }
@@ -225,7 +250,17 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
     @SuppressWarnings("unchecked")
     private Expression<C> apply(JoinContext ctx) {
         CriteriaBuilder cb = ctx.cb();
+        if (kind == Kind.ROUND) {
+            return (Expression<C>) cb.round((Expression<BigDecimal>) inner.expression(ctx), scale);
+        }
         Expression<?> value = argument.apply(ctx, cb);
+        AggregateRenderer renderer = ctx.renderOptions().aggregateRenderer().orElse(AggregateRenderer.DEFAULT);
+        if (kind == Kind.AVG_EXACT) {
+            // A filter goes on the argument, before the sum and the count, so the quotient stays exact.
+            Expression<?> filtered = conditions.isEmpty() ? value
+                    : cb.selectCase().when(filterCondition(ctx), (Expression) value);
+            return (Expression<C>) renderer.exactAverage(cb, (Expression<? extends Number>) filtered);
+        }
         if (conditions.isEmpty()) {
             // A count of an identity no row has null is the row count (R-AGG-19).
             return (Expression<C>) (kind == Kind.COUNT ? RowCounts.count(ctx, value) : over(cb, kind, value));
@@ -239,10 +274,17 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
                 counted = cb.literal(1);
             }
         }
+        Predicate condition = filterCondition(ctx);
+        return (Expression<C>) renderer.filtered(cb, kind, counted, condition);
+    }
+
+    /** The {@link #filter} condition as one predicate; LEFT-joined, and refused when it adds a to-many join. */
+    private Predicate filterCondition(JoinContext ctx) {
+        CriteriaBuilder cb = ctx.cb();
         // LEFT, as an or/not branch's join is (R-FLT-10): an inner join made here would drop the rows the filter
         // does not match from every other column of the statement.
         int joined = ctx.toManyJoins().size();
-        Predicate condition = ctx.leftJoining(() -> ctx.inCase(() -> {
+        return ctx.leftJoining(() -> ctx.inCase(() -> {
             List<Predicate> parts = ConditionGroup.toPredicates(filters, ctx);
             if (ctx.toManyJoins().size() > joined) {
                 throw refused(this + ".filter(...): the condition adds the to-many join "
@@ -252,8 +294,6 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
             return parts.isEmpty() ? cb.conjunction()
                     : parts.size() == 1 ? parts.get(0) : cb.and(parts.toArray(Predicate[]::new));
         }));
-        AggregateRenderer renderer = ctx.renderOptions().aggregateRenderer().orElse(AggregateRenderer.DEFAULT);
-        return (Expression<C>) renderer.filtered(cb, kind, counted, condition);
     }
 
     /**
@@ -294,6 +334,7 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
             // Only declares the result type, which is the point of sumAsLong.
             case SUM_AS_LONG -> cb.sumAsLong((Expression<Integer>) argument);
             case AVG -> cb.avg((Expression) argument);
+            case AVG_EXACT, ROUND -> throw new IllegalArgumentException(kind.function + " has no standard form");
             case MIN -> cb.least((Expression) argument);
             case MAX -> cb.greatest((Expression) argument);
             case OF -> throw new IllegalArgumentException("Agg.of has no argument");
@@ -311,6 +352,10 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
     }
 
     void checkSourceVocabulary(SourceVocabulary vocabulary) {
+        if (kind == Kind.ROUND) {
+            inner.checkSourceVocabulary(vocabulary);
+            return;
+        }
         if (sourceExpression != null) {
             vocabulary.field(sourceExpression);
         } else if (converted != null) {
@@ -322,6 +367,10 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
     }
 
     void checkTreats(TreatChecks checks) {
+        if (kind == Kind.ROUND) {
+            inner.checkTreats(checks);
+            return;
+        }
         checks.table(source, Optional.of(attribute));
         checks.field(converted);
         checks.field(sourceExpression);
@@ -330,6 +379,10 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
 
     /** Whether {@code a} and {@code b} are one {@code Agg.of} key defined by different functions (R-AGG-02). */
     static boolean conflict(SelectField<?, ?> a, SelectField<?, ?> b) {
+        if (a instanceof AggregateField<?, ?> x && b instanceof AggregateField<?, ?> y
+                && x.kind == Kind.ROUND && x.equals(y)) {
+            return conflict(x.inner, y.inner);
+        }
         return a instanceof AggregateField<?, ?> x && b instanceof AggregateField<?, ?> y
                 && x.kind == Kind.OF && x.equals(y) && x.expression != y.expression;
     }
@@ -350,7 +403,9 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
                 && alias.equals(other.alias)
                 && Objects.equals(converterClass(), other.converterClass())
                 && Objects.equals(sourceExpression, other.sourceExpression)
-                && conditions.equals(other.conditions);
+                && conditions.equals(other.conditions)
+                && Objects.equals(inner, other.inner)
+                && scale == other.scale;
     }
 
     @Override

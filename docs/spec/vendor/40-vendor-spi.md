@@ -607,7 +607,10 @@ and H2 render `FILTER (WHERE ...)` and MySQL Hibernate's CASE emulation; `countD
 imports no `org.hibernate` (INV-7). Its `@Incubating` default `rowCount(cb, current)` renders a row count (`api/13`
 R-AGG-19) and returns `cb.count(current)`, the identity count, so a provider without the hook keeps `count(t.id)`;
 `model-query-hibernate` returns `HibernateCriteriaBuilder#count()`, `count(*)` on both lines. `count(1)` is not the
-default: it is slower than `count(t.id)` on PostgreSQL's page total (D-185).
+default: it is slower than `count(t.id)` on PostgreSQL's page total (D-185). Its `@Incubating` default
+`exactAverage(cb, argument)` renders `Agg.avgExact` (`api/13` R-AGG-18) and throws `MQ4014`, since standard Criteria
+types `avg` as `Double` and has no exact form; `model-query-hibernate` renders `sum(x) / count(x)` typed `BigDecimal`,
+casting an integer input with `HibernateCriteriaBuilder#cast` first.
 
 ## 2. Detection
 

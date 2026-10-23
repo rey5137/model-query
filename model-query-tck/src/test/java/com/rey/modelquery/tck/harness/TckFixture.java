@@ -163,6 +163,17 @@ public final class TckFixture {
             ps.setInt(4, i % 9 + 1);
             ps.setBigDecimal(5, BigDecimal.valueOf((i * 31L) % 10_000 + 100, 2));
         });
+        BigDecimal[] decimals = {new BigDecimal("2.345"), new BigDecimal("-2.345"), new BigDecimal("2.500"),
+                new BigDecimal("-2.500")};
+        insert(c, "INSERT INTO sample_values (id, small_value, int_value, big_value, dec_value) VALUES (?,?,?,?,?)",
+                4, (ps, i) -> {
+            int width = i == 1 || i == 4 ? 1 : 2;
+            ps.setLong(1, i);
+            ps.setShort(2, (short) width);
+            ps.setInt(3, width);
+            ps.setLong(4, width);
+            ps.setBigDecimal(5, decimals[i - 1]);
+        });
         insert(c, "INSERT INTO composite_key_items (tenant_id, item_no, label, amount) VALUES (?,?,?,?)",
                 COMPOSITE_KEY_ITEMS, (ps, i) -> {
             int tenant = (i - 1) / COMPOSITE_ITEMS_PER_TENANT + 1;
