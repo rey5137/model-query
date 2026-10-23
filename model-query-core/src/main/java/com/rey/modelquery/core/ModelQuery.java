@@ -423,6 +423,12 @@ public final class ModelQuery<E, K, M> {
         return spec;
     }
 
+    /** Whether this query has a {@link QueryCustomizer} attached. */
+    @EngineFacing
+    public boolean hasCustomizer() {
+        return customizer != null;
+    }
+
     /**
      * Resolves the statement of {@code phase} against {@code cb}. Every phase has the same joins, predicate, grouping
      * and ordering, and only the SELECT list differs (R-QRY-09, D-26). {@code MODEL} and {@code MODEL_BY_KEYS} select
