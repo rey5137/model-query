@@ -17,8 +17,8 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
 ### Changed
 
-- Flat `list` reads with no fetch plan, no to-many join left in the statement and no customizer map tuples straight
-  to models. On the PostgreSQL 16 benchmark's 86k-row, 12-column read, median time roughly halves
+- `list` reads with no fetch plan map tuples straight to models. On the PostgreSQL 16 benchmark's 86k-row,
+  12-column read, median time roughly halves
   (194 / 203 → 92 / 108 ms on Hibernate 6.6 / 7.4), and allocation falls from 393 / 429 to 109 / 155 MB per call.
   Behaviour, SQL and the public API are unchanged.
 - Immutable builders (`ModelQuery`, `SourceQuery`, `FetchPlan`, the write models and others) carry a

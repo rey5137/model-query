@@ -21,9 +21,8 @@ measurements.
 
 ## Large flat reads
 
-Since 0.11.0, `list` maps each tuple straight to its model when the query has no fetch plan, no to-many join left in
-the statement and no customizer. Queries with a fetch plan, a remaining to-many join or a customizer use the general
-mapping path. They do not get this saving. The choice is automatic; SQL, results and the public API are unchanged.
+Since 0.11.0, `list` maps each tuple straight to its model when the query has no fetch plan. Queries with a fetch plan use the
+general mapping path and do not get this saving. The choice is automatic; SQL, results and the public API are unchanged.
 
 The large read projects all 86,000 sales into 12 columns: numbers, strings, timestamps, decimals and an enum read
 through a converter.
@@ -36,7 +35,7 @@ through a converter.
 | model-query `list`, before 0.11.0 | 193.5 ms | 203.2 ms |
 
 The direct mapping path is within a few milliseconds of Hibernate's tuple path. Allocation per call falls from
-393 / 429 MB to 109 / 155 MB. A fetch plan or to-many join needs the general path's extra row processing, so the flat
+393 / 429 MB to 109 / 155 MB. A fetch plan needs the general path's extra row processing, so the flat
 read figures do not describe that work.
 
 Use `JdbcClient` for very large flat reads where saving the last roughly 15–30% of read time matters, or for SQL

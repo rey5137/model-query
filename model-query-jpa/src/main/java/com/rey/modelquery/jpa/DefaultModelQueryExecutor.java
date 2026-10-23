@@ -479,7 +479,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         TypedQuery<Tuple> query = limited(q, built, limit);
         applyLock(lock, q, query);
-        if (isFlatEligible(q, built)) {
+        if (isFlatEligible(q)) {
             return mapFlat(q, built, query);
         }
         return models(q, mapAll(q, built, query));
@@ -817,7 +817,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      */
     private <M> Optional<M> modelOf(ModelQuery<E, ?, M> q, BuiltQuery<M> built, List<Tuple> tuples) {
         return tuples.isEmpty() ? Optional.empty()
-                : Optional.of(models(q, List.of(loaded(built, tuples.get(0)))).get(0));
+                : Optional.of(models(q, List.of(loaded(built, tuples.get(0), filterOnlyToManyJoin(built).isPresent()))).get(0));
     }
 
     /**
@@ -1440,8 +1440,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             rows = readByKeys(q, key, keysOf(q, key, first, tuples), batch, uniqueParents);
         } else {
             rows = new ArrayList<>(tuples.size());
+            boolean filterOnly = filterOnlyToManyJoin(first).isPresent();
             for (Tuple tuple : tuples) {
-                rows.add(loaded(first, tuple));
+                rows.add(loaded(first, tuple, filterOnly));
             }
         }
         List<M> content = models(q, rows);
@@ -3254,14 +3255,15 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         for (int from = 0; from < distinct.size(); from += batch) {
             List<Object> batchKeys = distinct.subList(from, Math.min(distinct.size(), from + batch));
             BuiltQuery<M> built = q.buildQuery(cb, Phase.MODEL_BY_KEYS, renderOptions);
+            boolean filterOnly = filterOnlyToManyJoin(built).isPresent();
             Predicate byKey = key.in(batchKeys, built.joins(), cb, false);
             Predicate own = built.query().getRestriction();
             built.query().where(own == null ? byKey : cb.and(own, byKey));
             appendStableOrder(q, built);
             for (Tuple tuple : rows(q, built, create(q, built))) {
                 Object rowKey = Keys.keyOf(q, key, built.selection().row(tuple));
-                if (found.putIfAbsent(rowKey, new Found<>(built, tuple)) != null && unique
-                        && filterOnlyToManyJoin(built).isEmpty()) {
+                if (found.putIfAbsent(rowKey, new Found<>(built, tuple, filterOnly)) != null && unique
+                        && !filterOnly) {
                     throw duplicateKey(q, rowKey);
                 }
             }
@@ -3271,14 +3273,14 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             Found<M> row = found.get(rowKey);
             if (row != null) {
                 // Mapped per position, so afterMap runs once per row.
-                models.add(loaded(row.built(), row.tuple()));
+                models.add(loaded(row.built(), row.tuple(), row.filterOnly()));
             }
         }
         return models;
     }
 
     /** A step-2 row, with the statement that read it. */
-    private record Found<M>(BuiltQuery<M> built, Tuple tuple) {}
+    private record Found<M>(BuiltQuery<M> built, Tuple tuple, boolean filterOnly) {}
 
     /** A {@code byKeys} row, decoded, with the statement that read it. */
     private record ReadRow<M>(BuiltQuery<M> built, Row row) {}
@@ -3303,13 +3305,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     }
 
     /**
-     * Whether {@code q} and {@code built} are eligible for flat-row mapping: no fetch plan, no to-many join in the
-     * statement (a customizer's or one R-EXE-16 keeps), and no customizer (D-184).
+     * Whether {@code q} is eligible for flat-row mapping: it has no fetch plan. Only a fetch plan reads
+     * {@link Loaded#row()} or {@link Loaded#filterOnlyToManyJoin()}, so without one the flat path equals the general
+     * one, whatever the customizer or the statement's joins (D-184).
      */
-    static boolean isFlatEligible(ModelQuery<?, ?, ?> q, BuiltQuery<?> built) {
-        return q.fetch().isEmpty()
-                && !q.hasCustomizer()
-                && built.query().getRoots().stream().noneMatch(DefaultModelQueryExecutor::hasToManyJoin);
+    static boolean isFlatEligible(ModelQuery<?, ?, ?> q) {
+        return q.fetch().isEmpty();
     }
 
     /**
@@ -3329,8 +3330,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private <M> List<Loaded<M>> mapAll(Object label, BuiltQuery<M> built, TypedQuery<Tuple> query) {
         List<Tuple> tuples = rows(label, built, query);
         var models = new ArrayList<Loaded<M>>(tuples.size());
+        boolean filterOnly = filterOnlyToManyJoin(built).isPresent();
         for (Tuple tuple : tuples) {
-            models.add(loaded(built, tuple));
+            models.add(loaded(built, tuple, filterOnly));
         }
         return models;
     }
@@ -3636,10 +3638,13 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
     }
 
-    /** {@code tuple} as a {@link Loaded}, its row built once. */
-    private static <M> Loaded<M> loaded(BuiltQuery<M> built, Tuple tuple) {
+    /**
+     * {@code tuple} as a {@link Loaded}, its row built once. {@code filterOnly} is {@code built}'s
+     * {@link #filterOnlyToManyJoin}, constant per query, so a caller computes it once.
+     */
+    private static <M> Loaded<M> loaded(BuiltQuery<M> built, Tuple tuple, boolean filterOnly) {
         Row row = built.selection().row(tuple);
-        return new Loaded<>(built.map(row), row, filterOnlyToManyJoin(built).isPresent());
+        return new Loaded<>(built.map(row), row, filterOnly);
     }
 
     /** The models of {@code rows}, in order. */

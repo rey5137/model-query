@@ -790,7 +790,7 @@ the evidence-backed quality process (spec rules, ArchUnit invariants, TCK, SQL s
 ## 31. M31 — Flat-row mapping and the hot-paths page → 0.11.0
 
 Spec: D-184, `rfc/0019` (accepted as D-184). RFC 0019's Part A (compiled queries) is not adopted; Part B ships P-B.2
-alone: a read with no fetch plan, no to-many join left in its statement and no customizer maps each tuple straight to
+alone: a read with no fetch plan maps each tuple straight to
 its model in `DefaultModelQueryExecutor#mapAll`, without a `Loaded` and `Row` kept per row. Behaviour-identical: no
 public API, no `MQnnnn` code, no SQL snapshot change. Default tier; no `architect-review` (no public API, `INV-*` or
 module-boundary change). The freeze moves to M32 and stays last.
@@ -801,8 +801,7 @@ module-boundary change). The freeze moves to M32 and stays last.
 | M31.1 | P-B.2: flat-row `mapAll` | AC-COL-06/11/14/20 unchanged and AC-COL-53 green on both lines and Tier 1; SQL snapshots unchanged |
 | M31.2 | Hot-paths docs page and release prep | Page with both tabs (CC-DOC-01), `CHANGELOG.md` 0.11.0 section; `mkdocs build --strict` green |
 
-**M31.1 — Flat rows.** Decide eligibility once per call: no fetch plan, no to-many join in the statement (a
-customizer's or one R-EXE-16 keeps) and no customizer. An eligible read maps each tuple to its model directly,
+**M31.1 — Flat rows.** Decide eligibility once per call: no fetch plan (D-184 amendment). An eligible read maps each tuple to its model directly,
 reading keys and cursors from the `Row` before mapping where the call needs them (R-COL-11), and presizes the list
 from the result, never from `Limit.of(Integer.MAX_VALUE)`. Every other read keeps today's path. Add AC-COL-53 to
 `api/10`: eligible reads match the general path's models, keys and cursors; ineligible reads take the general path.

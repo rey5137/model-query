@@ -2818,13 +2818,23 @@ plan-cache result, when `JdbcClient` is the better tool for a large flat read, a
 
 **Part B, P-B.2 only.** Model-query's own mapping is 90% / 78% of the gap to JDBC on the 86k-row flat read, so the
 gate passes. P-B.2, the flat-row `mapAll`, is 52% / 47% faster than today's `list` (194 → 92 ms, 203 → 108 ms) and
-allocates 109 / 155 MB against 393 / 429 MB, so it ships. For a read with no fetch plan, no to-many join left in its
-statement (a customizer's, or one R-EXE-16 keeps) and no customizer, `mapAll` maps each tuple straight to its model,
+allocates 109 / 155 MB against 393 / 429 MB, so it ships. For a read with no fetch plan, `mapAll` maps each tuple straight to its model,
 without keeping a `Loaded` and its `Row` per row, and decides eligibility once per call, not per row; keys and cursors
 are still read from the `Row` before mapping (R-COL-11), and `Limit.of(Integer.MAX_VALUE)` must not presize the
 list. Any other read takes today's path. P-B.1 (index-resolved `ValueRow`, 0.3–2.4% slower) and P-B.3 (`Object[]`
 selection, 7.8% slower to 1.9% faster against a 15% threshold) are dropped, so R-COL-10 keeps `Tuple` read by alias.
 No public API, no `MQnnnn` code and no SQL snapshot change; new AC-COL-53.
+
+*Amendment (2026-10-23, milestone gate review).* Eligibility is "no fetch plan" alone. Only a fetch plan reads
+`Loaded.row()` or `Loaded.filterOnlyToManyJoin()`, so without one the flat path equals the general path whatever the
+customizer or the statement's to-many joins (a customizer's, or one R-EXE-16 keeps); the earlier customizer and
+to-many conditions are dropped, and a query with either now takes the flat path. The per-row
+`filterOnlyToManyJoin` check, constant per query, is computed once per query on every read path (`list`, `page`,
+`byKeys` and the single-row reads). `ModelQuery#hasCustomizer`, added for the first rule, is removed: no public API
+change. The spike's follow-ups close here: rendering `count(*)` for a count of a non-null primary key (root or
+inner-joined only; a left-joined or nullable column keeps `count(col)`) is deferred to its own slice before the M32
+freeze, with its own `D-n` and SQL snapshot changes; a keyset-export timing cell is not pursued, since no decision
+depends on it and `performance.md` already leads large exports with `keyset()`.
 
 M31 (0.11.0) builds it; the freeze moves from M31 to M32 and stays last. Rejected: shipping RA.5 for the grouped
 read alone (its gain belongs to the `count(*)` rendering, which any route could adopt), and P-B.1 as a stepping stone

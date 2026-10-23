@@ -353,6 +353,8 @@ ships P-B.2 alone (D-184): P-B.1 is 0.3–2.4% slower than today's row path, P-B
   bookkeeping that only the dedupe and child-load paths read, and presizes the result list to
   `min(limit, 1,024)`; `Limit.of(Integer.MAX_VALUE)` must not allocate that array. R-COL-11 is unchanged: keys and
   cursors are still read from the `Row`, through `Row.raw`, before mapping.
+  *As shipped, eligibility is "no fetch plan" alone: a customizer or a to-many join does not take the general path
+  (see the D-184 amendment, 2026-10-23).*
 - **P-B.3 `Object[]` selection** (conditional; dropped). The engine selects `cb.array(...)` instead of a `Tuple` and wraps the
   array; standard JPA, so no SPI. R-COL-10's first sentence becomes "Queries select a JPA `Tuple` or an `Object[]`". A
   customizer's added selections (R-QRY-08) need an alias-addressable tuple, so a query with a customizer keeps
