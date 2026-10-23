@@ -100,6 +100,8 @@ source's check columns selected beside the group keys: `createCountQuery()` move
 table, out of the checks' reach (RFC 0014 §3). It counts the group rows it reads, logs no warning — no provider
 support could count these groups — and reads the checks off the first of them, so a too-deep tree is `MQ2701` and a
 cyclic graph `MQ2702` (R-SRC-08). Zero groups leave the checks unread, as `list` is on an empty result. A grouped
+query that **joins a source** (`api/17` R-SRC-22) takes the same client-side path with no warning: `createCountQuery()`
+loses the joined CTE on 6.6 and on 7.4 with H2 (D-192). A grouped
 query whose count of groups the `TreatRenderer` refuses as a `GROUPED_COUNT` statement (`vendor/40` R-VND-26) takes
 the client-side path too, even when `model-query-hibernate` is present: its sites are checked as `GROUPED` instead
 (`MQ4016` when refused there), its statement is preflighted as `GROUPED`, and each such count logs a warning with the

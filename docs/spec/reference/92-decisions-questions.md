@@ -2954,6 +2954,16 @@ hand-written `SourceJoin` pair is `MQ1910` when its source key field has a conve
 wrong rows. Matches the processor's `MQ3044` (D-189). The check runs in `SourceJoin.check` because the signature can't
 express the attribute type (P-2 fallback, INV-5). → `api/17` R-SRC-21, AC-SRC-51.
 
+**D-192 — A grouped query that joins a source counts its groups client-side (fix before 0.11.0, 2026-10-24).** Found
+by RFC 0021's spike: Hibernate's `createCountQuery()` loses a joined source's CTE when it wraps the grouped query in its
+derived table, failing on 6.6 on every vendor (`Could not find CTE for name 'cte0'`) and on 7.4 with H2 (`Can't emulate
+lateral join`); only 7.4 on PostgreSQL and MySQL ran it. So the executor counts such a query's groups client-side on
+every provider, as it does over a source that carries checks, and logs no warning, since no provider support could
+count them. Options were a per-line refusal in `HibernateProviderSupport#countQuery`, which keeps `count(*)` on 7.4
+PostgreSQL and MySQL but needs the vendor in an `@Incubating` SPI signature and a list of each line's defects, or
+waiting for M33. The client-side count reads one row per group; a per-line database count stays a later optimisation.
+→ `engine/20` R-EXE-03, `api/17` R-SRC-22, AC-SRC-52.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

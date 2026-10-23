@@ -182,6 +182,25 @@ class SourceJoinExecutionTest {
                 .isEqualTo(perOrderRows.stream().filter(row -> row.matched() == 1L).count());
     }
 
+    // ---- AC-SRC-52
+
+    @TckTest
+    void ac_src_52_a_grouped_query_that_joins_a_source_counts_its_groups_client_side(TckDatabase db) {
+        var id = ColumnField.of(Matched.class, ORDER, "id", Long.class).named("id");
+        var high = SourceJoin.of("high", Band.class, JoinKind.LEFT, List.of(SourceJoin.on(id, B_ORDER)));
+        AggregateField<Matched, Long> matched = Agg.count(high.root());
+        var perOrder = ModelQuery.builder(ORDER, row -> new Matched(row.get(id), row.get(matched)))
+                .joinSource(high, lines(8, 9)).select(SelectSet.of(id, matched)).groupBy(SelectSet.of(id))
+                .where(f -> f.lte(id, LAST_ORDER)).orderBy(id.asc()).build();
+        SqlSnapshots.capture(db, ds -> withExecutor(ds, executor -> {
+            assertThat(executor.count(perOrder)).isEqualTo(LAST_ORDER);
+            var page = executor.page(perOrder, PageSpec.of(0, 10), CountMode.COUNT);
+            assertThat(page.total()).hasValue(LAST_ORDER);
+            assertThat(page.content()).extracting(Matched::id)
+                    .containsExactly(1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L, 10L);
+        }));
+    }
+
     // ---- AC-SRC-43
 
     @TckTest
