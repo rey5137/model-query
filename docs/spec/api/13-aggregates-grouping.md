@@ -70,6 +70,7 @@ a `ClassCastException` when a row is read. `Agg.of` is for aggregate expressions
 | `sum` | `BigDecimal` / `Double` / `Long` | same type |
 | `sum` | `Integer` / `Short` | `Long` — `Agg.sum` on a 32-bit column throws `MQ1403` when it is called; use `sumAsLong` |
 | `avg` | any numeric | `Double` |
+| `avgExact` | `BigDecimal` / `Long` / `Integer` / `Short` | `BigDecimal` — exact (R-AGG-18) |
 | `min` / `max` | any comparable | same type |
 
 *(was R16)* Checked by the processor for generated models (`processor/32`) and at build time for hand-written ones.
@@ -177,6 +178,27 @@ every vendor. `MQ1412` when the field is already filtered (combine the condition
 `Agg.of` (the engine cannot place a condition inside an opaque expression), when the condition leaves no filter, when
 it reads a correlated value (thrown by `filter`), when a filtered `count(table)` has an embedded or composite id with no usable first id attribute (the filtered count counts that id attribute), or when the condition adds a to-many join (thrown when the query is built): a to-many join already in the statement, such as the argument's own, is the aggregated rows' own and is allowed, and `Filters.exists(path, inner)` filters on a to-many without joining it.
 
+**R-AGG-18** *(D-185, `@Incubating`)* **Exact average and rounding.** `Agg.avgExact(ColumnField)` and
+`Agg.avgExact(ExpressionField)` return an `AggregateField<M, BigDecimal>` for a `BigDecimal`, `Long`, `Integer` or
+`Short` input, and `Agg.round(AggregateField<M, BigDecimal>, int scale)` rounds one (`Expr.round` is the row-level form,
+`api/10` R-COL-37). Hibernate types `avg` as `Double`, so the average is `sum(x) / count(x)` with the numerator typed
+`BigDecimal`, rendered by `AggregateRenderer#exactAverage(cb, argument)` (R-VND-30): an integer input is cast to
+`BigDecimal` first (`HibernateCriteriaBuilder#cast`, `cb.cast` on Jakarta Persistence 3.2), since integer division
+truncates on PostgreSQL and H2; a `BigDecimal` input is not cast, because the cast's default `numeric(38,2)` would
+round one with more decimals. Zero rows is NULL, as `sum`. The scale of an unrounded average follows the database
+(PostgreSQL 16, H2 40, MySQL the input's scale + 4), so `round` it for money. A provider without the renderer is
+`MQ4014`. A `Double` or `Float` input, and any other type with no exact rendering, is `MQ1411` when the factory is
+called; a converted column is `MQ1408`, as for `avg`. `round` takes a scale from 0 to 30 (`MQ1411` otherwise, as MySQL
+clamps a larger scale to 30) and rounds half away from zero on PostgreSQL `numeric`, MySQL `DECIMAL` and H2 `NUMERIC`;
+it takes a `BigDecimal` only, since a `Double` rounds differently across vendors. Half away from zero is promised of the
+value `round` receives, and that value is the database's quotient at its own scale (PostgreSQL 16, H2 40, MySQL the
+input's scale + `div_precision_increment`, 4 by default: 6 for `numeric(12,2)` or a cast integer), so on MySQL a mean with
+more decimals than that is rounded twice (an exact 2.3449995 becomes 2.345000, then 2.35). A rounded aggregate is still an
+aggregate for the fit rule (R-AGG-08), `having` and `orderBy`; two equal rounds (same inner aggregate and scale) are
+one selection (R-AGG-06). A `filter` (R-AGG-17) on `avgExact` filters the argument before the sum and the count, which
+keeps the quotient exact. A rounded aggregate is not itself filterable: `filter` on it is `MQ1412`; filter the inner
+aggregate, `Agg.round(Agg.avgExact(x).filter(...), 2)`.
+
 **R-AGG-19** *(D-185, `@Incubating`)* **Row counts.** A count of a table's identity renders the provider's row count,
 `AggregateRenderer#rowCount` (R-VND-30, `count(*)` on Hibernate), where no row the statement reads can leave that
 identity null: the counted `From` is a criteria `Root` or reached from one through `INNER` joins only (walked through
@@ -223,6 +245,9 @@ generated `GROUP_KEYS` `SelectSet`, and `QProductSales.query()` comes pre-config
 | AC-AGG-20 | On every Tier-1 vendor and both Hibernate lines, a filtered `count`, `countDistinct`, `sum`, `sumAsLong`, `avg`, `min` and `max` equals the hand-written `Expr.cases` form; a filter through an optional to-one with NULL foreign keys resolves `LEFT` and drops no row from the statement (R-AGG-17, R-FLT-10). |
 | AC-AGG-21 | `filter` on an `Agg.of` field, a second `filter`, a condition that leaves no filter, one that reads a correlated value, and one that adds a to-many join each throw `MQ1412`; with no aggregate renderer the engine's CASE form runs (R-AGG-17, R-VND-30). |
 | AC-AGG-22 | A filtered aggregate in `having` keeps the groups over the threshold on every vendor; two equal filtered fields are one selection and different conditions are two (R-AGG-17, R-AGG-06). |
+| AC-AGG-23 | `avgExact` over `numeric(12,2)` returns the database's exact `BigDecimal` on every Tier-1 vendor and both Hibernate lines, and zero rows is NULL; a filtered `avgExact` averages only the matched rows, exactly; with no `exactAverage` renderer it is `MQ4014` (R-AGG-18, R-AGG-17, R-VND-30). |
+| AC-AGG-24 | `avgExact` over `bigint`, `integer` and `smallint` returns the exact `BigDecimal` on every Tier-1 vendor; over a `Double` or `Float` column, and a `round` scale below 0 or over 30: `MQ1411` (R-AGG-18). |
+| AC-AGG-25 | `round` is half away from zero on every Tier-1 vendor, as an aggregate and per row (`Expr.round`, `api/10` R-COL-37): 2.345 to 2.35, -2.345 to -2.35, 2.5 to 3, -2.5 to -3; a rounded aggregate groups, filters in `having` and orders; equal rounds are one selection. For `Agg.round` the inputs are values whose quotient is exact at every vendor's scale; a mean with more decimals than MySQL's quotient scale is rounded twice there (R-AGG-18, R-COL-37). |
 | AC-AGG-27 | On every Tier-1 vendor and both Hibernate lines, `Agg.count(table)` over the root and over an inner-joined table, and `count` over the root's id column, render `count(*)` and return `count(t.id)`'s rows, grouped and ungrouped; a `Correlated` count over the sub-select root's id renders `count(*)` and equals the identity count, `0` for an outer row with no match (R-AGG-19). |
 | AC-AGG-28 | A `LEFT`-joined or treated table, a `rootedAt` `LEFT` root, a statement with a customizer, a foreign-key read, `countDistinct`, the page total's dedup and a non-id column keep counting the identity or column (R-AGG-19). |
 | AC-AGG-29 | The page total of an entity root renders `count(*)`; a filtered row count renders `count(1) filter (where c)` or its CASE form; with no `rowCount` the count is `count(t.id)`; a filtered count over a `LEFT`-joined table counts 0 for an unmatched row, as the unfiltered count does (R-AGG-19, R-AGG-17). |

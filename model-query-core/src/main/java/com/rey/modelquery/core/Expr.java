@@ -151,6 +151,21 @@ public final class Expr {
                 value.type(), null);
     }
 
+    /**
+     * {@code round(value, scale)}: {@code value} rounded half away from zero to {@code scale} decimals, a standard
+     * {@code CriteriaBuilder#round} that needs no provider (R-COL-37). A {@code BigDecimal} only, since a
+     * {@code Double} rounds differently across vendors.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1411} for a {@code scale} outside 0 to 30
+     */
+    @Incubating
+    public static <M> ExpressionField<M, BigDecimal> round(ScalarField<M, BigDecimal> value, int scale) {
+        checkFields(value);
+        Agg.requireScale(scale);
+        return new ExpressionField<>(new ExpressionField.Round(value, scale, BigDecimal.class), BigDecimal.class,
+                null);
+    }
+
     /** {@code concat(a, b)}: NULL when any operand is NULL (R-COL-17). */
     public static <M> ExpressionField<M, String> concat(ScalarField<M, String> a, ScalarField<M, String> b) {
         checkFields(a);

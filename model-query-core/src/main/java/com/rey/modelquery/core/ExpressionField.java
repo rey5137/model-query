@@ -174,6 +174,8 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
                 }
             } else if (node instanceof Negate value) {
                 checks.field(value.value());
+            } else if (node instanceof Round value) {
+                checks.field(value.value());
             } else if (node instanceof Concat value) {
                 if (value.first() instanceof SelectField<?, ?> field) {
                     checks.field(field);
@@ -293,6 +295,9 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
         if (node instanceof Negate n) {
             return containsNode(n.value(), test);
         }
+        if (node instanceof Round n) {
+            return containsNode(n.value(), test);
+        }
         if (node instanceof Concat n) {
             return containsNode(n.first(), test) || containsNode(n.second(), test);
         }
@@ -347,7 +352,7 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
 
     /** The structure behind an expression: equal nodes are equal expressions (R-COL-20). */
     sealed interface Node
-            permits Coalesce, NullIf, Arith, Negate, Concat, Fn, Const, TypedConst, Value, Nextval, Case,
+            permits Coalesce, NullIf, Arith, Negate, Round, Concat, Fn, Const, TypedConst, Value, Nextval, Case,
                     CorrelatedValue, TypeOf {
 
         Class<?> type();
@@ -575,6 +580,29 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
         @Override
         public String text() {
             return "-(" + Expr.text(value) + ")";
+        }
+    }
+
+    /** {@code round(value, scale)}, half away from zero on a {@code BigDecimal} (R-COL-37). */
+    record Round(ScalarField<?, ?> value, int scale, Class<?> type) implements Node {
+        @Override
+        public Expression<?> render(JoinContext ctx) {
+            return ctx.cb().round(raw(value.expression(ctx)), scale);
+        }
+
+        @Override
+        public List<ColumnField<?, ?, ?>> columns() {
+            return Expr.columns(value);
+        }
+
+        @Override
+        public int binds() {
+            return ExpressionField.binds(value);
+        }
+
+        @Override
+        public String text() {
+            return "round(" + Expr.text(value) + ", " + scale + ")";
         }
     }
 

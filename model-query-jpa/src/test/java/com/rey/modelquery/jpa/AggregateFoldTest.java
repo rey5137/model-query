@@ -1,6 +1,7 @@
 package com.rey.modelquery.jpa;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rey.modelquery.core.Agg;
 import com.rey.modelquery.core.AggregateField;
@@ -141,6 +142,19 @@ class AggregateFoldTest {
     void ac_agg_21_a_filtered_table_count_runs_in_the_engine_case_form_and_with_a_hook() {
         assertThat(sum(noHook, COUNT)).isEqualTo(2L);
         assertThat(sum(withHook, COUNT)).isEqualTo(2L);
+    }
+
+    @Test
+    void ac_agg_23_an_exact_average_without_the_providers_renderer_is_mq4014() {
+        AggregateField<Row, java.math.BigDecimal> average = Agg.avgExact(A);
+        ModelQuery<KeysetRowEntity, ?, Row> q = ModelQuery.builder(ROOT, row -> new Row(row.get(average).longValue()))
+                .select(SelectSet.of(average)).build();
+        try (EntityManager em = noHook.createEntityManager()) {
+            var executor = ModelQueryExecutor.create(em, KeysetRowEntity.class, ModelQueryConfig.defaults());
+            assertThatThrownBy(() -> executor.list(q, Limit.unlimited()))
+                    .isInstanceOfSatisfying(com.rey.modelquery.core.ModelQueryConfigurationException.class,
+                            e -> assertThat(e.code()).isEqualTo(com.rey.modelquery.core.MqCode.MQ4014));
+        }
     }
 
     private static Long sum(SessionFactory factory) {

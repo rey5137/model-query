@@ -4,13 +4,14 @@ import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Predicate;
+import java.math.BigDecimal;
 
 /**
  * The provider's native forms of an aggregate, beyond standard Criteria (R-VND-30, INV-7). The executor supplies it
  * through {@code ProviderSupport#aggregates()}; each method has a default that is the engine's own standard-Criteria
  * form, so a provider overrides only what it renders better.
  *
- * @implSpec R-AGG-17, R-AGG-19, R-VND-29, R-VND-30, D-185
+ * @implSpec R-AGG-17, R-AGG-18, R-AGG-19, R-VND-29, R-VND-30, D-185
  */
 @EngineFacing
 @Incubating
@@ -30,6 +31,19 @@ public interface AggregateRenderer {
     default Expression<?> filtered(CriteriaBuilder cb, AggregateField.Kind kind, Expression<?> argument,
             Predicate condition) {
         return AggregateField.over(cb, kind, cb.selectCase().when(condition, (Expression) argument));
+    }
+
+    /**
+     * The exact average of {@code argument}, {@code sum(x) / count(x)} with the quotient typed {@code BigDecimal}
+     * (R-AGG-18): an integer input is cast to {@code BigDecimal} first, a {@code BigDecimal} input is not. Standard
+     * Criteria types {@code avg} as {@code Double}, so there is no portable form and the default refuses.
+     *
+     * @throws ModelQueryConfigurationException {@code MQ4014} by default: the provider has no renderer
+     */
+    @Incubating
+    default Expression<BigDecimal> exactAverage(CriteriaBuilder cb, Expression<? extends Number> argument) {
+        throw new ModelQueryConfigurationException(MqCode.MQ4014, "an exact average (Agg.avgExact) needs the "
+                + "provider's AggregateRenderer, which the executor does not supply");
     }
 
     /**

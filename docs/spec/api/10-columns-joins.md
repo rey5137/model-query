@@ -149,6 +149,12 @@ an offset export and `primaryKeyFirst` (`engine/21` R-PAG-25). `eq(typeOf(ROOT),
 - **An unmapped discriminator value.** Reading `typeOf` on a row whose discriminator value no entity maps fails with
   the provider's error, so the row is never skipped silently.
 
+**R-COL-37** *(D-185, `@Incubating`)* **Row-level rounding.** `Expr.round(ScalarField<M, BigDecimal> value, int scale)`
+is an `ExpressionField<M, BigDecimal>` rendering the standard `CriteriaBuilder#round` (Jakarta Persistence 3.1, both
+Hibernate lines), so it needs no provider. It rounds half away from zero on every Tier-1 vendor and takes a
+`BigDecimal` only; a `scale` below 0 or over 30 is `MQ1411` when it is called (`api/13` R-AGG-18). A column with a
+`ColumnConverter` is `MQ1501`. Covered by `api/13` AC-AGG-25.
+
 **R-COL-30** *(D-143)* **A `TableField` may be a source's root.** `TableField.source(model)` is the root of a query
 over a `@SourceModel` (`api/17` R-SRC-10): its `rootEntity()` is the source model, and the query reads the CTE's
 columns by field name rather than from an entity `From`. It is generated, for a `@QueryModel` whose `root` names a

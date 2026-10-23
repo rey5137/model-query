@@ -97,6 +97,66 @@ public final class Agg {
     }
 
     /**
+     * The exact average of a {@code BigDecimal}, {@code Long}, {@code Integer} or {@code Short} column,
+     * {@code sum(x) / count(x)} read as a {@code BigDecimal}; NULL over no rows (R-AGG-18). Its scale follows the
+     * database, so {@link #round} it for money.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1411} for any other column type, {@code Double} and
+     *     {@code Float} included, whose average is inexact; {@code MQ1408} for a converted column
+     */
+    @Incubating
+    public static <M> AggregateField<M, BigDecimal> avgExact(ColumnField<M, ?, ? extends Number> column) {
+        supported(Objects.requireNonNull(column, "column"));
+        requireExactType(column.type(), column);
+        return over(AggregateField.Kind.AVG_EXACT, column, BigDecimal.class);
+    }
+
+    /** The exact average of an expression, as {@link #avgExact(ColumnField)} (R-AGG-18). */
+    @Incubating
+    public static <M> AggregateField<M, BigDecimal> avgExact(ExpressionField<M, ? extends Number> expression) {
+        Objects.requireNonNull(expression, "expression");
+        requireExactType(expression.type(), expression);
+        return expressionOver(AggregateField.Kind.AVG_EXACT, expression, BigDecimal.class);
+    }
+
+    /**
+     * {@code value} rounded half away from zero to {@code scale} decimals, still an aggregate for {@code having},
+     * {@code orderBy} and the grouping checks. It cannot be filtered: filter {@code value} instead (R-AGG-18).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1411} for a {@code scale} outside 0 to 30; {@code MQ1408} for a
+     *     {@code min} or {@code max} over a converted column, whose values the rounding would not convert
+     */
+    @Incubating
+    public static <M> AggregateField<M, BigDecimal> round(AggregateField<M, BigDecimal> value, int scale) {
+        Objects.requireNonNull(value, "value");
+        if (value.converted() != null) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1408, value + ": round cannot take an aggregate over a "
+                    + "converted column, as the database rounds attribute values, not the model's");
+        }
+        requireScale(scale);
+        return AggregateField.rounding(value, scale);
+    }
+
+    private static final List<Class<?>> EXACT_TYPES =
+            List.of(BigDecimal.class, Long.class, Integer.class, Short.class);
+
+    private static void requireExactType(Class<?> type, Object source) {
+        if (!EXACT_TYPES.contains(ColumnField.boxed(type))) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1411, source + ": avgExact takes a BigDecimal, Long, "
+                    + "Integer or Short input, not " + type.getSimpleName() + ", whose average is inexact; use "
+                    + "Agg.avg for an approximate one");
+        }
+    }
+
+    /** {@code MQ1411} for a scale outside 0 to 30, the smallest maximum of the Tier-1 databases (R-AGG-18). */
+    static void requireScale(int scale) {
+        if (scale < 0 || scale > 30) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1411, "round(..., " + scale
+                    + "): the scale must be 0 to 30, as MySQL clamps a larger one to 30");
+        }
+    }
+
+    /**
      * {@code min(column)}, of the column's own type. Over a column with an {@link OrderedColumnConverter} it is the
      * least attribute value, converted to the model's type.
      *
