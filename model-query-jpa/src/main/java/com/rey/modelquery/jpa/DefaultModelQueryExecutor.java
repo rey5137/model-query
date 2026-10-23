@@ -45,6 +45,7 @@ import com.rey.modelquery.core.RenderOptions;
 import com.rey.modelquery.core.TreatChecks;
 import com.rey.modelquery.core.StatementShape;
 import com.rey.modelquery.core.Row;
+import com.rey.modelquery.core.RowCounts;
 import com.rey.modelquery.core.RowLock;
 import com.rey.modelquery.core.ScalarField;
 import com.rey.modelquery.core.SelectField;
@@ -4004,8 +4005,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         boolean source = q.source().isPresent();
         boolean readThroughToMany = !source && readsThroughToMany(built);
         boolean distinctRoots = !source && hasToManyJoin(root) && !readThroughToMany;
-        Expression<Long> count = source ? cb.count(cb.literal(1))
-                : distinctRoots ? cb.countDistinct(root) : cb.count(root);
+        // Counting the root is the row count where R-AGG-19 holds; a source's constant stays count(1).
+        Expression<Long> count = distinctRoots ? cb.countDistinct(root)
+                : RowCounts.count(built.joins(), source ? cb.literal(1) : root);
         // The count replaces the selection, so a recursive source's checks are selected beside it, and the count's own
         // statement is the one that reads them (R-SRC-07).
         List<Selection<?>> selections = new ArrayList<>();

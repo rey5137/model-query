@@ -133,9 +133,33 @@ class AggregateModelTest {
                 """);
 
         assertThat(compilation).succeededWithoutWarnings();
-        assertThat(generatedFlat(compilation, "shop.QSalesSummary")).contains("Agg.<SalesSummary, Long>of("
-                + "\"PRICED\", Long.class, (ctx, cb) -> cb.count(ColumnField.of(SalesSummary.class, ROOT, \"amount\", "
-                + "BigDecimal.class).path(ctx))).named(\"priced\");");
+        assertThat(generatedFlat(compilation, "shop.QSalesSummary")).contains("Agg.count( ColumnField.of("
+                + "SalesSummary.class, ROOT, \"amount\", BigDecimal.class)).named(\"priced\");");
+    }
+
+    // R-AGG-19 (RFC 0020 F.2): a COUNT over an attribute is Agg.count(column), so a count of the id renders the row
+    // count and the field takes a filter (R-AGG-17), which Agg.of refuses.
+    @Test
+    void ac_agg_27_a_count_over_the_id_attribute_is_agg_count_and_takes_a_filter() {
+        JavaFileObject openLines = source("shop.OpenLines", """
+                package shop;
+
+                import com.rey.modelquery.core.AggregateField;
+
+                final class OpenLines {
+                    static final AggregateField<SalesSummary, Long> NORTH =
+                            QSalesSummary.IDS.filter(f -> f.eq(QSalesSummary.REGION, "north"));
+                }
+                """);
+        Compilation compilation = compile(SALE_ENTITY, openLines, summary("""
+                @QueryModel(root = SaleEntity.class)
+                public record SalesSummary(
+                        @GroupBy String region, @Aggregate(fn = AggregateFunction.COUNT, attribute = "id") Long ids) {}
+                """));
+
+        assertThat(compilation).succeededWithoutWarnings();
+        assertThat(generatedFlat(compilation, "shop.QSalesSummary")).contains("Agg.count( ColumnField.of("
+                + "SalesSummary.class, ROOT, \"id\", Long.class)).named(\"ids\");");
     }
 
     // The M9 gate finding (R-GEN-27, R-PROC-21, R-PROC-22): an aggregate over an expression is emitted after the

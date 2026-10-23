@@ -132,6 +132,10 @@ public final class JoinContext {
      */
     private final JoinContext outer;
     private boolean readsToOneLeft;
+    /** The statement runs a {@code QueryCustomizer}, which could add a RIGHT or FULL join (R-AGG-19). */
+    private boolean customized;
+    /** For a {@link #rootedAt} context, the context its root was joined in; {@code null} everywhere else. */
+    private JoinContext rootedIn;
     /**
      * The to-many joins this context itself made, in resolution order: a source's {@code where} predicate that
      * crosses one is {@code MQ1906} (R-SRC-03). A nested {@code exists} joins on a context of its own, so the paths
@@ -219,11 +223,36 @@ public final class JoinContext {
         JoinContext ctx = new JoinContext(join, entity, cb, query, null, Set.of(), renderOptions, existsJoined, null,
                 repeatedExpressionBinds, parameters, foreignKeyReads, narrowings);
         ctx.readsToOneLeft = readsToOneLeft;
+        ctx.customized = customized;
+        ctx.rootedIn = this;
         return ctx;
     }
 
     boolean readsToOneLeft() {
         return readsToOneLeft;
+    }
+
+    /** Records that the statement this context renders runs a {@code QueryCustomizer} (R-AGG-19). */
+    void customized(boolean customized) {
+        this.customized = customized;
+    }
+
+    boolean customized() {
+        return customized;
+    }
+
+    /**
+     * Whether {@code node} is a treated node this context, an enclosing one, or the one a {@link #rootedAt} root was
+     * joined in, made (R-COL-35).
+     */
+    boolean treatedNode(From<?, ?> node) {
+        for (JoinContext ctx = this; ctx != null; ctx = ctx.outer != null ? ctx.outer : ctx.rootedIn) {
+            JoinKey key = ctx.keys.get(node);
+            if (key != null) {
+                return key.type() == null;
+            }
+        }
+        return false;
     }
 
     /** Records that {@code column}, a to-one of {@code entity}, rendered as its foreign-key column (R-COL-29). */
@@ -596,6 +625,7 @@ public final class JoinContext {
             ctx = new JoinContext(correlated, rootType, cb, sub, null, path.keysUpTo(null), renderOptions,
                     existsJoined, outer, repeatedExpressionBinds, parameters, foreignKeyReads, narrowings);
             ctx.readsToOneLeft = readsToOneLeft;
+            ctx.customized = customized;
             ctx.declares = ExpectedNarrowing.Kind.EXISTS_ROOT; // a treat of the correlated root narrows the sub-select
         } else {
             // A treat of the root, which an exists path may be (R-FLT-11), resolves to a root that no nested
@@ -611,6 +641,7 @@ public final class JoinContext {
                     path.keysUpTo(existsPath.key()), renderOptions, existsJoined, outer, repeatedExpressionBinds,
                     parameters, foreignKeyReads, narrowings);
             ctx.readsToOneLeft = readsToOneLeft;
+            ctx.customized = customized;
         }
         ctx.enclosingLeftJoining = enclosingLeftJoining || leftJoining > 0;
         ctx.existsPath = path;
@@ -650,6 +681,7 @@ public final class JoinContext {
         JoinContext ctx = new JoinContext(correlated, outer.rootType, cb, sq, column.table().key(), Set.of(),
                 renderOptions, existsJoined, null, repeatedExpressionBinds, parameters, foreignKeyReads, narrowings);
         ctx.readsToOneLeft = outer.readsToOneLeft;
+        ctx.customized = outer.customized;
         return column.path(ctx);
     }
 
@@ -668,6 +700,7 @@ public final class JoinContext {
         JoinContext ctx = new JoinContext(inner, sub.rootEntity(), cb, sq, null, Set.of(), renderOptions,
                 existsJoined, null, repeatedExpressionBinds, parameters, foreignKeyReads, narrowings);
         ctx.readsToOneLeft = readsToOneLeft;
+        ctx.customized = customized;
         Path<C> selected = sub.column().path(ctx);
         // A lifted column reads the outer root, so its embeddable check runs against the outer context, not this one.
         boolean embeddable = column instanceof ColumnField<?, ?, ?> outerColumn
@@ -725,7 +758,7 @@ public final class JoinContext {
                 SubqueryOrders.appendId((Root<?>) ctx.root, cb, orders);
             }
             return ExpressionField.raw(switch (terminal) {
-                case COUNT -> cb.count(column);
+                case COUNT -> RowCounts.count(ctx, column);
                 case MIN -> cb.least(ExpressionField.<Comparable>raw(column));
                 case MAX -> cb.greatest(ExpressionField.<Comparable>raw(column));
                 case SUM -> cb.sum(ExpressionField.<Number>raw(column));
@@ -750,6 +783,7 @@ public final class JoinContext {
         JoinContext ctx = new JoinContext(inner, sub.rootEntity(), cb, sq, null, Set.of(), renderOptions,
                 existsJoined, this, repeatedExpressionBinds, parameters, foreignKeyReads, narrowings);
         ctx.readsToOneLeft = readsToOneLeft;
+        ctx.customized = customized;
         sq.select(selection.apply(ctx));
         var where = new ArrayList<>(ConditionGroup.toPredicates(sub.filters(), ctx));
         where.addAll(ConditionGroup.toPredicates(correlation, ctx));

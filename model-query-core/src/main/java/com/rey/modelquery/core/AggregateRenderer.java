@@ -10,7 +10,7 @@ import jakarta.persistence.criteria.Predicate;
  * through {@code ProviderSupport#aggregates()}; each method has a default that is the engine's own standard-Criteria
  * form, so a provider overrides only what it renders better.
  *
- * @implSpec R-AGG-17, R-VND-29, R-VND-30, D-185
+ * @implSpec R-AGG-17, R-AGG-19, R-VND-29, R-VND-30, D-185
  */
 @EngineFacing
 @Incubating
@@ -30,5 +30,15 @@ public interface AggregateRenderer {
     default Expression<?> filtered(CriteriaBuilder cb, AggregateField.Kind kind, Expression<?> argument,
             Predicate condition) {
         return AggregateField.over(cb, kind, cb.selectCase().when(condition, (Expression) argument));
+    }
+
+    /**
+     * The count of the statement's rows, in place of {@code count(current)}, the count of an identity that no row the
+     * statement reads has null (R-AGG-19). The default is {@code cb.count(current)}, the SQL a count renders without
+     * this renderer; standard Criteria has no {@code count(*)}.
+     */
+    @Incubating
+    default Expression<Long> rowCount(CriteriaBuilder cb, Expression<?> current) {
+        return cb.count(current);
     }
 }

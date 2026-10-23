@@ -1,0 +1,1 @@
+select oe1_0.id c0,count(r1_0.id) c1,count(r1_0.id) filter (where oe1_0.status=cast(? as varchar)) c2 from orders oe1_0 left join customers r1_0 on r1_0.id=oe1_0.referrer_id where oe1_0.id<=? group by c0 order by 1

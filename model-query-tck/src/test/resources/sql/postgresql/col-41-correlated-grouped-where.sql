@@ -1,1 +1,1 @@
-select oe1_0.status,count(oe1_0.id) from orders oe1_0 where (select count(oe2_0.id) from orders oe2_0 where oe2_0.id<=? and (oe2_0.status<>? or oe2_0.status is null) and oe2_0.id=oe1_0.id)>? group by 1 order by 1
+select oe1_0.status,count(*) from orders oe1_0 where (select count(*) from orders oe2_0 where oe2_0.id<=? and (oe2_0.status<>? or oe2_0.status is null) and oe2_0.id=oe1_0.id)>? group by 1 order by 1

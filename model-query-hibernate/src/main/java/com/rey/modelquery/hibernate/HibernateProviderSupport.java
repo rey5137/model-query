@@ -586,7 +586,7 @@ public final class HibernateProviderSupport implements ProviderSupport {
     /**
      * Hibernate's {@code FILTER (WHERE ...)} aggregates, on both lines (R-VND-30, R-AGG-17): rendered natively where
      * the dialect has the clause and as Hibernate's own CASE emulation elsewhere. A {@code countDistinct} has no
-     * filtered overload, so it keeps the engine's CASE form.
+     * filtered overload, so it keeps the engine's CASE form. A row count renders {@code count(*)} (R-AGG-19).
      */
     @Override
     @Incubating
@@ -607,6 +607,13 @@ public final class HibernateProviderSupport implements ProviderSupport {
                     case MAX -> hcb.functionAggregate("max", argument.getJavaType(), filter, argument);
                     default -> AggregateRenderer.super.filtered(cb, kind, argument, condition);
                 };
+            }
+
+            /** {@code count(*)} on both lines, from 6.4 (R-AGG-19). */
+            @Override
+            @Incubating
+            public Expression<Long> rowCount(CriteriaBuilder cb, Expression<?> current) {
+                return ((HibernateCriteriaBuilder) cb).count();
             }
         });
     }

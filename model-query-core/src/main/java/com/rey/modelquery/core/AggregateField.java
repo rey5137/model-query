@@ -227,7 +227,17 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
         CriteriaBuilder cb = ctx.cb();
         Expression<?> value = argument.apply(ctx, cb);
         if (conditions.isEmpty()) {
-            return (Expression<C>) over(cb, kind, value);
+            // A count of an identity no row has null is the row count (R-AGG-19).
+            return (Expression<C>) (kind == Kind.COUNT ? RowCounts.count(ctx, value) : over(cb, kind, value));
+        }
+        // A row count counts a constant under the filter; any other count counts what its unfiltered form does, so a
+        // LEFT-joined table's unmatched group counts 0 (R-AGG-19). A composite id is refused either way (MQ1412).
+        Expression<?> counted = value;
+        if (kind == Kind.COUNT) {
+            counted = identifying(value);
+            if (RowCounts.eligible(ctx, value)) {
+                counted = cb.literal(1);
+            }
         }
         // LEFT, as an or/not branch's join is (R-FLT-10): an inner join made here would drop the rows the filter
         // does not match from every other column of the statement.
@@ -243,18 +253,21 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
                     : parts.size() == 1 ? parts.get(0) : cb.and(parts.toArray(Predicate[]::new));
         }));
         AggregateRenderer renderer = ctx.renderOptions().aggregateRenderer().orElse(AggregateRenderer.DEFAULT);
-        return (Expression<C>) renderer.filtered(cb, kind, kind == Kind.COUNT ? identifying(value) : value, condition);
+        return (Expression<C>) renderer.filtered(cb, kind, counted, condition);
     }
 
     /**
      * A table count's argument as a column a CASE can yield: the entity's identifier, which the unfiltered count
      * counts and is never null. Any other argument is returned as it is. Providers cannot convert an entity inside
-     * {@code case when ... then <entity> end}.
+     * {@code case when ... then <entity> end}. A joined table's model is its attribute, so its entity is read through
+     * it.
      */
     private Expression<?> identifying(Expression<?> value) {
-        if (!(value instanceof From<?, ?> from) || !(from.getModel() instanceof EntityType<?> entity)) {
+        EntityType<?> entity = value instanceof From<?, ?> from ? RowCounts.entityOf(from) : null;
+        if (entity == null) {
             return value;
         }
+        From<?, ?> from = (From<?, ?>) value;
         SingularAttribute<?, ?> id = null;
         if (entity.hasSingleIdAttribute()) {
             id = entity.getId(entity.getIdType().getJavaType());
