@@ -69,6 +69,14 @@ final class ChildChecks {
                     + ", a @SourceModel; a fetch plan has no source to pass it");
             return;
         }
+        // A fetch plan's through load has no entity join for a column-anchored one (R-SRC-25).
+        if (child != null && !child.entityJoins().isEmpty()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3039, where + child.name() + " joins "
+                    + child.entityJoins().stream().map(join -> "'" + join.name() + "'")
+                            .collect(Collectors.joining(", "))
+                    + ", an entity join; a fetch plan's through load has no entity join for it");
+            return;
+        }
         if (child == null && model.origin() != model.type() && field.child().model() != null
                 && !nestedModels.isModel((TypeElement) ((DeclaredType) field.child().model()).asElement())) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3026,

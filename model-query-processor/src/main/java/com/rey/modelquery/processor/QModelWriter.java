@@ -169,11 +169,16 @@ final class QModelWriter {
                 type.addField(joinedColumn(modelName, model, field));
             }
         }
+        // A join whose constant reads a filter column, or the root, comes after the filter columns (R-SRC-25).
+        Set<String> late = model.entityJoins().stream().filter(QModelWriter::lateJoin)
+                .map(join -> QueryModelReader.constantName(join.name())).collect(Collectors.toSet());
         for (ModelDefinition.EntityJoinDefinition join : model.entityJoins()) {
-            type.addField(entityJoin(modelName, model, join));
+            if (!late.contains(QueryModelReader.constantName(join.name()))) {
+                type.addField(entityJoin(modelName, model, join));
+            }
         }
         for (FilterLayout.Table table : filters.tables()) {
-            if (filters.overEntityJoin(table)) {
+            if (filters.overEntityJoin(table) && !overJoin(filters, table, late)) {
                 type.addField(filterTable(table));
             }
         }
@@ -201,18 +206,25 @@ final class QModelWriter {
         }
         // A filter-only column has no field to map: it is in no SelectSet and not in map(Row) (R-PROC-10).
         for (FilterLayout.Column column : filters.columns()) {
-            ModelField selected = model.columns().stream()
-                    .filter(field -> !field.entityJoin().isEmpty()
-                            && field.constant().equals(column.definition().name())).findFirst().orElse(null);
-            if (selected != null) {
-                type.addField(column(modelName, column.entity(), selected.constant(), column.table(),
-                        column.attribute(), selected.type(), converter(model, selected), selected.name()));
+            if (late.contains(QueryModelReader.constantName(column.definition().entityJoin()))) {
                 continue;
             }
-            type.addField(model.readsSource()
-                    ? overColumn(modelName, model, column.definition().name(), column.attribute(), false)
-                    : column(modelName, column.entity(), column.definition().name(), column.table(), column.attribute(),
-                            column.read().type(), column.definition().converter(), null));
+            type.addField(filterColumn(modelName, model, column));
+        }
+        for (ModelDefinition.EntityJoinDefinition join : model.entityJoins()) {
+            if (late.contains(QueryModelReader.constantName(join.name()))) {
+                type.addField(entityJoin(modelName, model, join));
+            }
+        }
+        for (FilterLayout.Table table : filters.tables()) {
+            if (filters.overEntityJoin(table) && overJoin(filters, table, late)) {
+                type.addField(filterTable(table));
+            }
+        }
+        for (FilterLayout.Column column : filters.columns()) {
+            if (late.contains(QueryModelReader.constantName(column.definition().entityJoin()))) {
+                type.addField(filterColumn(modelName, model, column));
+            }
         }
         // A computed constant comes after every column constant, so a definition reading Q<Model> columns finds them
         // already set when the generated class initialises it (R-GEN-27).
@@ -728,9 +740,16 @@ final class QModelWriter {
     private FieldSpec entityJoin(
             ClassName modelName, ModelDefinition model, ModelDefinition.EntityJoinDefinition join) {
         var pairs = new ArrayList<CodeBlock>();
-        JoinSourceDefinition source = model.joinSources().stream()
-                .filter(each -> each.name().equals(join.source())).findFirst().orElseThrow();
         for (ModelDefinition.EntityJoinOn pair : join.on()) {
+            String id = pair.id().isEmpty() ? metamodel.id(model.entityRoot(join.name())).attributes().iterator().next()
+                    : pair.id();
+            if (join.source().isEmpty()) {
+                var anchor = EntityJoinAnchors.resolve(model, metamodel, builtIns, pair.column()).anchor();
+                pairs.add(CodeBlock.of("$T.on($L, $S)", ENTITY_JOIN, anchor.constant(), id));
+                continue;
+            }
+            JoinSourceDefinition source = model.joinSources().stream()
+                    .filter(each -> each.name().equals(join.source())).findFirst().orElseThrow();
             ModelField field = source.sourceModel().readable().stream()
                     .filter(each -> each.name().equals(pair.field())).findFirst().orElseThrow();
             ModelField exposed = model.columns().stream().filter(each -> each.sourceColumn() != null
@@ -741,14 +760,48 @@ final class QModelWriter {
                             QueryModelReader.constantName(source.name()), generatedName(source.sourceModel()),
                             field.constant())
                     : CodeBlock.of("$L", exposed.constant());
-            String id = pair.id().isEmpty() ? metamodel.id(model.entityRoot(join.name())).attributes().iterator().next()
-                    : pair.id();
             pairs.add(CodeBlock.of("$T.on($L, $S)", ENTITY_JOIN, anchor, id));
+        }
+        CodeBlock initializer = CodeBlock.of("$T.of($S, $T.class, $T.$L, $L)", ENTITY_JOIN, join.name(),
+                TypeName.get(join.entity()), JOIN_KIND, join.kind(), listOf(pairs));
+        for (ModelDefinition.EntityJoinWhen term : join.when()) {
+            var anchor = EntityJoinAnchors.resolve(model, metamodel, builtIns, term.column()).anchor();
+            var value = EntityJoinAnchors.whenValue(types, anchor.type(), term.value());
+            initializer = CodeBlock.of("$L.when($L, $L)", initializer, anchor.constant(), value.literal());
         }
         return FieldSpec.builder(ParameterizedTypeName.get(ENTITY_JOIN, modelName, TypeName.get(join.entity())),
                         QueryModelReader.constantName(join.name()), CONSTANT)
-                .initializer("$T.of($S, $T.class, $T.$L, $L)", ENTITY_JOIN, join.name(), TypeName.get(join.entity()),
-                        JOIN_KIND, join.kind(), listOf(pairs)).build();
+                .initializer("$L", initializer).build();
+    }
+
+    /** Whether a join reads a filter column or the root's own constants, which are declared after the source joins. */
+    private static boolean lateJoin(ModelDefinition.EntityJoinDefinition join) {
+        return join.source().isEmpty() || !join.when().isEmpty();
+    }
+
+    /** Whether {@code table} hangs from one of {@code joins}, the entity-join constants declared late. */
+    private static boolean overJoin(FilterLayout filters, FilterLayout.Table table, Set<String> joins) {
+        String parent = table.parent();
+        if (parent.endsWith(".root()")) {
+            return joins.contains(parent.substring(0, parent.length() - ".root()".length()));
+        }
+        return filters.tables().stream().filter(each -> each.constant().equals(parent))
+                .anyMatch(each -> overJoin(filters, each, joins));
+    }
+
+    /** One filter column's constant: the generated type, table and name it reads (R-PROC-10). */
+    private FieldSpec filterColumn(ClassName modelName, ModelDefinition model, FilterLayout.Column column) {
+        ModelField selected = model.columns().stream()
+                .filter(field -> !field.entityJoin().isEmpty()
+                        && field.constant().equals(column.definition().name())).findFirst().orElse(null);
+        if (selected != null) {
+            return column(modelName, column.entity(), selected.constant(), column.table(),
+                    column.attribute(), selected.type(), converter(model, selected), selected.name());
+        }
+        return model.readsSource()
+                ? overColumn(modelName, model, column.definition().name(), column.attribute(), false)
+                : column(modelName, column.entity(), column.definition().name(), column.table(), column.attribute(),
+                        column.read().type(), column.definition().converter(), null);
     }
 
     private FieldSpec sourceJoin(ClassName modelName, ModelDefinition model, JoinSourceDefinition join) {

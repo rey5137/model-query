@@ -23,7 +23,7 @@
 | `@Aggregate(fn = SUM, attribute = "...", expression = Def.class, distinct = false, orderBy = {}, filter = Def.class, scale = -1)` | field or component | An `AggregateField` constant, mapped into this field (`api/13`); `expression` aggregates a `@Computed`-style definition instead of an attribute; `orderBy` orders `FIRST_BY`, `filter` names a `FilterDefinition<Model>` and `scale` rounds a `BigDecimal` average (R-PROC-45, D-188) |
 | `@JoinSource(name = "...", source = S.class, type = LEFT, on = @On(column = "...", key = "..."))` | model type (repeatable through `@JoinSources`) | Joins a `@SourceModel` to a `@QueryModel` rooted at an entity; the generated `query(...)` takes the caller's `SourceQuery<S>` for it (R-PROC-44, D-189) |
 | `@SourceColumn(join = "...", field = "...")` | field or component | A column read from a joined source's field, through `ColumnField.over(Model.class, JOIN.root(), QSource.FIELD)` (R-PROC-44) |
-| `@JoinEntity(name = "...", entity = E.class, source = "...", type = LEFT, on = @JoinEntity.On(field = "...", id = ""))` | model type (repeatable) | Incubating entity join anchored to the model's joined source named by `source` (R-PROC-46) |
+| `@JoinEntity(name = "...", entity = E.class, source = "", type = LEFT, on = @JoinEntity.On(field = "", column = "", id = ""), when = @JoinEntity.When(column = "", value = ""))` | model type (repeatable) | Incubating entity join anchored to the model's joined source named by `source`, or with `source = ""` to columns of the root or its to-one paths; `when` adds one static term (R-PROC-46) |
 | `@JoinEntities` | model type | Incubating container that makes `@JoinEntity` repeatable |
 | `@Computed(Def.class)` | field or component | An `ExpressionField` constant, mapped into this field (`api/10` §3a); a bound model may leave the class to its binding's `@BindExpression` (R-PROC-29) |
 | `@Window(function = ROW_NUMBER, argument = "", partitionBy = {}, orderBy = {}, frame = NONE)` | field or component of a `@SourceModel` | A `WindowField<S, T>` constant, a window function over the source's rows (`api/17` R-SRC-04, R-PROC-36) |
@@ -110,7 +110,7 @@ the named join and has the source field's type; it takes no `@Column` and no con
 `MQ3044` a join that misses or exceeds the key, pairs a key twice, mismatches a type, names an unknown root attribute
 or source field, names a class that is no `@SourceModel`, or repeats a name; a `@SourceColumn` naming an unknown join or
 field; a `@JoinSource` or `@SourceColumn` on a model that is not a `@QueryModel` rooted at an entity; and a nested
-`@Join` model that joins a source. A `@SourceColumn` is also `MQ3044` beside `@PrimaryKey` (a model's key is the
+`@Join` model that joins a source or declares an entity join (it reads entity columns only). A `@SourceColumn` is also `MQ3044` beside `@PrimaryKey` (a model's key is the
 root's; a `LEFT`-joined value can be `NULL` or shared, which breaks keyset paging and row dedup) and beside any
 annotation that makes the field no column (`@Aggregate`, `@Computed`, `@Window`, `@Join`, `@Transient`, `@Child`,
 `@Selected`), and so is an `@On` key field with a converter (the join would compare the database value, not the model
@@ -133,32 +133,47 @@ public `FilterDefinition<Model>` or has neither `INSTANCE` nor a no-arg construc
 field that is not a `BigDecimal`, and an `AVG` field typed `BigDecimal` over an input type `Agg.avgExact` refuses
 (`Double`, `Float`).
 
-**R-PROC-46** *(D-193, `@Incubating`)* `@JoinEntity` (repeatable through `@JoinEntities`, on a model type) declares
-an entity join off a `@JoinSource` of an entity-rooted `@QueryModel` (`api/17` R-SRC-23). Its `name` is a Java
-identifier unique across both kinds of join; `entity` names a JPA entity, `source` (required) names one of the model's
-`@JoinSource` joins, `type` defaults to `LEFT`, and each nested `@JoinEntity.On(field, id = "")` pairs an unconverted
-field of that joined source with a basic id attribute. The pairs cover every id attribute exactly once, including flattened `@EmbeddedId`
-paths such as `key.part`; `id = ""` names the sole basic id of a single-id entity. Source and id types agree after
-boxing (`int` and `Integer` agree, INV-3). The annotation types, nested `On` and their members are incubating.
+**R-PROC-46** *(D-193, D-197, `@Incubating`)* `@JoinEntity` (repeatable through `@JoinEntities`, on a model type)
+declares an entity join of an entity-rooted `@QueryModel` (`api/17` R-SRC-23, R-SRC-25). Its `name` is a Java
+identifier unique across both kinds of join; `entity` names a JPA entity and `type` defaults to `LEFT`. The join has
+one anchor kind. With `source` naming one of the model's `@JoinSource` joins, each nested
+`@JoinEntity.On(field, id = "")` pairs an unconverted field of that joined source with a basic id attribute. With
+`source = ""`, each `@JoinEntity.On(column, id = "")` names a model column or a `@FilterColumn` over the root or a
+to-one path from it (R-COL-25), unconverted and basic: not an expression, a correlated column, or a to-one read by its
+id (R-COL-29), and never one over a joined source or another entity join. Every pair of one join names `field` or
+`column`, never both, and no join mixes the two. `when = @JoinEntity.When(column, value)` adds one static term to the
+join's one `ON`: an anchor-kind column over the root or a to-one path from it, fixed to a value of its boxed type that
+R-COL-18 binds; an enum, `Date`, `Calendar` or entity value does not bind. The value is written as a Java string and
+converted to the column's boxed type; one that does not parse is refused, and a second term is refused.
+
+The pairs cover every id attribute exactly once, including flattened `@EmbeddedId` paths such as `key.part`;
+`id = ""` names the sole basic id of a single-id entity. Anchor and id types agree after boxing (`int` and `Integer`
+agree, INV-3). The annotation types, nested `On` and `When` and their members are incubating.
 
 The incubating `@Column.entityJoin` and `@FilterColumn.entityJoin` members default to `""`, retaining the root meaning. A
 nonempty value names an entity join and resolves the attribute or path relative to its entity, including to-one
 paths. `@FilterColumn#joinType` applies to the associations on that path, not to the named entity join, whose kind is
 `@JoinEntity#type`. A parentless entity-join column's cursor identity path is `entity(<join>).<attr...>` (R-PAG-19,
 D-196). Generation emits an `EntityJoin.of(...)` constant with
-`EntityJoin.on(<anchor column>, "<id attribute>")` pairs, columns over that constant's `root()`, and to-one table
-fields below it. An exposed `@SourceColumn` supplies the anchor constant; otherwise generation uses an inline
-`ColumnField.over(...)`. Generated `query(...)` registers each constant with `.joinEntity(NAME)` after binding
-the sources. A LEFT-unmatched entity yields null joined columns. Joined-entity columns are omitted from generated
-changes and inserts, like `@SourceColumn` fields.
+`EntityJoin.on(<anchor>, "<id attribute>")` pairs, columns over that constant's `root()`, and to-one table fields
+below it. A field anchor is a `@SourceColumn`'s exposed constant, or an inline `ColumnField.over(...)` when the source
+field is not exposed. A column anchor reads the constant generated for the named model column or `@FilterColumn`. A
+`when` term appends `.when(<column constant>, <literal>)`, the annotation's string converted to the column's boxed
+type. Generated `query(...)` registers each constant with `.joinEntity(NAME)` after binding the sources, and a
+column-anchored join alone adds no source parameter. A LEFT-unmatched entity yields null joined columns.
+Joined-entity columns are omitted from generated changes and inserts, like `@SourceColumn` fields.
 
 `MQ3046` rejects an entity that is not a JPA `@Entity`, a name that is not a Java identifier,
 partial, extra or repeated id pairs, non-id or association-id attributes, converted anchors,
-boxed-type mismatches, unknown source fields, a `source` that names no `@JoinSource` of this model (once per join), duplicate names across either kind of join, entity-join constants colliding with
+boxed-type mismatches, unknown source fields, a `source` that names no `@JoinSource` of this model (once per join),
+both or neither of `field` and `column`, pairs mixing the two, a `column` with a `source`, a `field` without one,
+an anchor over a joined source, another entity join, a to-many or treated path, an expression or a to-one column read
+by its id, duplicate names across either kind of join, entity-join constants colliding with
 reserved or other generated constants, unknown entity-join names in either
 `entityJoin` member, to-many paths below the entity, a nested `@Join` or `@PrimaryKey` on a joined-entity column, and
-`@JoinEntity` on a `@SourceModel`. A nonempty `entityJoin` combined with `treat` is also `MQ3046`. Existing attribute,
-type, converter and alias checks continue to apply.
+`@JoinEntity` on a `@SourceModel`. A nonempty `entityJoin` combined with `treat` is also `MQ3046`, as is a `when`
+column that is converted or enum-typed, a value that does not bind or parse as the column's boxed type, and a second
+`when`. Existing attribute, type, converter and alias checks continue to apply.
 
 ## 4. `@Join` and nested models
 

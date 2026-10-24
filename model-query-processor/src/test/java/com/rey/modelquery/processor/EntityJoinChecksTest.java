@@ -31,7 +31,23 @@ class EntityJoinChecksTest {
         JavaFileObject node = source("shop.Node", """
                 package shop;
                 import jakarta.persistence.*;
-                @Entity public class Node { @Id Long id; }
+                @Entity public class Node {
+                    @Id Long id;
+                    @ManyToOne Node parent;
+                    @Enumerated(EnumType.STRING) Shape shape;
+                    @OneToMany java.util.List<Node> children;
+                    Float rate;
+                    Double ratio;
+                }
+                """);
+        JavaFileObject subtype = source("shop.SpecialNode", """
+                package shop;
+                import jakarta.persistence.*;
+                @Entity public class SpecialNode extends Node { String extra; }
+                """);
+        JavaFileObject shape = source("shop.Shape", """
+                package shop;
+                public enum Shape { A, B }
                 """);
         JavaFileObject edge = source("shop.Edge", """
                 package shop;
@@ -62,11 +78,26 @@ class EntityJoinChecksTest {
                     public Long toAttribute(String value) { return value == null ? null : Long.valueOf(value); }
                 }
                 """);
-        return compile(node, edge, view, target, part, converter, source("shop.Detail", """
+        return compile(node, subtype, shape, edge, view, target, part, converter, expression(),
+                source("shop.Detail", """
                 package shop;
                 import com.rey.modelquery.annotations.*;
                 """ + kind + "(root = Node.class)\n" + joins + filters
                 + "public record Detail(" + fields + ") {}"));
+    }
+
+    private static JavaFileObject expression() {
+        return source("shop.IdExpr", """
+                package shop;
+                import com.rey.modelquery.core.*;
+                public final class IdExpr implements ExpressionDefinition<Detail, Long> {
+                    public static final IdExpr INSTANCE = new IdExpr();
+                    public ExpressionField<Detail, Long> expression() {
+                        return Expr.times(ColumnField.of(Detail.class, TableField.root(Node.class), "id", Long.class),
+                                1L);
+                    }
+                }
+                """);
     }
 
     private static void rejected(Compilation compilation, String detail) {
@@ -307,5 +338,166 @@ class EntityJoinChecksTest {
     void ac_src_56_join_name_must_be_a_java_identifier() {
         rejected(model(SOURCE_JOIN + ENTITY_JOIN.replace("name = \"manager\"", "name = \"bad-name\""),
                 FIELDS, PROFILE), "name must be a Java identifier");
+    }
+
+    @Test
+    void ac_proc_49_both_field_and_column_is_mq3046() {
+        rejected(model(SOURCE_JOIN + "@JoinEntity(name = \"manager\", source = \"edge\", entity = Profile.class, "
+                + "on = @JoinEntity.On(field = \"managerId\", column = \"id\"))", FIELDS, PROFILE),
+                "exactly one of field and column");
+    }
+
+    @Test
+    void ac_proc_49_neither_field_nor_column_is_mq3046() {
+        rejected(model("@JoinEntity(name = \"manager\", entity = Profile.class, on = @JoinEntity.On(id = \"id\"))",
+                FIELDS, PROFILE), "exactly one of field and column");
+    }
+
+    @Test
+    void ac_proc_49_mixed_pairs_are_mq3046() {
+        rejected(model(SOURCE_JOIN + """
+                @JoinEntity(name = "manager", source = "edge", entity = Profile.class, on = {
+                    @JoinEntity.On(field = "managerId", id = "key.id"),
+                    @JoinEntity.On(column = "id", id = "key.tenant")})
+                """, FIELDS, "@EmbeddedId Key key;"), "pairs mix");
+    }
+
+    @Test
+    void ac_proc_49_column_with_source_is_mq3046() {
+        rejected(model(SOURCE_JOIN + "@JoinEntity(name = \"manager\", source = \"edge\", entity = Profile.class, "
+                + "on = @JoinEntity.On(column = \"id\"))", FIELDS, PROFILE), "a column anchor takes no source");
+    }
+
+    @Test
+    void ac_proc_49_field_without_source_is_mq3046() {
+        rejected(model("@JoinEntity(name = \"manager\", entity = Profile.class, "
+                + "on = @JoinEntity.On(field = \"managerId\"))", FIELDS, PROFILE), "a field anchor needs a source");
+    }
+
+    @Test
+    void ac_proc_49_anchor_over_a_joined_source_is_mq3046() {
+        rejected(model(SOURCE_JOIN + "@JoinEntity(name = \"manager\", entity = Profile.class, "
+                + "on = @JoinEntity.On(column = \"managerId\"))",
+                FIELDS + ", @SourceColumn(join = \"edge\", field = \"managerId\") Long managerId", PROFILE),
+                "reads the joined source");
+    }
+
+    @Test
+    void ac_proc_49_anchor_over_another_entity_join_is_mq3046() {
+        rejected(model(SOURCE_JOIN + ENTITY_JOIN + """
+                @JoinEntity(name = "other", entity = Profile.class, on = @JoinEntity.On(column = "managerId"))
+                """, FIELDS + ", @Column(entityJoin = \"manager\", attribute = \"id\") Long managerId", PROFILE),
+                "reads the entity join 'manager'");
+    }
+
+    @Test
+    void ac_proc_49_anchor_through_a_to_many_path_is_mq3046() {
+        rejected(model("@JoinEntity(name = \"manager\", entity = Profile.class, "
+                + "on = @JoinEntity.On(column = \"CHILD_ID\"))", FIELDS, PROFILE, "Long managerId", "Long managerId",
+                "@FilterColumn(name = \"CHILD_ID\", path = \"children.id\")", "@QueryModel"),
+                "traverses the to-many");
+    }
+
+    @Test
+    void ac_proc_49_anchor_on_a_treated_column_is_mq3046() {
+        rejected(model("@JoinEntity(name = \"manager\", entity = Profile.class, "
+                + "on = @JoinEntity.On(column = \"nodeId\"))",
+                FIELDS + ", @Column(attribute = \"id\", treat = SpecialNode.class) Long nodeId", PROFILE),
+                "reads the treated");
+    }
+
+    @Test
+    void ac_proc_49_anchor_on_an_id_form_column_is_mq3046() {
+        rejected(model("@JoinEntity(name = \"manager\", entity = Profile.class, "
+                + "on = @JoinEntity.On(column = \"parentId\"))",
+                FIELDS + ", @Column(attribute = \"parent\") Long parentId", PROFILE), "reads its id");
+    }
+
+    @Test
+    void ac_proc_49_anchor_on_an_expression_is_mq3046() {
+        rejected(model("@JoinEntity(name = \"manager\", entity = Profile.class, "
+                + "on = @JoinEntity.On(column = \"doubled\"))",
+                FIELDS + ", @Computed(IdExpr.class) Long doubled", PROFILE), "is an expression");
+    }
+
+    @Test
+    void ac_proc_49_when_on_an_unknown_column_is_mq3046() {
+        rejected(model("@JoinEntity(name = \"manager\", entity = Profile.class, on = @JoinEntity.On(column = \"id\"), "
+                + "when = @JoinEntity.When(column = \"missing\", value = \"1\"))", FIELDS, PROFILE),
+                "when unknown anchor column 'missing'");
+    }
+
+    @Test
+    void ac_proc_49_when_on_an_enum_column_is_mq3046() {
+        rejected(model("@JoinEntity(name = \"manager\", entity = Profile.class, on = @JoinEntity.On(column = \"id\"), "
+                + "when = @JoinEntity.When(column = \"shape\", value = \"A\"))", FIELDS, PROFILE,
+                "Long managerId", "Long managerId", "@FilterColumn(name = \"shape\", path = \"shape\")", "@QueryModel"),
+                "an enum value does not bind");
+    }
+
+    @Test
+    void ac_proc_49_when_value_that_does_not_parse_is_mq3046() {
+        rejected(model("@JoinEntity(name = \"manager\", entity = Profile.class, on = @JoinEntity.On(column = \"id\"), "
+                + "when = @JoinEntity.When(column = \"id\", value = \"abc\"))", FIELDS, PROFILE),
+                "'abc' is not a Long");
+    }
+
+    @Test
+    void ac_proc_49_when_value_that_does_not_parse_as_float_or_double_is_mq3046() {
+        for (String column : new String[] {"rate", "ratio"}) {
+            rejected(model("@JoinEntity(name = \"manager\", entity = Profile.class, "
+                    + "on = @JoinEntity.On(column = \"id\"), "
+                    + "when = @JoinEntity.When(column = \"" + column + "\", value = \"abc\"))", FIELDS, PROFILE,
+                    "Long managerId", "Long managerId",
+                    "@FilterColumn(name = \"" + column + "\", path = \"" + column + "\")", "@QueryModel"),
+                    "'abc' is not a " + (column.equals("rate") ? "Float" : "Double"));
+        }
+    }
+
+    @Test
+    void ac_proc_49_second_when_is_mq3046() {
+        rejected(model("@JoinEntity(name = \"manager\", entity = Profile.class, on = @JoinEntity.On(column = \"id\"), "
+                + "when = {@JoinEntity.When(column = \"id\", value = \"1\"), "
+                + "@JoinEntity.When(column = \"id\", value = \"2\")})", FIELDS, PROFILE),
+                "a join takes one when");
+    }
+
+    @Test
+    void ac_proc_49_child_model_with_a_column_anchored_join_is_mq3039() {
+        JavaFileObject parent = source("shop.ParentEntity", """
+                package shop;
+                import jakarta.persistence.*;
+                @Entity public class ParentEntity { @Id Long id; }
+                """);
+        JavaFileObject child = source("shop.ChildRow", """
+                package shop;
+                import com.rey.modelquery.annotations.*;
+                @QueryModel(root = Node.class)
+                @JoinEntity(name = "manager", entity = Profile.class, on = @JoinEntity.On(column = "id"))
+                public record ChildRow(@PrimaryKey Long id) {}
+                """);
+        Compilation compilation = compile(
+                source("shop.Node", """
+                        package shop;
+                        import jakarta.persistence.*;
+                        @Entity public class Node { @Id Long id; }
+                        """),
+                source("shop.Profile", """
+                        package shop;
+                        import jakarta.persistence.*;
+                        @Entity public class Profile { @Id Long id; }
+                        """),
+                parent, child,
+                source("shop.Parent", """
+                        package shop;
+                        import com.rey.modelquery.annotations.*;
+                        import java.util.List;
+                        @QueryModel(root = ParentEntity.class)
+                        public record Parent(@PrimaryKey Long id,
+                                @Child(foreignKey = "id") List<ChildRow> children) {}
+                        """));
+        assertThat(compilation).failed();
+        assertThat(compilation).hadErrorContaining("MQ3039:");
+        assertThat(compilation).hadErrorContaining("ChildRow joins 'manager', an entity join");
     }
 }

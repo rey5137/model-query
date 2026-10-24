@@ -56,4 +56,33 @@ class GeneratedEntityJoinExecutionTest {
                 })
                 .contains(new EntityJoinDetail(1021L, null, null, null));
     }
+
+    @TckTest
+    void ac_proc_49_ac_src_59_generated_column_anchored_joins_run_the_query(TckDatabase db) throws SQLException {
+        var query = QColumnEntityJoinDetail.query().select(QColumnEntityJoinDetail.ALL)
+                .where(f -> f.gte(QColumnEntityJoinDetail.ID, 990L).lte(QColumnEntityJoinDetail.ID, 1030L))
+                .orderBy(QColumnEntityJoinDetail.ID.asc()).build();
+        List<ColumnEntityJoinDetail> rows = new ArrayList<>();
+        List<String> sql = SqlSnapshots.capture(db, ds -> {
+            try (SessionFactory sf = JoinTestSupport.sessionFactory(ds)) {
+                sf.inSession(em -> rows.addAll(ModelQueryExecutor.create(em, OrderEntity.class,
+                        ModelQueryConfig.defaults()).list(query, Limit.unlimited())));
+            }
+        });
+        assertThat(rows.stream().map(r ->
+                SourceJoinExecutionTest.text(r.id(), r.managerName(), r.viaOrder())))
+                .containsExactlyElementsOf(SourceJoinExecutionTest.rows(db, """
+                        select o.id, m.name, t.name from orders o
+                        join orders cp on cp.id = o.id
+                        left join customers m on m.id = o.id and o.status = 'PAID'
+                        left join customers t on t.id = cp.customer_id
+                        where o.id between 990 and 1030 order by o.id"""));
+        assertThat(rows).hasSize(41)
+                .filteredOn(r -> r.managerName() != null).extracting(ColumnEntityJoinDetail::id)
+                .containsExactly(993L, 997L);
+        assertThat(sql).singleElement().satisfies(statement -> {
+            assertThat(statement).doesNotContain("'PAID'");
+            assertThat(statement.replace(" ", "")).containsPattern("status=\\?");
+        });
+    }
 }

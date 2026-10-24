@@ -33,6 +33,7 @@ import com.rey.modelquery.processor.ModelDefinition.SourceColumnDefinition;
 import com.rey.modelquery.processor.ModelDefinition.ChildDefinition;
 import com.rey.modelquery.processor.ModelDefinition.EntityJoinDefinition;
 import com.rey.modelquery.processor.ModelDefinition.EntityJoinOn;
+import com.rey.modelquery.processor.ModelDefinition.EntityJoinWhen;
 import com.rey.modelquery.processor.ModelDefinition.FilterColumnDefinition;
 import com.rey.modelquery.processor.ModelDefinition.JoinDefinition;
 import com.rey.modelquery.processor.ModelDefinition.Kind;
@@ -233,14 +234,23 @@ final class QueryModelReader {
             if (explicit(annotation, "on") instanceof List<?> pairs) {
                 for (Object pair : pairs) {
                     AnnotationMirror each = (AnnotationMirror) ((AnnotationValue) pair).getValue();
-                    on.add(new EntityJoinOn((String) explicit(each, "field"),
+                    on.add(new EntityJoinOn(explicit(each, "field") instanceof String field ? field : "",
+                            explicit(each, "column") instanceof String column ? column : "",
                             explicit(each, "id") instanceof String id ? id : ""));
                 }
             }
-            joins.add(new EntityJoinDefinition((String) explicit(annotation, "name"),
+            var when = new ArrayList<EntityJoinWhen>();
+            if (explicit(annotation, "when") instanceof List<?> terms) {
+                for (Object term : terms) {
+                    AnnotationMirror each = (AnnotationMirror) ((AnnotationValue) term).getValue();
+                    when.add(new EntityJoinWhen(explicit(each, "column") instanceof String column ? column : "",
+                            explicit(each, "value") instanceof String value ? value : ""));
+                }
+            }
+            joins.add(new EntityJoinDefinition(explicit(annotation, "name") instanceof String name ? name : "",
                     explicit(annotation, "source") instanceof String source ? source : "", type(annotation, "entity"),
                     explicit(annotation, "type") instanceof Element kind ? kind.getSimpleName().toString()
-                            : JoinKind.LEFT.name(), on));
+                            : JoinKind.LEFT.name(), on, when));
         }
         return joins;
     }

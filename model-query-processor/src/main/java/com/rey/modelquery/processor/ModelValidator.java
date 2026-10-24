@@ -230,6 +230,10 @@ final class ModelValidator {
                 diagnostics.error(join.element(), DiagnosticCode.MQ3044, where + nested.name()
                         + " joins a source; a @Join model reads entity columns only");
                 nested = null;
+            } else if (nested != null && !nested.entityJoins().isEmpty()) {
+                diagnostics.error(join.element(), DiagnosticCode.MQ3044, where + nested.name()
+                        + " has an entity join; a @Join model reads entity columns only");
+                nested = null;
             }
             if (nested != null) {
                 List<JoinedTable> tables = nestedModels.tables(model, join, nested);

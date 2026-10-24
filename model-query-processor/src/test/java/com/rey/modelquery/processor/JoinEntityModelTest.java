@@ -136,4 +136,74 @@ class JoinEntityModelTest {
                 .contains(".joinEntity(MANAGER).joinEntity(OTHER)")
                 .contains(".filterOnly(MANAGER_DELETED, OTHER_DELETED)");
     }
+
+    @Test
+    void ac_proc_49_column_anchored_joins_and_when_follow_the_rfc_generated_shape() {
+        JavaFileObject invoice = source("shop.Invoice", """
+                package shop;
+                import jakarta.persistence.*;
+                @Entity public class Invoice {
+                    @Id Long id;
+                    Long repId;
+                    Boolean repActive;
+                    Long legacyRepId;
+                    @ManyToOne Customer customer;
+                }
+                """);
+        JavaFileObject customer = source("shop.Customer", """
+                package shop;
+                import jakarta.persistence.*;
+                @Entity public class Customer { @Id Long id; Long repId; }
+                """);
+        JavaFileObject employee = source("shop.Employee", """
+                package shop;
+                import jakarta.persistence.*;
+                @Entity public class Employee { @Id Long id; String name; }
+                """);
+        Compilation compilation = compile(invoice, customer, employee, source("shop.InvoiceRow", """
+                package shop;
+                import com.rey.modelquery.annotations.*;
+                @QueryModel(root = Invoice.class)
+                @JoinEntity(name = "rep", entity = Employee.class, on = @JoinEntity.On(column = "repId"),
+                        when = @JoinEntity.When(column = "repActive", value = "true"))
+                @JoinEntity(name = "legacy", entity = Employee.class, type = JoinKind.INNER,
+                        on = @JoinEntity.On(column = "legacyRepId"))
+                @JoinEntity(name = "owner", entity = Employee.class,
+                        on = @JoinEntity.On(column = "customerRepId"))
+                @FilterColumn(name = "repId", path = "repId")
+                @FilterColumn(name = "repActive", path = "repActive")
+                @FilterColumn(name = "customerRepId", path = "customer.repId")
+                @FilterColumn(name = "REP_NAME", entityJoin = "rep", path = "name")
+                public record InvoiceRow(@PrimaryKey Long id,
+                        @Column(attribute = "legacyRepId") Long legacyRepId) {}
+                """));
+        assertThat(compilation).succeededWithoutWarnings();
+        String generated = generatedFlat(compilation, "shop.QInvoiceRow");
+        assertThat(generated)
+                .contains("EntityJoin<InvoiceRow, Employee> REP = EntityJoin.of(\"rep\", Employee.class, "
+                        + "JoinKind.LEFT, List.of(EntityJoin.on(repId, \"id\"))).when(repActive, true);")
+                .contains("EntityJoin<InvoiceRow, Employee> LEGACY = EntityJoin.of(\"legacy\", Employee.class, "
+                        + "JoinKind.INNER, List.of(EntityJoin.on(LEGACY_REP_ID, \"id\")));")
+                .contains("EntityJoin<InvoiceRow, Employee> OWNER = EntityJoin.of(\"owner\", Employee.class, "
+                        + "JoinKind.LEFT, List.of(EntityJoin.on(customerRepId, \"id\")));")
+                .contains("REP_NAME = ColumnField.of(InvoiceRow.class, REP.root(), \"name\", String.class)")
+                .contains(".joinEntity(REP).joinEntity(LEGACY).joinEntity(OWNER)");
+        assertThat(generated).doesNotContain("query(SourceQuery");
+    }
+
+    @Test
+    void ac_proc_49_a_source_anchored_join_takes_a_when_on_a_root_column() {
+        Compilation compilation = model("""
+                @QueryModel(root = Node.class)
+                @JoinSource(name = "edge", source = ManagerEdge.class,
+                        on = @JoinSource.On(column = "id", key = "nodeId"))
+                @JoinEntity(name = "manager", source = "edge", entity = Profile.class,
+                        on = @JoinEntity.On(field = "managerId"),
+                        when = @JoinEntity.When(column = "id", value = "7"))
+                public record NodeDetail(@PrimaryKey Long id) {}
+                """);
+        assertThat(compilation).succeededWithoutWarnings();
+        assertThat(generatedFlat(compilation, "shop.QNodeDetail"))
+                .contains("QManagerEdge.MANAGER_ID), \"id\"))).when(ID, 7L)");
+    }
 }
