@@ -1,0 +1,10 @@
+vendor	probe	case	status	value	sql
+H2	B.2	CONTENT	PASS	7 alternating measured runs + 2 warmups; equal results; timings are info only	select i1_0.id,i1_0.invoice_number,e1_0.name from invoice i1_0 left join employee e1_0 on e1_0.code=i1_0.rep_code order by 1 fetch first ? rows only || 20
+H2	B.2	COUNT	PASS	7 alternating measured runs + 2 warmups; equal results; timings are info only	select count(i1_0.id) from invoice i1_0 left join employee e1_0 on e1_0.code=i1_0.rep_code
+H2	B.2	STREAM	PASS	7 alternating measured runs + 2 warmups; equal results; timings are info only	select i1_0.id,i1_0.invoice_number,e1_0.name from invoice i1_0 left join employee e1_0 on e1_0.code=i1_0.rep_code order by 1
+MYSQL	B.2	CONTENT	PASS	7 alternating measured runs + 2 warmups; equal results; timings are info only	select i1_0.id,i1_0.invoice_number,e1_0.name from invoice i1_0 left join employee e1_0 on e1_0.code=i1_0.rep_code order by 1 limit ? || 20
+MYSQL	B.2	COUNT	PASS	7 alternating measured runs + 2 warmups; equal results; timings are info only	select count(i1_0.id) from invoice i1_0 left join employee e1_0 on e1_0.code=i1_0.rep_code
+MYSQL	B.2	STREAM	PASS	7 alternating measured runs + 2 warmups; equal results; timings are info only	select i1_0.id,i1_0.invoice_number,e1_0.name from invoice i1_0 left join employee e1_0 on e1_0.code=i1_0.rep_code order by 1
+POSTGRESQL	B.2	CONTENT	PASS	7 alternating measured runs + 2 warmups; equal results; timings are info only	select i1_0.id,i1_0.invoice_number,e1_0.name from invoice i1_0 left join employee e1_0 on e1_0.code=i1_0.rep_code order by 1 fetch first ? rows only || 20
+POSTGRESQL	B.2	COUNT	PASS	7 alternating measured runs + 2 warmups; equal results; timings are info only	select count(i1_0.id) from invoice i1_0 left join employee e1_0 on e1_0.code=i1_0.rep_code
+POSTGRESQL	B.2	STREAM	PASS	7 alternating measured runs + 2 warmups; equal results; timings are info only	select i1_0.id,i1_0.invoice_number,e1_0.name from invoice i1_0 left join employee e1_0 on e1_0.code=i1_0.rep_code order by 1

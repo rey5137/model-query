@@ -1,0 +1,6 @@
+bootstrap_connections=2
+A.2 eclipselink-5.0.2-api3.2/class-load PASS PortableRenderer
+A.2 eclipselink-5.0.2-api3.2/initialize-verify PASS -Xverify:all; constructor returned
+A.2 eclipselink-5.0.2-api3.2/conjunction FAIL first_call=java.lang.IllegalStateException: Cannot add join of LinkProbe$ProbeEntity to LinkProbe$ProbeEntity because the target class is missing an attribute of source type; connections=0; cold_us=3191.875 (info only); expected=jakarta.Join with non-null getOn
+A.2 eclipselink-5.0.2-api3.2/id-self-equality FAIL first_call=java.lang.IllegalStateException: Cannot add join of LinkProbe$ProbeEntity to LinkProbe$ProbeEntity because the target class is missing an attribute of source type; connections=0; cold_us=49.875 (info only); expected=jakarta.Join with non-null getOn
+A.1 eclipselink-5.0.2-api3.2/signatures-and-implementation FAIL java.lang.IllegalStateException: Cannot add join of LinkProbe$ProbeEntity to LinkProbe$ProbeEntity because the target class is missing an attribute of source type

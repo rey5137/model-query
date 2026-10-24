@@ -1,0 +1,6 @@
+vendor	probe	case	status	value	sql
+OFFLINE	A.2	hibernate-6.6-api3.1/class-load	PASS	PortableRenderer	
+OFFLINE	A.2	hibernate-6.6-api3.1/initialize-verify	PASS	-Xverify:all; constructor returned	
+OFFLINE	A.2	hibernate-6.6-api3.1/conjunction	PASS	first_call=java.lang.NoSuchMethodError: 'jakarta.persistence.criteria.Join jakarta.persistence.criteria.From.join(java.lang.Class, jakarta.persistence.criteria.JoinType)'; connections=0; cold_us=6147.458 (info only); expected=java.lang.NoSuchMethodError	
+OFFLINE	A.2	hibernate-6.6-api3.1/id-self-equality	PASS	first_call=java.lang.NoSuchMethodError: 'jakarta.persistence.criteria.Join jakarta.persistence.criteria.From.join(java.lang.Class, jakarta.persistence.criteria.JoinType)'; connections=0; cold_us=25.125 (info only); expected=java.lang.NoSuchMethodError	
+OFFLINE	A.1	hibernate-6.6-api3.1/signatures-and-implementation	NOT_RUN	A.1 implementation contract applies to Hibernate 7.4 and EclipseLink 5 only	

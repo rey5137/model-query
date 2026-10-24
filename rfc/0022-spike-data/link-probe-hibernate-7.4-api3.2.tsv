@@ -1,0 +1,6 @@
+vendor	probe	case	status	value	sql
+OFFLINE	A.2	hibernate-7.4-api3.2/class-load	PASS	PortableRenderer	
+OFFLINE	A.2	hibernate-7.4-api3.2/initialize-verify	PASS	-Xverify:all; constructor returned	
+OFFLINE	A.2	hibernate-7.4-api3.2/conjunction	PASS	first_call=PASS; jakarta.Join=true; getOn=true; root=org.hibernate.query.sqm.tree.from.SqmRoot; joined=org.hibernate.query.sqm.tree.from.SqmEntityJoin; connections=0; cold_us=15508.417; median_7_us=12.5 (info only)	
+OFFLINE	A.2	hibernate-7.4-api3.2/id-self-equality	PASS	first_call=PASS; jakarta.Join=true; getOn=true; root=org.hibernate.query.sqm.tree.from.SqmRoot; joined=org.hibernate.query.sqm.tree.from.SqmEntityJoin; connections=0; cold_us=907.333; median_7_us=27.25 (info only)	
+OFFLINE	A.1	hibernate-7.4-api3.2/signatures-and-implementation	PASS	public abstract <Y> jakarta.persistence.criteria.Join<X, Y> jakarta.persistence.criteria.From.join(java.lang.Class<Y>,jakarta.persistence.criteria.JoinType); jakarta.Join=true; getOn=true; root=org.hibernate.query.sqm.tree.from.SqmRoot; joined=org.hibernate.query.sqm.tree.from.SqmEntityJoin; connections=0	

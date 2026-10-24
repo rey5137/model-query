@@ -1,0 +1,46 @@
+## CONTENT / renderer
+SQL: select i1_0.id,i1_0.invoice_number,e1_0.name from invoice i1_0 left join employee e1_0 on e1_0.code=i1_0.rep_code order by 1 limit ? || 20
+-> Limit: 20 row(s)  (cost=12561 rows=20) (actual time=0.00562..0.0184 rows=20 loops=1)
+    -> Nested loop left join  (cost=12561 rows=20) (actual time=0.00542..0.0177 rows=20 loops=1)
+        -> Index scan on i1_0 using PRIMARY  (cost=0.0232 rows=20) (actual time=0.0035..0.00479 rows=20 loops=1)
+        -> Single-row index lookup on e1_0 using PRIMARY (code=i1_0.rep_code)  (cost=0.25 rows=1) (actual time=500e-6..516e-6 rows=1 loops=20)
+
+
+## CONTENT / native
+SQL: select i.id, i.invoice_number, e.name from invoice i left join employee e on e.code=i.rep_code order by i.id limit 20
+-> Limit: 20 row(s)  (cost=12561 rows=20) (actual time=0.00583..0.0188 rows=20 loops=1)
+    -> Nested loop left join  (cost=12561 rows=20) (actual time=0.00563..0.0179 rows=20 loops=1)
+        -> Index scan on i using PRIMARY  (cost=0.0232 rows=20) (actual time=0.00396..0.00529 rows=20 loops=1)
+        -> Single-row index lookup on e using PRIMARY (code=i.rep_code)  (cost=0.25 rows=1) (actual time=533e-6..546e-6 rows=1 loops=20)
+
+
+## COUNT / renderer
+SQL: select count(i1_0.id) from invoice i1_0 left join employee e1_0 on e1_0.code=i1_0.rep_code
+-> Aggregate: count(i1_0.id)  (cost=27686 rows=1) (actual time=38.1..38.1 rows=1 loops=1)
+    -> Nested loop left join  (cost=22662 rows=50236) (actual time=0.00879..36.8 rows=50000 loops=1)
+        -> Table scan on i1_0  (cost=5080 rows=50236) (actual time=0.00608..5.48 rows=50000 loops=1)
+        -> Single-row covering index lookup on e1_0 using PRIMARY (code=i1_0.rep_code)  (cost=0.25 rows=1) (actual time=523e-6..539e-6 rows=0.98 loops=50000)
+
+
+## COUNT / native
+SQL: select count(*) from invoice i left join employee e on e.code=i.rep_code
+-> Aggregate: count(0)  (cost=27686 rows=1) (actual time=37.5..37.5 rows=1 loops=1)
+    -> Nested loop left join  (cost=22662 rows=50236) (actual time=0.00904..36 rows=50000 loops=1)
+        -> Table scan on i  (cost=5080 rows=50236) (actual time=0.00654..4.72 rows=50000 loops=1)
+        -> Single-row covering index lookup on e using PRIMARY (code=i.rep_code)  (cost=0.25 rows=1) (actual time=523e-6..539e-6 rows=0.98 loops=50000)
+
+
+## STREAM / renderer
+SQL: select i1_0.id,i1_0.invoice_number,e1_0.name from invoice i1_0 left join employee e1_0 on e1_0.code=i1_0.rep_code order by 1
+-> Nested loop left join  (cost=22662 rows=50236) (actual time=0.014..37.9 rows=50000 loops=1)
+    -> Index scan on i1_0 using PRIMARY  (cost=5080 rows=50236) (actual time=0.0108..6.14 rows=50000 loops=1)
+    -> Single-row index lookup on e1_0 using PRIMARY (code=i1_0.rep_code)  (cost=0.25 rows=1) (actual time=534e-6..551e-6 rows=0.98 loops=50000)
+
+
+## STREAM / native
+SQL: select i.id, i.invoice_number, e.name from invoice i left join employee e on e.code=i.rep_code order by i.id
+-> Nested loop left join  (cost=22662 rows=50236) (actual time=0.00729..37.8 rows=50000 loops=1)
+    -> Index scan on i using PRIMARY  (cost=5080 rows=50236) (actual time=0.00558..6.11 rows=50000 loops=1)
+    -> Single-row index lookup on e using PRIMARY (code=i.rep_code)  (cost=0.25 rows=1) (actual time=533e-6..550e-6 rows=0.98 loops=50000)
+
+

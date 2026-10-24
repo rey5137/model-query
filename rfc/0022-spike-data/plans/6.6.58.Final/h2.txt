@@ -1,0 +1,78 @@
+## CONTENT / renderer
+SQL: select i1_0.id,i1_0.invoice_number,e1_0.name from invoice i1_0 left join employee e1_0 on e1_0.code=i1_0.rep_code order by 1 fetch first ? rows only || 20
+SELECT
+    "I1_0"."ID",
+    "I1_0"."INVOICE_NUMBER",
+    "E1_0"."NAME"
+FROM "PUBLIC"."INVOICE" "I1_0"
+    /* PUBLIC.PRIMARY_KEY_9 */
+LEFT OUTER JOIN "PUBLIC"."EMPLOYEE" "E1_0"
+    /* PUBLIC.PRIMARY_KEY_7: CODE = I1_0.REP_CODE */
+    ON "E1_0"."CODE" = "I1_0"."REP_CODE"
+ORDER BY 1
+FETCH FIRST ?1 ROWS ONLY
+/* index sorted */
+
+## CONTENT / native
+SQL: select i.id, i.invoice_number, e.name from invoice i left join employee e on e.code=i.rep_code order by i.id limit 20
+SELECT
+    "I"."ID",
+    "I"."INVOICE_NUMBER",
+    "E"."NAME"
+FROM "PUBLIC"."INVOICE" "I"
+    /* PUBLIC.PRIMARY_KEY_9 */
+LEFT OUTER JOIN "PUBLIC"."EMPLOYEE" "E"
+    /* PUBLIC.PRIMARY_KEY_7: CODE = I.REP_CODE */
+    ON "E"."CODE" = "I"."REP_CODE"
+ORDER BY 1
+FETCH FIRST 20 ROWS ONLY
+/* index sorted */
+
+## COUNT / renderer
+SQL: select count(i1_0.id) from invoice i1_0 left join employee e1_0 on e1_0.code=i1_0.rep_code
+SELECT
+    COUNT("I1_0"."ID")
+FROM "PUBLIC"."INVOICE" "I1_0"
+    /* PUBLIC.INVOICE.tableScan */
+LEFT OUTER JOIN "PUBLIC"."EMPLOYEE" "E1_0"
+    /* PUBLIC.PRIMARY_KEY_7: CODE = I1_0.REP_CODE */
+    ON "E1_0"."CODE" = "I1_0"."REP_CODE"
+
+## COUNT / native
+SQL: select count(*) from invoice i left join employee e on e.code=i.rep_code
+SELECT
+    COUNT(*)
+FROM "PUBLIC"."INVOICE" "I"
+    /* PUBLIC.INVOICE.tableScan */
+LEFT OUTER JOIN "PUBLIC"."EMPLOYEE" "E"
+    /* PUBLIC.PRIMARY_KEY_7: CODE = I.REP_CODE */
+    ON "E"."CODE" = "I"."REP_CODE"
+
+## STREAM / renderer
+SQL: select i1_0.id,i1_0.invoice_number,e1_0.name from invoice i1_0 left join employee e1_0 on e1_0.code=i1_0.rep_code order by 1
+SELECT
+    "I1_0"."ID",
+    "I1_0"."INVOICE_NUMBER",
+    "E1_0"."NAME"
+FROM "PUBLIC"."INVOICE" "I1_0"
+    /* PUBLIC.PRIMARY_KEY_9 */
+LEFT OUTER JOIN "PUBLIC"."EMPLOYEE" "E1_0"
+    /* PUBLIC.PRIMARY_KEY_7: CODE = I1_0.REP_CODE */
+    ON "E1_0"."CODE" = "I1_0"."REP_CODE"
+ORDER BY 1
+/* index sorted */
+
+## STREAM / native
+SQL: select i.id, i.invoice_number, e.name from invoice i left join employee e on e.code=i.rep_code order by i.id
+SELECT
+    "I"."ID",
+    "I"."INVOICE_NUMBER",
+    "E"."NAME"
+FROM "PUBLIC"."INVOICE" "I"
+    /* PUBLIC.PRIMARY_KEY_9 */
+LEFT OUTER JOIN "PUBLIC"."EMPLOYEE" "E"
+    /* PUBLIC.PRIMARY_KEY_7: CODE = I.REP_CODE */
+    ON "E"."CODE" = "I"."REP_CODE"
+ORDER BY 1
+/* index sorted */
+

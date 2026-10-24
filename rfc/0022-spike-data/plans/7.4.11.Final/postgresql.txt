@@ -1,0 +1,98 @@
+## CONTENT / renderer
+SQL: select i1_0.id,i1_0.invoice_number,e1_0.name from invoice i1_0 left join employee e1_0 on e1_0.code=i1_0.rep_code order by 1 fetch first ? rows only || 20
+Limit  (cost=0.45..1.66 rows=20 width=29) (actual time=0.006..0.022 rows=20 loops=1)
+  Buffers: shared hit=43
+  ->  Nested Loop Left Join  (cost=0.45..3022.74 rows=50000 width=29) (actual time=0.006..0.021 rows=20 loops=1)
+        Buffers: shared hit=43
+        ->  Index Scan using invoice_pkey on invoice i1_0  (cost=0.29..1726.29 rows=50000 width=22) (actual time=0.003..0.004 rows=20 loops=1)
+              Buffers: shared hit=3
+        ->  Memoize  (cost=0.16..0.18 rows=1 width=17) (actual time=0.001..0.001 rows=1 loops=20)
+              Cache Key: i1_0.rep_code
+              Cache Mode: logical
+              Hits: 0  Misses: 20  Evictions: 0  Overflows: 0  Memory Usage: 3kB
+              Buffers: shared hit=40
+              ->  Index Scan using employee_pkey on employee e1_0  (cost=0.15..0.17 rows=1 width=17) (actual time=0.001..0.001 rows=1 loops=20)
+                    Index Cond: ((code)::text = (i1_0.rep_code)::text)
+                    Buffers: shared hit=40
+Planning:
+  Buffers: shared hit=4
+Planning Time: 0.031 ms
+Execution Time: 0.033 ms
+
+## CONTENT / native
+SQL: select i.id, i.invoice_number, e.name from invoice i left join employee e on e.code=i.rep_code order by i.id limit 20
+Limit  (cost=0.45..1.66 rows=20 width=29) (actual time=0.008..0.024 rows=20 loops=1)
+  Buffers: shared hit=43
+  ->  Nested Loop Left Join  (cost=0.45..3022.74 rows=50000 width=29) (actual time=0.008..0.023 rows=20 loops=1)
+        Buffers: shared hit=43
+        ->  Index Scan using invoice_pkey on invoice i  (cost=0.29..1726.29 rows=50000 width=22) (actual time=0.004..0.005 rows=20 loops=1)
+              Buffers: shared hit=3
+        ->  Memoize  (cost=0.16..0.18 rows=1 width=17) (actual time=0.001..0.001 rows=1 loops=20)
+              Cache Key: i.rep_code
+              Cache Mode: logical
+              Hits: 0  Misses: 20  Evictions: 0  Overflows: 0  Memory Usage: 3kB
+              Buffers: shared hit=40
+              ->  Index Scan using employee_pkey on employee e  (cost=0.15..0.17 rows=1 width=17) (actual time=0.001..0.001 rows=1 loops=20)
+                    Index Cond: ((code)::text = (i.rep_code)::text)
+                    Buffers: shared hit=40
+Planning:
+  Buffers: shared hit=4
+Planning Time: 0.030 ms
+Execution Time: 0.034 ms
+
+## COUNT / renderer
+SQL: select count(i1_0.id) from invoice i1_0 left join employee e1_0 on e1_0.code=i1_0.rep_code
+Aggregate  (cost=1042.00..1042.01 rows=1 width=8) (actual time=3.156..3.156 rows=1 loops=1)
+  Buffers: shared hit=417
+  ->  Seq Scan on invoice i1_0  (cost=0.00..917.00 rows=50000 width=8) (actual time=0.001..1.586 rows=50000 loops=1)
+        Buffers: shared hit=417
+Planning Time: 0.009 ms
+Execution Time: 3.159 ms
+
+## COUNT / native
+SQL: select count(*) from invoice i left join employee e on e.code=i.rep_code
+Aggregate  (cost=1042.00..1042.01 rows=1 width=8) (actual time=3.067..3.068 rows=1 loops=1)
+  Buffers: shared hit=417
+  ->  Seq Scan on invoice i  (cost=0.00..917.00 rows=50000 width=0) (actual time=0.001..1.616 rows=50000 loops=1)
+        Buffers: shared hit=417
+Planning Time: 0.008 ms
+Execution Time: 3.070 ms
+
+## STREAM / renderer
+SQL: select i1_0.id,i1_0.invoice_number,e1_0.name from invoice i1_0 left join employee e1_0 on e1_0.code=i1_0.rep_code order by 1
+Nested Loop Left Join  (cost=0.45..3022.74 rows=50000 width=29) (actual time=0.011..11.774 rows=50000 loops=1)
+  Buffers: shared hit=1144
+  ->  Index Scan using invoice_pkey on invoice i1_0  (cost=0.29..1726.29 rows=50000 width=22) (actual time=0.006..2.784 rows=50000 loops=1)
+        Buffers: shared hit=555
+  ->  Memoize  (cost=0.16..0.18 rows=1 width=17) (actual time=0.000..0.000 rows=1 loops=50000)
+        Cache Key: i1_0.rep_code
+        Cache Mode: logical
+        Hits: 49705  Misses: 295  Evictions: 0  Overflows: 0  Memory Usage: 35kB
+        Buffers: shared hit=589
+        ->  Index Scan using employee_pkey on employee e1_0  (cost=0.15..0.17 rows=1 width=17) (actual time=0.000..0.000 rows=1 loops=295)
+              Index Cond: ((code)::text = (i1_0.rep_code)::text)
+              Buffers: shared hit=589
+Planning:
+  Buffers: shared hit=4
+Planning Time: 0.097 ms
+Execution Time: 12.748 ms
+
+## STREAM / native
+SQL: select i.id, i.invoice_number, e.name from invoice i left join employee e on e.code=i.rep_code order by i.id
+Nested Loop Left Join  (cost=0.45..3022.74 rows=50000 width=29) (actual time=0.007..11.662 rows=50000 loops=1)
+  Buffers: shared hit=1144
+  ->  Index Scan using invoice_pkey on invoice i  (cost=0.29..1726.29 rows=50000 width=22) (actual time=0.004..2.687 rows=50000 loops=1)
+        Buffers: shared hit=555
+  ->  Memoize  (cost=0.16..0.18 rows=1 width=17) (actual time=0.000..0.000 rows=1 loops=50000)
+        Cache Key: i.rep_code
+        Cache Mode: logical
+        Hits: 49705  Misses: 295  Evictions: 0  Overflows: 0  Memory Usage: 35kB
+        Buffers: shared hit=589
+        ->  Index Scan using employee_pkey on employee e  (cost=0.15..0.17 rows=1 width=17) (actual time=0.000..0.000 rows=1 loops=295)
+              Index Cond: ((code)::text = (i.rep_code)::text)
+              Buffers: shared hit=589
+Planning:
+  Buffers: shared hit=4
+Planning Time: 0.040 ms
+Execution Time: 12.643 ms
+

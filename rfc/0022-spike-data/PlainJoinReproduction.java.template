@@ -1,0 +1,40 @@
+package com.rey.modelquery.spike.rfc0022;
+
+import com.rey.modelquery.spike.rfc0022.Rfc0022Entities.Employee;
+import com.rey.modelquery.spike.rfc0022.Rfc0022Entities.Invoice;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.criteria.JoinType;
+import jakarta.persistence.criteria.Path;
+import java.util.List;
+import java.util.function.BiFunction;
+
+/** Plain Jakarta calls: no model-query renderer, adapter, executor or query builder. */
+public final class PlainJoinReproduction implements BiFunction<EntityManager, String, List<String>> {
+    @Override
+    public List<String> apply(EntityManager em, String variant) {
+        List<Invoice> rows;
+        if (variant.equals("JPQL")) {
+            rows = em.createQuery("select i from Invoice i left join Employee e on e.code = i.repCode order by i.id",
+                    Invoice.class).setHint("jakarta.persistence.query.timeout", 60000)
+                    .setMaxResults(20).getResultList();
+        } else {
+            var cb = em.getCriteriaBuilder();
+            var query = cb.createQuery(Invoice.class);
+            var root = query.from(Invoice.class);
+            var join = root.join(Employee.class, JoinType.LEFT);
+            if (variant.equals("untyped")) {
+                join.on(cb.equal(join.get("code"), root.get("repCode")));
+            } else {
+                if (variant.equals("typed-after-on")) {
+                    join.on(cb.conjunction());
+                }
+                Path<String> code = join.<String>get("code");
+                join.on(cb.equal(code, root.get("repCode")));
+            }
+            query.select(root).orderBy(cb.asc(root.get("id")));
+            rows = em.createQuery(query).setHint("jakarta.persistence.query.timeout", 60000)
+                    .setMaxResults(20).getResultList();
+        }
+        return rows.stream().map(row -> row.id.toString()).toList();
+    }
+}
