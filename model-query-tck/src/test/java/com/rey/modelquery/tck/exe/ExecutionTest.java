@@ -190,11 +190,20 @@ class ExecutionTest {
 
     // ---- AC-EXE-03
 
-    private static final ModelQuery.Builder<OrderEntity, Object, Group> PER_CUSTOMER = ModelQuery
-            .builder(ORDERS, (com.rey.modelquery.core.Row row) -> new Group(row.get(GROUP_CUSTOMER), row.get(GROUP_TOTAL)))
-            .select(SelectSet.of(GROUP_CUSTOMER, GROUP_TOTAL))
-            .groupBy(GROUP_CUSTOMER)
-            .orderBy(GROUP_CUSTOMER.asc());
+    private static final ModelQuery.Builder<OrderEntity, Object, Group> PER_CUSTOMER = perCustomer();
+
+    /**
+     * A builder of its own: the queries one builder builds are one definition, which warns once of an ignored
+     * {@code orderBy} across every test (D-201).
+     */
+    private static ModelQuery.Builder<OrderEntity, Object, Group> perCustomer() {
+        return ModelQuery
+                .builder(ORDERS, (com.rey.modelquery.core.Row row) -> new Group(row.get(GROUP_CUSTOMER),
+                        row.get(GROUP_TOTAL)))
+                .select(SelectSet.of(GROUP_CUSTOMER, GROUP_TOTAL))
+                .groupBy(GROUP_CUSTOMER)
+                .orderBy(GROUP_CUSTOMER.asc());
+    }
 
     @TckTest
     void ac_exe_03_grouped_count_equals_the_number_of_groups_with_hibernate(TckDatabase db) {
@@ -219,17 +228,18 @@ class ExecutionTest {
                 sf.inSession(em -> JoinTestSupport.withoutServices(() -> {
                     ModelQueryExecutor<OrderEntity> executor =
                             ModelQueryExecutor.create(em, OrderEntity.class, ModelQueryConfig.defaults());
+                    ModelQuery.Builder<OrderEntity, Object, Group> perCustomer = perCustomer();
                     warnings.addAll(capturingWarnings(() -> {
-                        counts.add(executor.count(PER_CUSTOMER.build()));
+                        counts.add(executor.count(perCustomer.build()));
                         counts.add(executor.count(
-                                PER_CUSTOMER.having(h -> h.gt(GROUP_TOTAL, new BigDecimal("2500"))).build()));
+                                perCustomer.having(h -> h.gt(GROUP_TOTAL, new BigDecimal("2500"))).build()));
                     }));
                 }));
             }
         });
         assertThat(sql).hasSize(2).noneMatch(s -> s.contains("count(*)"));
         assertThat(counts).containsExactly(groups(db, false), groups(db, true));
-        // PER_CUSTOMER is ordered, so each count also warns once of the ignored orderBy per query (R-EXE-05).
+        // The builder is ordered, so each count also warns once of the ignored orderBy per definition (R-EXE-05).
         assertThat(warnings).filteredOn(w -> w.contains("counts its rows in memory")).hasSize(2);
         assertThat(warnings).filteredOn(w -> w.contains("ignores the query's orderBy")).hasSize(2);
     }

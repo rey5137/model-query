@@ -139,7 +139,8 @@ provider reports. → `api/10` R-COL-08, AC-COL-04.
 **D-21 — The phase-consistency warning runs on first execution, not in `build()`.**
 Checking that a `QueryCustomizer` narrows every phase alike means running it against a real `CriteriaBuilder`, which
 `build()` does not have (R-QRY-01: nothing is resolved until execution). The executor runs the check once per
-`ModelQuery`, on its first execution, and logs one warning naming the phases that differ. Rejected: passing a
+definition, on its first execution, and logs one warning naming the phases that differ; the queries one builder builds
+through `bind` alone are one definition (D-201). Rejected: passing a
 `CriteriaBuilder` to `build()` (ties a definition to a persistence unit) and checking on every execution (log noise).
 → `api/11` R-QRY-09, AC-QRY-06.
 
@@ -1725,7 +1726,7 @@ key)`; `MODEL_BY_KEYS` would pass caller keys a tenant filter on `MODEL` should 
 (`MQ2003` for a key matching two rows) before any row is mapped, and the fetch plan runs once. Checks before the
 empty-keys shortcut: `NullPointerException`, `MQ2203` (no primary key), then key conversion. An `orderBy` is ignored,
 no statement renders one (chunks can't be ordered across statements, and the map is in key order), and the call logs
-a `WARNING` once per `ModelQuery`, so one definition serves `list` and `byKeys`. `count`, `one(q)` and `one(q, key)`,
+a `WARNING` once per `ModelQuery` (per definition since D-201), so one definition serves `list` and `byKeys`. `count`, `one(q)` and `one(q, key)`,
 which ignored an `orderBy` silently, now log the same way when called directly (not `page`'s own count), and both
 `one` methods stop rendering it (amends R-EXE-05, R-EXE-12). Primary-key-first's `readByKeys` is not reused as it
 stands, since it skips unmatched rows. Rejected: `List<M>` (missing keys silent), ordering within chunks (order
@@ -3088,7 +3089,8 @@ undetermined type; as a group and order key it is one node. A param stays a boun
 (R-FLT-08), with the same SQL and binds as the default mode. Every statement binds the params it renders and no
 others, with the same SQL text across values. One spike observation is open for M34.3: on 7.4 the captured binds in a
 source-body cell (7 and 9) disagree with the set values (8 and 10), so M34.3 asserts the value bound in a source body
-per statement on both lines with a test, not with the spike's data. Q-24 is resolved.
+per statement on both lines with a test, not with the spike's data. Q-24 is resolved. M34.3 settled the observation: on
+both lines the source body's statement binds its own set value (8, not 7) (AC-COL-62).
 → `rfc/0022`, `rfc/0022-spike-results.md`, `api/10` R-COL-17, R-COL-18, R-COL-40, `rfc/0015`, D-150, D-177.
 
 **D-199 — A joined-entity row count (RFC 0022 Part D, 2026-10-24, user
@@ -3119,6 +3121,21 @@ an EclipseLink factory built from a `PersistenceUnitInfo` gives vendor `OTHER` u
 is set (R-VND-06), and paging and export are untested there. M34 has no `model-query-jpa32`, no `MQ4017`, and no
 AC-VND-23 or AC-VND-24; `vendor/40` R-VND-32 is unchanged.
 → `rfc/0022`, `rfc/0022-spike-results.md`, D-193, D-196, `vendor/40` R-VND-32.
+
+**D-201 — Run-once checks key on a definition that bindings don't change (M34.3, 2026-10-24, user decision).** A
+query bound per request (D-198) is a new `ModelQuery` each time, so checks and warnings keyed on the object re-ran and
+re-logged on every request. The builder carries a definition key: `bind` keeps it, every other builder change makes a
+new one, and the built query carries it (`ModelQuery#definitionKey()`, `@EngineFacing`). The executor keys on it the
+phase check and its warning (D-21), the fetch plan's checks and child builds (D-138), the treat scan, the
+ignored-`orderBy` and `MQ2214` warnings and the `INLINE_COUNT` fallback log. A `withLock` or `withFetch` copy derives
+its key from its query's and the lock (by value) or the plan (by identity), so the copies of every binding share one,
+and the checks of `build()` run on the first such copy only. An `orderedBy` copy's builder changes its order, so it
+has a new key, and its phase check keys on its definition's, as before. A `joinFilter` stays a new key: its operator
+records new terms each call, which can change the statement. A per-request source, or a builder chain rebuilt per
+request, is a new key too. The key is an opaque, value-free object; bound values never enter a cache (INV-9).
+Rejected: keeping the first-built query as the definition (it holds the first request's values); a per-request
+recheck (log noise, D-21).
+→ `api/10` R-COL-40, AC-COL-63, `api/11` R-QRY-09, `engine/20` R-EXE-13, R-EXE-15, `engine/21` R-PAG-27, D-21, D-198.
 
 ## 2. Open questions
 

@@ -213,8 +213,8 @@ can duplicate a key as a `TABLE_PER_CLASS` hierarchy can; the guard applies to e
 
 **R-PAG-27** *(D-154)* An offset `page()` with a total over a statement with a treated node logs one `WARNING`
 `MQ2214` if it returns at least one row and more rows than `total - offset`. It returns the page unchanged. The
-warning names the model, offset, rows and total, never a bound value (D-95), and fires once per `ModelQuery`
-identity. The weak warning state belongs to the executor, never the query (INV-9), as the ignored-`orderBy`
+warning names the model, offset, rows and total, never a bound value (D-95), and fires once per definition: the
+queries one builder builds through `bind` alone are one (`api/10` R-COL-40, D-201). The weak warning state belongs to the executor, never the query (INV-9), as the ignored-`orderBy`
 warning does. It is logged, never thrown: a concurrent commit between count and content can cause it under READ
 COMMITTED. The message names that cause and advises REPEATABLE READ or a snapshot around the call. An empty page
 past the end, an early page whose rows fit the total, an uncounted page, keyset paging, export and `count(q)` alone

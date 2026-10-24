@@ -91,6 +91,7 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ1509` | `Expr.nextval` with a name that is not a plain, optionally schema-qualified SQL identifier (at definition); used in a filter (a CASE condition included), a `having`, an order or a group key, a `distinct()` query selecting it, at any depth of an expression, on a vendor whose profile's `sequences()` is false, or without a provider sequence renderer (at first resolution, before any statement; on a write, before the flush, a chunk's key select or any statement) | `api/10` R-COL-28, `api/14` R-WRT-53, `vendor/40` R-VND-18 |
 | `MQ1510` | Aggregate over a correlated value; use `@Computed` | `api/10` R-COL-33 |
 | `MQ1511` | Correlated count/sum/first crosses to-many; use `Filters.exists(path, inner)` | `api/10` R-COL-33 |
+| `MQ1512` | A query reads a `QueryParam` it doesn't bind, or reads two `QueryParam`s with one name (at `build()`, naming the param and where it is read); a bulk update, delete or insert reads a `QueryParam` in its `where` or conflict update's `where` (at the write's build); a fetch plan's child model reads one (at the plan build); an engine-built statement renders a param that no binding it carries covers | `api/10` R-COL-40, D-198 |
 | `MQ1601` | A bulk write chose its rows with `where(...)` and no predicate is left, or a conflict arbiter's `where(...)` left none | `api/14` R-WRT-12, R-WRT-52 |
 | `MQ1602` | A column is assigned twice in one update | `api/14` R-WRT-13 |
 | `MQ1603` | `set(column, null)`; NULL must be written with `setNull` | `api/14` R-WRT-06 |
@@ -173,7 +174,7 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ2703` | A tree source's walk reaches a node key twice, through overlapping seeds or more than one path. The message names the model and the key's first column. Read from the statement's first row after `MQ2701` and `MQ2702`, over the whole CTE; nothing is refused on an empty result | `api/17` R-SRC-14, D-147 |
 
 `MQ2214` is a logged `WARNING`, an exception to §1's exception mapping, as `MQ1702` on `count` is. Its message
-names the model, offset, rows and total, never a bound value (D-95), and warns once per `ModelQuery` identity. A
+names the model, offset, rows and total, never a bound value (D-95), and warns once per definition, which the queries one builder builds through `bind` alone share (D-201). A
 concurrent commit between count and content can cause it; REPEATABLE READ or a snapshot around `page()` rules
 that out. The page is returned unchanged.
 

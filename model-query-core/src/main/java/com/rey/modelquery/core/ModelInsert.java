@@ -56,6 +56,7 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
 
     ModelInsert(InsertDraft<E, M> definition) {
         this.definition = definition;
+        refuseParams();
         InsertDraft.Conflict<E, M> conflict = definition.conflict();
         this.conflictKeys = conflict == null ? List.of() : conflict.keys().stream().map(ColumnField::name).toList();
         ConflictUpdate.Action<E, M> update = conflict == null ? null : conflict.update();
@@ -84,6 +85,23 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
     /** The entity the rows are written to. */
     public Class<E> rootEntity() {
         return definition.columns().rootEntity();
+    }
+
+    /**
+     * {@code MQ1512} for a param the insert's filters read: a write binds none (R-COL-40). A {@code setExpression}
+     * that reads one binds a parameter, which {@code MQ1613} refuses at the call, and the conflict arbiter takes plain
+     * values only, so {@code MQ1804} refuses one there first (R-WRT-52).
+     */
+    private void refuseParams() {
+        var reads = new ParamReads(rootEntity().getSimpleName() + " insert");
+        if (definition.where() != null) {
+            ConditionGroup.conditions(definition.where().where()).forEach(reads::condition);
+        }
+        InsertDraft.Conflict<E, M> conflict = definition.conflict();
+        if (conflict != null && conflict.update() != null) {
+            ConditionGroup.conditions(conflict.update().where()).forEach(reads::condition);
+        }
+        reads.refuseInWrite();
     }
 
     void checkTreats(TreatChecks checks) {

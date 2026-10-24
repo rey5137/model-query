@@ -24,7 +24,9 @@ import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckTest;
 import com.rey.modelquery.tck.sql.SqlSnapshots;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.Parameter;
 import jakarta.persistence.Tuple;
+import jakarta.persistence.TypedQuery;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
@@ -66,7 +68,7 @@ class ExpressionTest {
             Expression<Integer> nullIfSel = nullIf.expression(ctx);
             q.multiselect(idSel, rawSel, coalescedSel, nullIfSel)
                     .where(cb.lessThanOrEqualTo(id.path(ctx), 20L)).orderBy(cb.asc(id.path(ctx)));
-            List<Tuple> rows = em.createQuery(q).getResultList();
+            List<Tuple> rows = bound(em.createQuery(q), ctx).getResultList();
             assertThat(rows).anySatisfy(row -> assertThat(row.get(rawSel)).isNull());
             assertThat(rows).anySatisfy(row -> assertThat(row.get(rawSel)).isNotNull());
             for (Tuple row : rows) {
@@ -98,7 +100,7 @@ class ExpressionTest {
             Expression<String> nullIfSel = nullIf.expression(ctx);
             q.multiselect(idSel, rawSel, coalescedSel, nullIfSel)
                     .where(cb.lessThanOrEqualTo(id.path(ctx), 20L)).orderBy(cb.asc(id.path(ctx)));
-            List<Tuple> rows = em.createQuery(q).getResultList();
+            List<Tuple> rows = bound(em.createQuery(q), ctx).getResultList();
             assertThat(rows).anySatisfy(row -> assertThat(row.get(rawSel)).isNull());
             for (Tuple row : rows) {
                 Long rid = row.get(idSel);
@@ -135,7 +137,7 @@ class ExpressionTest {
             Expression<BigDecimal> quotientSel = quotient.expression(ctx);
             q.multiselect(idSel, quantitySel, priceSel, sameSel, mixedSel, quotientSel)
                     .where(cb.lessThanOrEqualTo(id.path(ctx), 9L)).orderBy(cb.asc(id.path(ctx)));
-            List<Tuple> rows = em.createQuery(q).getResultList();
+            List<Tuple> rows = bound(em.createQuery(q), ctx).getResultList();
             assertThat(rows).isNotEmpty();
             for (Tuple row : rows) {
                 Long rid = row.get(idSel);
@@ -168,7 +170,7 @@ class ExpressionTest {
             Expression<String> concatSel = concatenated.expression(ctx);
             q.multiselect(idSel, rawSel, concatSel)
                     .where(cb.lessThanOrEqualTo(id.path(ctx), 20L)).orderBy(cb.asc(id.path(ctx)));
-            List<Tuple> rows = em.createQuery(q).getResultList();
+            List<Tuple> rows = bound(em.createQuery(q), ctx).getResultList();
             assertThat(rows).anySatisfy(row -> assertThat(row.get(rawSel)).isNull());
             for (Tuple row : rows) {
                 Long rid = row.get(idSel);
@@ -202,7 +204,7 @@ class ExpressionTest {
             Expression<BigDecimal> valueSel = valueBranch.expression(ctx);
             q.multiselect(idSel, quantitySel, priceSel, columnSel, valueSel)
                     .where(cb.lessThanOrEqualTo(id.path(ctx), 9L)).orderBy(cb.asc(id.path(ctx)));
-            List<Tuple> rows = em.createQuery(q).getResultList();
+            List<Tuple> rows = bound(em.createQuery(q), ctx).getResultList();
             assertThat(rows).anySatisfy(row -> assertThat(row.get(quantitySel)).isGreaterThan(4));
             assertThat(rows).anySatisfy(row -> assertThat(row.get(quantitySel)).isLessThanOrEqualTo(4));
             for (Tuple row : rows) {
@@ -230,7 +232,7 @@ class ExpressionTest {
             Root<OrderItemEntity> root = q.from(OrderItemEntity.class);
             JoinContext ctx = JoinContext.of(root, cb);
             q.select(count.expression(ctx));
-            assertThat(em.createQuery(q).getSingleResult()).isNotNull();
+            assertThat(bound(em.createQuery(q), ctx).getSingleResult()).isNotNull();
         });
     }
 
@@ -250,7 +252,7 @@ class ExpressionTest {
             Expression<BigDecimal> roundedSel = rounded.expression(ctx);
             q.multiselect(idSel, priceSel, roundedSel)
                     .where(cb.lessThanOrEqualTo(id.path(ctx), 9L)).orderBy(cb.asc(id.path(ctx)));
-            List<Tuple> rows = em.createQuery(q).getResultList();
+            List<Tuple> rows = bound(em.createQuery(q), ctx).getResultList();
             assertThat(rows).isNotEmpty();
             for (Tuple row : rows) {
                 Long rid = row.get(idSel);
@@ -376,7 +378,15 @@ class ExpressionTest {
 
     private static <M> List<M> run(EntityManager em, ModelQuery<OrderItemEntity, ?, M> q) {
         BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, portable());
-        return em.createQuery(built.query()).getResultList().stream().map(built::map).toList();
+        return bound(em.createQuery(built.query()), built.joins()).getResultList().stream().map(built::map)
+                .toList();
+    }
+
+    /** {@code query} with the statement parameters {@code ctx} rendered bound, as the executor binds them (R-COL-26). */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static <T> TypedQuery<T> bound(TypedQuery<T> query, JoinContext ctx) {
+        ctx.statementParameters().forEach((parameter, value) -> query.setParameter((Parameter) parameter, value));
+        return query;
     }
 
     private static void readQuantities(EntityManager em, Map<Long, Integer> quantities, long lastId) {

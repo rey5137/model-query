@@ -33,6 +33,10 @@ public final class ModelDelete<E, M> {
 
     private ModelDelete(Draft<E, ?, M> definition) {
         this.definition = definition;
+        // A write binds no param, so one its filters read is refused at its build (R-COL-40).
+        var reads = new ParamReads(toString());
+        ConditionGroup.conditions(definition.rows().where()).forEach(reads::condition);
+        reads.refuseInWrite();
     }
 
     /**

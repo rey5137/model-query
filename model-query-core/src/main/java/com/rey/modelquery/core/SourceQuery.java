@@ -14,6 +14,7 @@ import jakarta.persistence.metamodel.Metamodel;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -65,11 +66,15 @@ public final class SourceQuery<S> {
     private final Combined operation;
     /** The recursion of a recursive source, or {@code null} for a source that does not recurse (R-SRC-07). */
     private final Recursion recursion;
+    /** The value each {@link QueryParam} the body reads is bound to, by param identity (R-COL-40, INV-9). */
+    private final Map<QueryParam<?>, Object> bindings;
 
     private SourceQuery(Class<?> model, Class<?> shape, TableField<?, ?> root, SelectSet<?> fields,
             PrimaryKey<?, ?> key, SelectSet<?> groupKeys, List<Filter> where, HavingGroup.Clause having,
-            Discriminator discriminator, Recursion recursion, SourceQuery<?> inner) {
+            Discriminator discriminator, Recursion recursion, SourceQuery<?> inner,
+            Map<QueryParam<?>, Object> bindings) {
         this.model = model;
+        this.bindings = bindings;
         this.inner = inner;
         this.shape = shape;
         this.root = root;
@@ -99,6 +104,7 @@ public final class SourceQuery<S> {
         this.having = null;
         this.discriminator = null;
         this.operation = new Combined(operation, left, right);
+        this.bindings = Map.of(); // each branch's body binds its own (R-COL-40)
         // A branch cannot recurse (MQ3034), so no combined source carries a recursion.
         this.recursion = null;
     }
@@ -319,11 +325,28 @@ public final class SourceQuery<S> {
         }
 
         /**
+         * Binds {@code param} to {@code value} for this source's body, in every statement that reads the source,
+         * replacing an earlier binding of it (R-COL-40). The body binds its own params only: the outer query's
+         * bindings never reach it, nor this one the outer query's. The value is held on the built source, never on the
+         * param (INV-9).
+         *
+         * @throws ModelQueryDefinitionException {@code MQ1502} when {@code value} is {@code null}, not an instance of
+         *     the param's type, or of a type no expression binds (R-COL-18)
+         * @see #build()
+         */
+        @Incubating
+        public <C> Builder<E, M, S> bind(QueryParam<C> param, C value) {
+            return new Builder<>(model, root, fields, key, groupKeys, where, having,
+                    settings.withBindings(ParamReads.bind(settings.bindings(), param, value)), inner);
+        }
+
+        /**
          * Builds the immutable source.
          *
          * @throws ModelQueryDefinitionException {@code MQ1407} for {@code having(...)} on an ungrouped source, and
          *     {@code MQ1902} for a recursive source built without its step; {@code MQ1907} for an invalid inner source;
-         *     {@code MQ1908} for a correlated field
+         *     {@code MQ1908} for a correlated field; {@code MQ1512} when the body reads a {@link QueryParam} this
+         *     builder doesn't bind, or two params with one name
          */
         @SuppressWarnings("unchecked")
         public SourceQuery<S> build() {
@@ -367,10 +390,22 @@ public final class SourceQuery<S> {
                 throw new ModelQueryDefinitionException(MqCode.MQ1904, model.getSimpleName() + ": the discriminator "
                         + discriminator.field().name() + " is not one of the source key's columns");
             }
+            // The body's own params only: an inner source's body binds its own (R-COL-40).
+            var reads = new ParamReads(model.getSimpleName());
+            fields.fields().forEach(reads::field);
+            key.columns().forEach(reads::field);
+            if (groupKeys != null) {
+                groupKeys.fields().forEach(reads::field);
+            }
+            ConditionGroup.conditions(where).forEach(reads::condition);
+            if (having != null) {
+                ConditionGroup.conditions(having.filters()).forEach(reads::condition);
+            }
+            reads.checkBound(settings.bindings());
             // The shape is the model itself unless shape(...) named another one, which makes this a branch (R-PROC-38).
             return new SourceQuery<>(model, shape == null ? model : shape, root, (SelectSet<S>) fields,
                     (PrimaryKey<S, ?>) key, (SelectSet<S>) groupKeys, where, having, settings.discriminator(),
-                    recursion, inner);
+                    recursion, inner, settings.bindings());
         }
     }
 
@@ -380,22 +415,30 @@ public final class SourceQuery<S> {
     /** The recursion of a source: the {@code @Depth} column the level is aliased by, its step, and its depth limit. */
     private record Recursion(ColumnField<?, ?, ?> depth, RecursiveKeys<?, ?> keys, int maxDepth, boolean tree) {}
 
-    /** What a builder has set besides the source's structure: its shape, its discriminator and its recursion. */
-    private record Settings(Class<?> shape, Discriminator discriminator, Recursion recursion) {
+    /**
+     * What a builder has set besides the source's structure: its shape, its discriminator, its recursion and its param
+     * bindings (R-COL-40).
+     */
+    private record Settings(Class<?> shape, Discriminator discriminator, Recursion recursion,
+            Map<QueryParam<?>, Object> bindings) {
 
-        /** A builder over a model that is its own shape, with no discriminator and no recursion. */
-        static final Settings NONE = new Settings(null, null, null);
+        /** A builder over a model that is its own shape, with no discriminator, no recursion and no binding. */
+        static final Settings NONE = new Settings(null, null, null, Map.of());
+
+        Settings withBindings(Map<QueryParam<?>, Object> bindings) {
+            return new Settings(shape, discriminator, recursion, bindings);
+        }
 
         Settings withShape(Class<?> shape) {
-            return new Settings(shape, discriminator, recursion);
+            return new Settings(shape, discriminator, recursion, bindings);
         }
 
         Settings withDiscriminator(Discriminator discriminator) {
-            return new Settings(shape, discriminator, recursion);
+            return new Settings(shape, discriminator, recursion, bindings);
         }
 
         Settings withRecursion(Recursion recursion) {
-            return new Settings(shape, discriminator, recursion);
+            return new Settings(shape, discriminator, recursion, bindings);
         }
 
         /** The {@code @Depth} column, or {@code null} for a source that does not recurse (R-SRC-07). */
@@ -934,19 +977,20 @@ public final class SourceQuery<S> {
                     operation.left.body(top, cb, options, renderer, outerModel, checks, combinedAnchor, bodies),
                     operation.right.body(top, cb, options, renderer, outerModel, checks, combinedAnchor, bodies));
         }
+        RenderOptions own = options.withBindings(bindings); // the body's own params, never the outer query's
         if (inner != null) {
             SourceRenderer.CteHandle handle = inner.register(
                     Objects.requireNonNull(top, "top"), cb, options, renderer, outerModel, checks, bodies);
             CriteriaQuery<Tuple> query = cb.createTupleQuery();
             Root<Tuple> from = renderer.from(query, handle);
-            JoinContext joins = JoinContext.sourceOf(from, root.rootEntity(), inner.keyColumns(), cb, query, options);
+            JoinContext joins = JoinContext.sourceOf(from, root.rootEntity(), inner.keyColumns(), cb, query, own);
             bodies.add(joins);
             List<Predicate> guards = inner.recurses() ? inner.walkGuards(cb, from) : List.of();
             return select(query, joins, cb, renderer, null, guards, Optional.empty());
         }
         CriteriaQuery<Tuple> query = cb.createTupleQuery();
         Root<?> from = query.from(root.rootEntity());
-        JoinContext joins = JoinContext.readOf(from, cb, query, options);
+        JoinContext joins = JoinContext.readOf(from, cb, query, own);
         bodies.add(joins);
         return select(query, joins, cb, renderer, null, List.of(), rootIdAnchor(from, combinedAnchor));
     }
@@ -959,9 +1003,10 @@ public final class SourceQuery<S> {
      * contexts are added to {@code bodies}, the term's when the provider renders it, whose parameters the statement
      * that registers the CTE binds (R-FLT-08).
      */
-    RecursiveSpec recursiveSpec(CriteriaBuilder cb, RenderOptions options, SourceRenderer renderer,
+    RecursiveSpec recursiveSpec(CriteriaBuilder cb, RenderOptions given, SourceRenderer renderer,
             List<JoinContext> bodies) {
         Recursion recursion = Objects.requireNonNull(this.recursion, "recursion");
+        RenderOptions options = given.withBindings(bindings); // the seed's and the term's own params (R-COL-40)
         return new RecursiveSpec(cb, select(cb, options, renderer, cb.literal(0), bodies),
                 term(cb, options, renderer, bodies),
                 key.columns().get(0).type(), keyAliases(), alias(recursion.depth()), MARK_ALIAS,

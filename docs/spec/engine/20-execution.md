@@ -82,8 +82,8 @@ customizer, whose `multiselect` can't drop it, and after `core` adds `mq_0id`, a
 treated nodes the statement R-VND-26 checks and runs is the one carrying the window; fallbacks 1–4 are decided there.
 It is read by alias, never by position, and never reaches `fields()`, `Rows`, the mapper or a fetch plan.
 
-*Logging.* Each fallback logs its reason at `DEBUG`, once per executor and `ModelQuery`, with the state held by the
-executor: fallback 1 depends on the factory, and a `static final` query is shared between executors (INV-9). A query re-sorted per call (`orderedBy`, as a Spring repository's `Sort` does) is a new `ModelQuery` and logs again.
+*Logging.* Each fallback logs its reason at `DEBUG`, once per executor and definition (D-201), with the state held by the
+executor: fallback 1 depends on the factory, and a `static final` query is shared between executors (INV-9). A query bound per request through `bind` alone is the same definition and logs once; a query re-sorted per call (`orderedBy`, as a Spring repository's `Sort` does) is a new `ModelQuery` and logs again.
 
 Keyset pages carry no total (D-105) and take no `CountMode`. `page` already refuses row locks (R-EXE-14), so a window
 never meets `FOR UPDATE`. `ONLY_COUNT`, `count(q)` and exports are unchanged.
@@ -178,7 +178,7 @@ value's lifted outer columns), whole when it holds a join other than `LEFT` and 
 and it selects `count(root.<id>)` (`count(distinct root.<id>)` when a predicate's to-many join repeats a root, and
 rows when a selected column is read through one, as R-EXE-04). A treated column that is only selected or ordered is
 absent from it. The customizer runs on it as on `MODEL`. A grouped query keeps its count of groups. A direct `count(q)` on a query with an `orderBy` logs one `WARNING`
-per `ModelQuery`, `<Model>: count(query) ignores the query's orderBy`; the count `page` runs for its total logs
+per definition (D-201), `<Model>: count(query) ignores the query's orderBy`; the count `page` runs for its total logs
 nothing, since `page` uses the order (D-126). `count` refuses a locked query with `MQ2211` (R-EXE-14): a count returns
 no row to lock.
 
@@ -267,7 +267,7 @@ extra row, so none is one (`delivery/61` R-REL-07).
 - The converted keys are spread over statements as `engine/21` R-PAG-07 step 2 spreads its keys (each chunk at most
   the largest power of two within `maxInListSize()` and `maxBindParameters()` less the statement's own binds, one
   bind per key component), without `primaryKeyFirstBatchSize`. Every statement is built in `Phase.MODEL` and renders no
-  `ORDER BY`; `q`'s `orderBy` is ignored, with one `WARNING` per `ModelQuery`, `<Model>: byKeys(query, keys) ignores
+  `ORDER BY`; `q`'s `orderBy` is ignored, with one `WARNING` per definition (D-201), `<Model>: byKeys(query, keys) ignores
   the query's orderBy; the map is in key order`.
 - Every chunk is read, then checked, then mapped. A duplicate key is `MQ2213` (R-PAG-26), including a non-id model
   key matching two rows. A to-many join no selected column reads, which R-EXE-16 left in the statement, instead

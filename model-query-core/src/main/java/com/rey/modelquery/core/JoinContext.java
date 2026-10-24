@@ -473,6 +473,24 @@ public final class JoinContext {
     }
 
     /**
+     * The value the query or source body this context renders binds {@code param} to (R-COL-40). {@code build()}
+     * refuses a query that reads a param it doesn't bind, so only a statement the engine renders with no query's
+     * bindings gets here without one.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1512} when nothing this statement renders for binds
+     *     {@code param}
+     */
+    Object bound(QueryParam<?> param) {
+        Object value = renderOptions.bindings().get(param);
+        if (value == null) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1512, "the param " + param + " is read by a statement "
+                    + "that carries no binding of it: only a ModelQuery or a SourceQuery binds a param, and a write or "
+                    + "an engine-built statement over neither cannot");
+        }
+        return value;
+    }
+
+    /**
      * Where {@link ValueOperands#valueOperand} records the parameters it makes, an {@code OperandBinder}'s included,
      * to bind on the statement that renders them, as {@link #parameter(Class, Object)} records its own (R-FLT-08,
      * R-FLT-21).
