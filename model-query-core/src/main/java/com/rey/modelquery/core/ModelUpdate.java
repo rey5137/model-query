@@ -53,6 +53,11 @@ public final class ModelUpdate<E, M> {
 
     private ModelUpdate(Draft<E, ?, M> definition) {
         this.definition = definition;
+        // A write binds no param, so one its filters read is refused at its build (R-COL-40); a setExpression that
+        // reads one binds a parameter, which MQ1613 refuses at the call.
+        var reads = new ParamReads(toString());
+        ConditionGroup.conditions(definition.rows().where()).forEach(reads::condition);
+        reads.refuseInWrite();
     }
 
     /**

@@ -262,6 +262,21 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
         return tables;
     }
 
+    /**
+     * Adds every {@link QueryParam} this expression reads to {@code reads}, at any depth: CASE conditions and a
+     * correlated value's sub-select included (R-COL-40).
+     */
+    void readParams(ParamReads reads) {
+        containsNode(this, node -> {
+            if (node instanceof Param read) {
+                reads.param(read.param());
+            } else if (node instanceof CorrelatedValue value) {
+                reads.correlated(value);
+            }
+            return false;
+        });
+    }
+
     /** A correlated value at any depth of this expression (R-COL-33). */
     boolean correlated() {
         return containsCorrelated(this);
@@ -322,7 +337,7 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
                     containsNode(branch.result(), test)
                             || branch.conditions().stream().anyMatch(condition -> containsNode(condition, test)));
         }
-        return false; // Const, TypedConst, Value and TypeOf hold no operand
+        return false; // Const, TypedConst, Value, Param and TypeOf hold no operand
     }
 
     /** The bind values a CASE condition binds: its values, its operands' expressions and its children's (R-COL-18). */
@@ -365,8 +380,8 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
 
     /** The structure behind an expression: equal nodes are equal expressions (R-COL-20). */
     sealed interface Node
-            permits Coalesce, NullIf, Arith, Negate, Round, Concat, Fn, Const, TypedConst, Value, Nextval, Case,
-                    CorrelatedValue, TypeOf {
+            permits Coalesce, NullIf, Arith, Negate, Round, Concat, Fn, Const, TypedConst, Value, Param, Nextval,
+                    Case, CorrelatedValue, TypeOf {
 
         Class<?> type();
 
@@ -779,6 +794,38 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
     }
 
     /**
+     * A request value: the value {@code param} is bound to in the query whose statement renders it, a statement
+     * parameter as a {@link Value} is (R-COL-40). It reads no column and adds no join; equality is by the param's
+     * identity (R-COL-20), and its text names the param, never a value (R-INS-05).
+     */
+    record Param(QueryParam<?> param) implements Node {
+        @Override
+        public Class<?> type() {
+            return param.type();
+        }
+
+        @Override
+        public Expression<?> render(JoinContext ctx) {
+            return ctx.parameter(param.type(), ctx.bound(param));
+        }
+
+        @Override
+        public List<ColumnField<?, ?, ?>> columns() {
+            return List.of();
+        }
+
+        @Override
+        public int binds() {
+            return 1; // the bound value binds once per rendering, as a Value's (R-COL-26)
+        }
+
+        @Override
+        public String text() {
+            return "param(" + param.name() + ")";
+        }
+    }
+
+    /**
      * A sequence's next value, rendered by the provider's {@link SequenceRenderer} (R-COL-28). It binds nothing, reads
      * no column and adds no join; equality is by sequence name (R-COL-20).
      */
@@ -869,7 +916,8 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
                 if (branch.result() instanceof ScalarField<?, ?> field) {
                     caseExpr.when(when, (Expression) field.expression(ctx));
                 } else {
-                    caseExpr.when(when, branch.result());
+                    // A bound parameter, never the provider's literal: it stays a ? under an inlining mode (R-FLT-08)
+                    caseExpr.when(when, (Expression) ctx.parameter(type, branch.result()));
                 }
             }
             if (otherwise instanceof ScalarField<?, ?> field) {
@@ -877,7 +925,7 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
             } else if (otherwiseNull) {
                 caseExpr.otherwise(cb.nullLiteral(type));
             } else {
-                caseExpr.otherwise(otherwise);
+                caseExpr.otherwise((Expression) ctx.parameter(type, otherwise));
             }
             return caseExpr;
         }

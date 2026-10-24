@@ -410,7 +410,8 @@ expression may span tables. `cases` takes the model class so the condition lambd
 **R-COL-17** *(D-115)* **An expression is a typed value computed by the database.**
 - It is built only by `Expr`'s factories, each one JPA `CriteriaBuilder` construct: `coalesce`, `nullIf`,
   `cases(...).when(...).otherwise|orNull`, `plus`, `minus`, `times`, `dividedBy`, `negate`, `concat`, `function`,
-  `constant`. It reads columns of one vocabulary `M`, and holds no aggregate, join, order or SQL text of its own.
+  `constant` and `param` (R-COL-40). It reads columns of one vocabulary `M`, and holds no aggregate, join, order or
+  SQL text of its own.
 - **Arithmetic** takes operands of one numeric type, or declares the result type when they differ; the provider's
   resolved type must equal the declared one, else `MQ1507` at first resolution; a declared `java.util.Date` also takes
   a resolved `java.sql.Date`, `Time` or `Timestamp`, as R-COL-08 does (D-122). `dividedBy` over two integral operands
@@ -424,7 +425,8 @@ expression may span tables. `cases` takes the model class so the condition lambd
 
 **R-COL-18** *(D-115)* **Values bind, constants are text.**
 - A value given to a factory (a `coalesce` fallback, a `nullIf` sentinel, an arithmetic or `concat` operand, a CASE
-  result) is a bind parameter typed by its operand (`api/12` R-FLT-08).
+  result) is a bind parameter typed by its operand (`api/12` R-FLT-08). So is `Expr.param(...)`, whose value each
+  built query binds (R-COL-40).
 - `null`, `Optional`, arrays, `Collection`, `Map`, `Date`, `Calendar`, enums and entities are `MQ1502`.
 - `Expr.constant(String|int|long|boolean)` is SQL text of the definition, rendered by the provider's literal formatter,
   for a function's mode argument or a key a functional index must match. It is never a request value.
@@ -441,6 +443,55 @@ operands, values (`equals`, so `BigDecimal` scale counts), declared type, functi
 `named(property)` sets the model field's name for `orderedBy` and messages and is not part of equality, as
 `ColumnField.named` is (D-55). Equal expressions are one selection, and each reads it through `Row.get`. An expression
 is immutable and may be a constant (INV-9).
+
+**R-COL-40** *(D-198, `@Incubating`)* **Request-bound values in expressions.**
+`QueryParam.of(name, type)` is an immutable, named and typed placeholder that may be `static final` (INV-9); a
+primitive type maps to its wrapper, two params are equal only when they are the same object, and `toString` is
+`name: Type`. `Expr.param(param)` reads it anywhere an `ExpressionField` goes: a select column, an arithmetic or
+`concat` operand, a CASE condition or result, `coalesce`, a `function` argument, a filter through
+`compare(left, Op, right)`, an order or group key, and a `Correlated` correlation. It is never SQL text, so it can't
+stand where `Expr.constant` is required. A declared type R-COL-18 can't bind is `MQ1502` when `param` is called.
+- **Bound per query.** `ModelQuery.Builder#bind(param, value)` and `SourceQuery.Builder#bind(param, value)` hold the
+  value on the built query, never on the `QueryParam`, the expression or the model's constants. A second `bind` of one
+  param replaces the first. A `null` value, a value that is not `type().isInstance(value)`, and a value of a type
+  R-COL-18 can't bind are `MQ1502` at `bind`. There is no optional bind: a caller with an optional value binds a
+  default.
+- **Checked at `build()`.** A param that an expression the query renders reads (its select set, filters, join filters,
+  order and group keys, `having`, every `@Computed` and `@Aggregate(expression)`, a correlated sub-select's filters)
+  and the query doesn't bind is `MQ1512` at `build()`, naming the param and where it is read, before any statement.
+  So is a query that reads two different params with one name, even when both are bound. A bound param nothing reads
+  is allowed.
+- **Rendering.** One Criteria parameter per param per statement (R-COL-19): a select item, a group key and an order
+  key reading it are one node, so PostgreSQL matches the group key (`group by 1 order by 1`). Where no operand gives
+  the type (a bare select item, an arithmetic or concat operand, a CASE result, a group key), it renders
+  `cast(? as <type>)` on both lines; as a comparison operand, in `coalesce` beside a column and in a correlation it
+  renders bare. Under `value_handling_mode=inline` (`api/12` R-FLT-08) it stays a bound `?`, with the same SQL and
+  binds as the default mode. The SQL text is the same across bound values.
+- **Every statement binds what it renders, and only that.** The content statement, the `COUNT` page count, the
+  inline-count window (`engine/20` R-EXE-03), both primary-key-first steps, the keyset first and next pages, each
+  export page, the stream, `byKeys`, `one(q, key)` and a fetch plan's parent read bind each param they render, once,
+  with the caller's value. A param only a select column reads is absent from the count and isn't bound there.
+- **Scopes.** A source body binds on its own `SourceQuery` and the outer query on its `ModelQuery`; neither binding
+  reaches the other's statement part. A joined source's body binds its own value in each statement, on both lines
+  (resolving spike C.2's open 7.4 capture), and each branch of a set operation binds its own. A `Correlated`
+  sub-select is part of the outer expression and reads the outer query's binding.
+- **Engine-built queries** copy the caller's bindings: the `withLock`, `withFetch` and `orderedBy` copies, and the
+  treated root-id count. A fetch plan's child loads are built from the child's static definition, so a child model
+  that reads a param is `MQ1512` when the plan is built.
+- **One definition across bindings** *(D-201)*. The queries one builder builds through `bind` alone share one
+  definition key (`ModelQuery#definitionKey()`, `@EngineFacing`), so a definition held in a `static final` builder
+  and bound per request is checked and warned of once, not per request: the phase check and its warning (R-QRY-09),
+  the fetch plan's checks (`api/15` R-FCH-02), the ignored-`orderBy` and `MQ2214` warnings (`engine/20` R-EXE-13,
+  `engine/21` R-PAG-27) and the `INLINE_COUNT` fallback log (`engine/20` R-EXE-15). A `withLock` or `withFetch` copy
+  has a key of its own, which the copies of every binding share for an equal lock or the same plan, so the checks of
+  `build()` run on the first such copy only. Every other builder change, an `orderedBy` copy's order included, makes a
+  new key, so equal queries built apart are checked apart. The key holds no value (INV-9).
+- **Writes.** A bulk update, delete or insert binds no param: a param read by its `where` or its conflict update's
+  `where` is `MQ1512` at the write's build, a conflict arbiter's is `MQ1804` there, as any expression value in an
+  arbiter is (`api/14` R-WRT-52), and `setExpression` with an expression that reads one is `MQ1613` at the call, as any
+  bound value there is (`api/14` R-WRT-53).
+- **Inspection** names each param read (`param(name)` in a condition's text) and never its value; there is no
+  `parameters()` accessor.
 
 ## 4. `SelectSet` — an immutable named set
 
@@ -721,6 +772,11 @@ the planner must see as a literal (a partial index's predicate, a selective enum
 | AC-COL-56 | `MQ1912`: another table, a to-one or to-many path, `exists`, an aggregate, an `INNER` join, a root, a join an id-form column reads, a sub-query term crossing the filtered join, a filter on a join key the content statement never applies, another join key resolving to the filtered join, a column of the filter reading a path below the filtered join, a filter on an entity join the query does not bind (at `build()`); a `null` value is `MQ1301` at the `joinFilter` call (R-COL-39, D-194). Tests: core `JoinFilterValidationTest#ac_col_56_*` (build-time cases and first-resolution cases against a stub criteria builder), `JoinFilterTest#ac_col_56_null_values_fail_with_mq1301_at_the_join_filter_call`; TCK `JoinFilterExecutionTest#ac_col_56_id_form_column_reading_the_filtered_join_is_refused_before_any_statement`, `#ac_col_56_ac_col_57_filter_on_a_join_the_content_never_creates_is_refused_and_creates_none`, `#ac_col_56_inner_key_resolving_to_the_filtered_join_inside_or_is_refused`; core `JoinFilterTest#ac_col_56_another_key_resolving_to_the_filtered_join_is_refused_in_either_order`, `JoinFilterValidationTest#ac_col_56_column_below_the_filtered_join_in_its_own_filter_is_refused_at_first_resolution`, `#ac_col_56_filtered_join_below_a_retyped_parent_is_applied_not_refused`, `#ac_col_56_correlated_value_reading_the_filtered_join_through_the_outer_column_is_valid`. |
 | AC-COL-57 | A `joinFilter` alone creates no association join; the static constants are unchanged after a filtered build (INV-9) (R-COL-39). Tests: TCK `JoinFilterExecutionTest#ac_col_56_ac_col_57_filter_on_a_join_the_content_never_creates_is_refused_and_creates_none`, `#ac_col_57_static_constants_are_unchanged_after_a_filtered_build`; core `JoinFilterTest#ac_col_57_*`. |
 | AC-COL-58 | A join that renders `INNER` (declared, and not turned `LEFT` by `or(...)`, `not` or an aggregate filter) with a `joinFilter` ancestor, root or entity join, is `MQ1912` at the first statement that resolves it, in any phase and not at `build()`; a declared `INNER` that `or(...)`, `not` or an aggregate filter renders `LEFT` is allowed (R-COL-39, D-195). Tests: `ac_col_58_*`. |
+| AC-COL-59 | `Expr.param` returns the bound value as a bare select item, an arithmetic and a concat operand, a CASE result, a comparison operand in a CASE condition and in the `where`, `coalesce` beside a column and a `Correlated` correlation, on every Tier-1 vendor and both lines, with one SQL text across values; as a group and order key it binds once and PostgreSQL renders `group by 1 order by 1`; under `value_handling_mode=inline` the SQL and binds equal the default mode's, plain CASE results beside the param included (R-COL-18) (R-COL-40, D-198). Tests: TCK `QueryParamPositionsTest#ac_col_59_*`. |
+| AC-COL-60 | A param binds once in each statement that renders it and in no other: content, `COUNT` page, inline-count window, both primary-key-first steps, keyset first and next, each export page, the stream, `byKeys`, `one(q, key)` and a fetch plan's parent read; one SQL text across values over one shared definition; the static constants are unchanged after a bound build (INV-9) (R-COL-40). Tests: TCK `QueryParamStatementsTest#ac_col_60_*`; core `QueryParamTest#ac_col_60_*`. |
+| AC-COL-61 | `MQ1512`: an unbound param at `build()` at each read site (filter, order, group key, correlated filter), two params with one name, a param in a bulk write (an update's, delete's or insert's `where`, a conflict update's `where`; a conflict arbiter's is `MQ1804`), a source body's param unbound on its own source; `MQ1502`: a `null` value, a non-instance value, an unbindable value or declared type; a bound param nothing reads is allowed; a second `bind` replaces (R-COL-40). Tests: core `QueryParamTest#ac_col_61_*`. |
+| AC-COL-62 | A joined source's body binds its own value in each statement on both lines (the set value, not the outer one), each set-operation branch its own, and the outer query never binds the body's param; a `Correlated` correlation reads the outer binding; the `withLock`, `withFetch` and `orderedBy` copies and the treated root-id count carry the caller's bindings, and a fetch plan's child load that reads a param is `MQ1512` at the plan build; inspection and `toString` name params and never values (R-COL-40). Tests: TCK `QueryParamStatementsTest#ac_col_62_*`, `TreatStatementsTest#ac_col_62_*`; core `QueryParamTest#ac_col_62_*`. |
+| AC-COL-63 | The queries one builder builds through `bind` alone share one definition key; a builder change other than `bind`, an `orderedBy` copy and a query built apart each have another; a `withLock` or `withFetch` copy's key is shared by the copies of every binding for an equal lock or the same plan, and the second binding's copies are built without the checks of `build()` and read with their own values; a customizer narrowing only `MODEL` on a definition bound per request logs its phase warning once per definition, and `count`'s ignored `orderBy` once (R-COL-40, D-201). Tests: core `QueryParamTest#ac_col_63_*`; TCK `QueryParamStatementsTest#ac_col_63_*`. |
 
 AC-COL-36..39, 41 and 42 run on every Tier-1 vendor and both Hibernate lines. Each scalar terminal selects,
 filters and orders. AC-COL-41 covers all R-COL-33 refusals, including generated annotations and

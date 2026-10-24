@@ -269,6 +269,27 @@ public final class Expr {
     }
 
     /**
+     * The value {@code param} is bound to in the query that renders the expression, as a statement parameter
+     * (R-COL-40): it renders as an {@link #value} does, typed by its operand, and binds on every statement that renders
+     * it. Each built query binds it through {@code Builder#bind}; a {@code Correlated} sub-select reads the outer
+     * query's binding, and a source's body its own {@link SourceQuery}'s.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1502} when {@code param}'s type is one a factory cannot bind: an
+     *     array, an {@code Optional}, a {@code Collection}, a {@code Map}, a {@code Date}, a {@code Calendar}, an enum
+     *     or an entity (R-COL-18)
+     */
+    @Incubating
+    public static <M, C> ExpressionField<M, C> param(QueryParam<C> param) {
+        Objects.requireNonNull(param, "param");
+        if (unbindable(param.type())) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1502, "param " + param + ": an expression cannot bind a "
+                    + "value of type " + param.type().getSimpleName() + "; declare a String, number, boolean or "
+                    + "temporal type");
+        }
+        return new ExpressionField<>(new ExpressionField.Param(param), param.type(), null);
+    }
+
+    /**
      * The next value of the database sequence {@code sequence}, typed {@code Long}: a model column or projection of a
      * read that reads no column and adds no join (R-COL-28). The provider renders the dialect's own sequence call.
      *
@@ -398,10 +419,15 @@ public final class Expr {
 
     /** Whether non-null {@code value} is of a type no factory binds (R-COL-18): it is not a single value. */
     static boolean unbindable(Object value) {
-        Class<?> type = value.getClass();
-        return type.isArray() || value instanceof Optional<?> || value instanceof Collection<?>
-                || value instanceof Map<?, ?> || value instanceof Date || value instanceof Calendar
-                || value instanceof Enum<?> || type.isAnnotationPresent(jakarta.persistence.Entity.class);
+        return unbindable(value.getClass());
+    }
+
+    /** Whether a value of {@code type} is one no factory binds (R-COL-18). */
+    static boolean unbindable(Class<?> type) {
+        return type.isArray() || Optional.class.isAssignableFrom(type) || Collection.class.isAssignableFrom(type)
+                || Map.class.isAssignableFrom(type) || Date.class.isAssignableFrom(type)
+                || Calendar.class.isAssignableFrom(type) || Enum.class.isAssignableFrom(type)
+                || type.isAnnotationPresent(jakarta.persistence.Entity.class);
     }
 
     private static void dividedByCheck(ScalarField<?, ?> a, ScalarField<?, ?> b) {

@@ -171,11 +171,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     static final String CANCELLED_SQL_STATE = "57014";
 
     /**
-     * The queries whose phases and fetch-plan columns were checked, by identity. Static, because the checks are once
-     * per {@code ModelQuery} whichever executor runs it first (D-21); weak, so a query built per request does not stay
-     * reachable.
+     * The definitions whose phases and fetch-plan columns were checked, by {@code ModelQuery#definitionKey()}, which
+     * the queries that differ in their bindings alone share. Static, because the checks are once per definition
+     * whichever executor runs it first (D-21, D-201); weak, so a definition built per request does not stay reachable.
      */
-    private static final Set<ModelQuery<?, ?, ?>> FIRST_RUN_CHECKED =
+    private static final Set<Object> FIRST_RUN_CHECKED =
             Collections.newSetFromMap(Collections.synchronizedMap(new WeakHashMap<>()));
 
     /**
@@ -202,12 +202,15 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private static final Set<EntityManagerFactory> FETCH_SIZE_UNSET =
             Collections.newSetFromMap(Collections.synchronizedMap(new WeakHashMap<>()));
 
-    /** The calls, per query, that warned of an ignored {@code orderBy}, so each is warned of once (R-EXE-13). */
-    private static final Map<ModelQuery<?, ?, ?>, Set<String>> ORDER_IGNORED =
+    /**
+     * The calls, per definition key, that warned of an ignored {@code orderBy}, so each is warned of once (R-EXE-13,
+     * D-201).
+     */
+    private static final Map<Object, Set<String>> ORDER_IGNORED =
             Collections.synchronizedMap(new WeakHashMap<>());
 
-    /** The query definitions warned of a total contradicted by a treated offset page, once each (R-PAG-27). */
-    private static final Set<ModelQuery<?, ?, ?>> TOTAL_CONTRADICTED =
+    /** The definition keys warned of a total contradicted by a treated offset page, once each (R-PAG-27, D-201). */
+    private static final Set<Object> TOTAL_CONTRADICTED =
             Collections.newSetFromMap(Collections.synchronizedMap(new WeakHashMap<>()));
 
     /** The mapped entity classes of each factory, read from its metamodel once; weak, so a closed factory is freed. */
@@ -258,11 +261,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      */
     private final boolean inlineCounts;
     /**
-     * The queries whose {@code INLINE_COUNT} fallback this executor logged, by identity, so each is logged once per
-     * executor: the reason can depend on the factory, and a {@code static final} query is shared between executors
-     * (R-EXE-15, INV-9). Weak, so a query built per request does not stay reachable.
+     * The definition keys whose {@code INLINE_COUNT} fallback this executor logged, so each definition is logged once
+     * per executor, whatever its bindings: the reason can depend on the factory, and a {@code static final} query is
+     * shared between executors (R-EXE-15, INV-9, D-201). Weak, so a query built per request does not stay reachable.
      */
-    private final Set<ModelQuery<?, ?, ?>> inlineCountFallbacksLogged =
+    private final Set<Object> inlineCountFallbacksLogged =
             Collections.newSetFromMap(Collections.synchronizedMap(new WeakHashMap<>()));
 
     DefaultModelQueryExecutor(EntityManager em, Class<E> rootEntity, ModelQueryConfig config) {
@@ -604,7 +607,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         boolean first;
         synchronized (ORDER_IGNORED) {
-            first = ORDER_IGNORED.computeIfAbsent(q, key -> new HashSet<>()).add(call);
+            first = ORDER_IGNORED.computeIfAbsent(q.definitionKey(), key -> new HashSet<>()).add(call);
         }
         if (first) {
             LOG.log(System.Logger.Level.WARNING, "{0}: {1} ignores the query''s orderBy{2}", q, call,
@@ -664,7 +667,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /** Logs {@code reason} at {@code DEBUG} the first time this executor falls back for {@code q} (R-EXE-15). */
     private void logInlineCountFallback(ModelQuery<?, ?, ?> q, String reason) {
-        if (inlineCountFallbacksLogged.add(q)) {
+        if (inlineCountFallbacksLogged.add(q.definitionKey())) {
             LOG.log(DEBUG, () -> "page " + q + ": INLINE_COUNT runs COUNT's statements for the total, because "
                     + reason + " (R-EXE-15)");
         }
@@ -676,7 +679,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         boolean first;
         synchronized (TOTAL_CONTRADICTED) {
-            first = TOTAL_CONTRADICTED.add(q);
+            first = TOTAL_CONTRADICTED.add(q.definitionKey());
         }
         if (first) {
             LOG.log(System.Logger.Level.WARNING, "MQ2214: {0}: offset {1} returned {2} rows with total {3}; "
@@ -2859,10 +2862,16 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Set<Object> checked = TREATS_CHECKED.computeIfAbsent(em.getEntityManagerFactory(),
                 factory -> Collections.newSetFromMap(Collections.synchronizedMap(new WeakHashMap<>())));
         synchronized (checked) {
-            if (!checked.contains(definition)) {
-                checked.addAll(TreatChecks.check(definition));
+            if (!checked.contains(scanKey(definition))) {
+                // Its fetch children's scans too, by the keys they run under, so a child does not scan again.
+                TreatChecks.check(definition).forEach(scanned -> checked.add(scanKey(scanned)));
             }
         }
+    }
+
+    /** A query's other bindings share its scan, which reads no bound value (D-201); a write is its own key. */
+    private static Object scanKey(Object definition) {
+        return definition instanceof ModelQuery<?, ?, ?> q ? q.definitionKey() : definition;
     }
 
     /** Runs {@code check} the first time {@code definition} runs on this executor's factory, before any statement. */
@@ -2916,8 +2925,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         } else {
             checkTreats(q);
         }
-        // An orderedBy copy is covered by the check of its definition, so a per-request sort does not repeat it.
-        ModelQuery<E2, ?, ?> definition = q.definition();
+        // An orderedBy copy is covered by the check of its definition, and a query by that of another binding of it,
+        // so neither a per-request sort nor a per-request binding repeats it (D-201).
+        Object definition = q.definition().definitionKey();
         if (!FIRST_RUN_CHECKED.contains(definition)) {
             CriteriaBuilder cb = em.getCriteriaBuilder();
             q.checkPhases(cb, renderOptions);
@@ -3046,7 +3056,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         if (q.fetch().isEmpty()) {
             return;
         }
-        Object definition = q.definition();
+        Object definition = q.definition().definitionKey();
         Set<Object> checked;
         synchronized (FETCH_BUILDS_CHECKED) {
             checked = FETCH_BUILDS_CHECKED.computeIfAbsent(em.getEntityManagerFactory(),

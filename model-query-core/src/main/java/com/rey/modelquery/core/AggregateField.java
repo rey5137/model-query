@@ -473,6 +473,16 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
         conditions.forEach(checks::condition);
     }
 
+    void readParams(ParamReads reads) {
+        if (kind == Kind.ROUND) {
+            inner.readParams(reads);
+            return;
+        }
+        reads.field(sourceExpression);
+        orders.forEach(order -> reads.field(order.column()));
+        conditions.forEach(reads::condition);
+    }
+
     void checkTreats(TreatChecks checks) {
         if (kind == Kind.ROUND) {
             inner.checkTreats(checks);

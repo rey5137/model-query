@@ -206,6 +206,9 @@ EL5 is EclipseLink 5.0.2 / API 3.2.0. The offline A.1/A.2 lanes (`summarize.py m
   `value + 1`. 6.6 shows `8, req7, 7, 7, 20` as set. Yet its rows equal the native SQL with `i.id>=8` on 7.4 too. The
   capture and the rows disagree, and this data can't tell which is right. M34.4's AC-COL-62 test should assert the
   value bound in a source body per statement, on both lines.
+  **Resolved by M34.3:** `QueryParamStatementsTest#ac_col_62_a_joined_source_body_binds_its_own_value_in_each_statement`
+  asserts the body's own value (8 beside the outer 7) in each statement, and passes on 6.6 and 7.4: both lines bind the
+  set value.
 
 ### D.1 Counts: the `INNER` hop is exact, `LEFT` keeps the identity
 

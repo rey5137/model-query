@@ -11,6 +11,7 @@ import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.Expr;
 import com.rey.modelquery.core.ExpressionField;
 import com.rey.modelquery.core.ExportOptions;
+import com.rey.modelquery.core.JoinContext;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
@@ -28,6 +29,8 @@ import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckFixture;
 import com.rey.modelquery.tck.harness.TckTest;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.Parameter;
+import jakarta.persistence.TypedQuery;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -282,7 +285,15 @@ class ExpressionAggregateTest {
 
     private static <V> List<V> run(EntityManager em, ModelQuery<?, ?, V> query) {
         BuiltQuery<V> built = query.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, portable());
-        return em.createQuery(built.query()).getResultList().stream().map(built::map).toList();
+        return bound(em.createQuery(built.query()), built.joins()).getResultList().stream().map(built::map)
+                .toList();
+    }
+
+    /** {@code query} with the statement parameters {@code ctx} rendered bound, as the executor binds them (R-COL-26). */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static <T> TypedQuery<T> bound(TypedQuery<T> query, JoinContext ctx) {
+        ctx.statementParameters().forEach((parameter, value) -> query.setParameter((Parameter) parameter, value));
+        return query;
     }
 
     private static void inSession(TckDatabase db, Consumer<EntityManager> work) {

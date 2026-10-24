@@ -197,6 +197,13 @@ public enum MqCode {
     @Incubating
     MQ1511("A correlated count, sum or first crosses a to-many join; use Filters.exists(path, inner)"),
 
+    /**
+     * A query reads a {@code QueryParam} it does not bind, or two params with one name; a write or an engine-built
+     * statement reads a param it cannot bind (R-COL-40).
+     */
+    @Incubating
+    MQ1512("A QueryParam is read but not bound, or two params share a name"),
+
     /** A bulk write chose its rows with {@code where(...)} and no predicate is left (R-WRT-12). */
     MQ1601("A bulk write's where(...) left no predicate; all() is the only way to write every row"),
 

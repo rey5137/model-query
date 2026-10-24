@@ -27,6 +27,7 @@ import com.rey.modelquery.core.Phase;
 import com.rey.modelquery.core.RenderOptions;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.PrimaryKeyFirst;
+import com.rey.modelquery.core.QueryParam;
 import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.SourceQuery;
 import com.rey.modelquery.core.StatementShape;
@@ -252,6 +253,29 @@ class TreatStatementsTest {
             }))).isEmpty();
             assertThat(statements(db,ds -> s.serving(ds,
                     executor -> assertThat(executor.list(distinctWithId, Limit.of(10))).hasSize(5)))).hasSize(1);
+        }
+    }
+
+    // AC-COL-62
+    @TckTest
+    @SuppressWarnings("unchecked")
+    void ac_col_62_the_treated_root_id_count_binds_the_callers_param(TckDatabase db) {
+        Strategy<StPayment, StCard> s = (Strategy<StPayment, StCard>) STRATEGIES.get(0);
+        QueryParam<String> number = QueryParam.of("number", String.class);
+        try (SessionFactory schema = s.schema(db)) {
+            schema.inTransaction(s::insertRows);
+            List<String> sql = statements(db, ds -> s.serving(ds, executor -> {
+                for (String value : List.of("1111", "5555")) {
+                    // The count is built fresh from the query, counting the root id, and still binds its value.
+                    var query = s.statuses().where(f -> f.compare(s.number, Op.EQ, Expr.param(number)))
+                            .bind(number, value).build();
+                    assertThat(executor.count(query)).isEqualTo(1);
+                    assertThat(executor.list(query, Limit.of(10)))
+                            .containsExactly(value.equals("1111") ? "s2" : "s5");
+                }
+            }));
+            assertThat(sql).hasSize(4);
+            assertThat(sql.get(0)).matches("select count\\(\\w+\\.id\\) .*").isEqualTo(sql.get(2));
         }
     }
 

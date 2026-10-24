@@ -56,7 +56,7 @@ neither throws `MQ1202`. The query also selects every column the plan needs: eac
 enricher's declared columns, recursively through joins (R-FCH-07). Those columns count as selected for every rule:
 presence keys (R-QRY-04, `MQ1409`), phase consistency (R-QRY-09), to-many joins (R-PAG-13), grouping (R-AGG-08,
 `MQ1401`) and counting (R-EXE-04). One that is read through a to-many join throws `MQ1702` on first execution, checked
-once per `ModelQuery` as the phases are (D-21), since `build()` has no metamodel to tell a to-many join from a to-one.
+once per definition as the phases are (D-21, D-201), since `build()` has no metamodel to tell a to-many join from a to-one.
 `count`, which loads no children and runs no enricher, logs that check's failure as a `WARNING` and counts; the failure
 is not remembered, so the next call that returns models throws `MQ1702`. Every call that returns models (`list`,
 `one`, `first`, `one(query, key)`, `byKeys`, `page`, `export`) also builds each child statement of the plan, through its
