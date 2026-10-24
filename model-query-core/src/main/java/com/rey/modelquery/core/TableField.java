@@ -38,7 +38,7 @@ public final class TableField<P, T> {
     private final String property;
     /** Whether this root is a source's, read by field name from a CTE rather than from an entity (R-SRC-10). */
     private final boolean source;
-    /** The name of the join a joined source's table is, or {@code null} for every other node (R-SRC-21). */
+    /** The bound source or entity join name, or {@code null} for every other node (R-SRC-21, R-SRC-23). */
     private final String joinName;
     private final JoinKey key;
     private final Class<T> subtype;
@@ -76,9 +76,15 @@ public final class TableField<P, T> {
         this.subtype = subtype;
         this.treatOrigin = treatOrigin;
         this.joinName = joinName;
-        this.key = joinName != null ? JoinKey.joinedSource(rootEntity, joinName)
+        this.key = joinName != null ? source ? JoinKey.joinedSource(rootEntity, joinName)
+                : JoinKey.joinedEntity(rootEntity, joinName)
                 : rootEntity != null ? JoinKey.root(rootEntity)
                 : new JoinKey(parent.key, subtype == null ? attribute : subtype.getName(), type, alias);
+    }
+
+    /** A named entity join, resolved only through the statement's bindings (R-SRC-23). */
+    static <E> TableField<E, E> joinedEntity(String name, Class<E> entity) {
+        return new TableField<>(entity, null, null, null, "", null, null, null, false, null, null, name);
     }
 
     /** The query's root table. */
@@ -259,11 +265,13 @@ public final class TableField<P, T> {
                         + ": " + subtype.getSimpleName() + " is not a mapped entity subtype of "
                         + declared.getSimpleName(), e);
             }
-            From<?, ?> reached = parent.rootEntity != null ? ctx.root() : parent.resolve(ctx, owner, false);
+            From<?, ?> reached = parent.rootEntity != null && parent.joinName == null
+                    ? ctx.root() : parent.resolve(ctx, owner, false);
             return ctx.treat(key, reached, subtype, prefix(owner) + describe(), read);
         }
         if (joinName != null) {
-            return (From<?, T>) ctx.joinedSource(key, prefix(owner) + describe());
+            return (From<?, T>) (source ? ctx.joinedSource(key, prefix(owner) + describe())
+                    : ctx.joinedEntity(key, prefix(owner) + describe()));
         }
         if (key.equals(ctx.rootKey())) {
             return (From<?, T>) ctx.root();
@@ -286,7 +294,18 @@ public final class TableField<P, T> {
                     describe() + ": on(...) has no alias; call as(...) so the condition can be compared");
         }
         From<?, P> parentFrom = parent.resolve(ctx, owner, false);
-        return (From<?, T>) ctx.join(key, parentFrom, attribute, type, condition, prefix(owner) + describe());
+        From<?, T> joined = (From<?, T>) ctx.join(key, parentFrom, attribute, type, condition,
+                prefix(owner) + describe());
+        TableField<?, ?> origin = parent;
+        while (origin.parent != null) {
+            origin = origin.parent;
+        }
+        if (origin.isJoinedEntity() && joined instanceof jakarta.persistence.criteria.Join<?, ?> join
+                && join.getAttribute() instanceof jakarta.persistence.metamodel.PluralAttribute<?, ?, ?>) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1911, prefix(owner) + describe()
+                    + ": a path below an entity join must be to-one");
+        }
+        return joined;
     }
 
     /** The entity of a root node, or {@code null} for a join. */
@@ -304,7 +323,12 @@ public final class TableField<P, T> {
 
     /** Whether this node is the table of a joined source's columns (R-SRC-21), rather than the query's root. */
     boolean isJoinedSource() {
-        return joinName != null;
+        return source && joinName != null;
+    }
+
+    /** Whether this is a named entity join rather than an entity root (R-SRC-23). */
+    boolean isJoinedEntity() {
+        return !source && joinName != null;
     }
 
     JoinKey key() {
@@ -372,6 +396,10 @@ public final class TableField<P, T> {
     /** This path with its root replaced by {@code join}, as {@link JoinKey#reroot} re-roots its key. */
     @SuppressWarnings("unchecked")
     TableField<?, T> under(TableField<?, ?> join) {
+        if (joinName != null) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1003, describe()
+                    + ": a named source or entity join cannot be re-rooted under " + join.describe());
+        }
         // Sound for a path of the model read through join: its root is the entity join reaches.
         return rootEntity != null ? (TableField<?, T>) join : withParent((TableField<?, P>) parent.under(join));
     }
@@ -460,7 +488,8 @@ public final class TableField<P, T> {
             return parent.describe() + ".treat(" + subtype.getSimpleName() + ".class)";
         }
         if (joinName != null) {
-            return "joined source '" + joinName + "' (" + rootEntity.getSimpleName() + ")";
+            return "joined " + (source ? "source" : "entity") + " '" + joinName + "' ("
+                    + rootEntity.getSimpleName() + ")";
         }
         if (rootEntity != null) {
             return "root " + rootEntity.getSimpleName();

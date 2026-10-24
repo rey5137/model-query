@@ -234,7 +234,8 @@ aggregate, `Agg.round(Agg.avgExact(x).filter(...), 2)`.
 **R-AGG-19** *(D-185, `@Incubating`)* **Row counts.** A count of a table's identity renders the provider's row count,
 `AggregateRenderer#rowCount` (R-VND-30, `count(*)` on Hibernate), where no row the statement reads can leave that
 identity null: the counted `From` is a criteria `Root` or reached from one through `INNER` joins only (walked through
-`Join#getParent()`, so a `rootedAt` context whose root is a `LEFT` join does not qualify), no node on that chain is
+`Join#getParent()`, so a `rootedAt` context whose root is a `LEFT` join does not qualify). The walk stops at a
+joined source or joined entity (D-193), so no join below either qualifies. No node on the qualifying chain is
 treated (R-COL-35), the count reads the `From` itself or its own single id attribute, and the statement has no
 customizer (which could add a `RIGHT` or `FULL` join). The sites are `Agg.count(table)`, `Agg.count(column)` over the
 id, the generated `@Aggregate(fn = COUNT)` (emitted as `Agg.count(column).named(...)`), a `Correlated` count over the
@@ -244,8 +245,11 @@ sub-select root's id, and the page total (`engine/20` R-EXE-05). Everything else
 count of groups, and `count(col)` over a non-id column; a composite id already counts as one identity. A source's row
 is counted as `count(1)`. A filtered count (R-AGG-17) counts `1` under its condition when the count is eligible, else
 the identity, so a `LEFT`-joined unmatched row counts 0 as the unfiltered count does. The row count returns the same
-number as `count(t.id)`, grouped or not. A filtered `count(table)` over an embedded or composite id is `MQ1412` even where `count(*)` would be allowed. A joined source is classified by its join kind (`INNER` the row count,
-`LEFT` its first key field).
+number as `count(t.id)`, grouped or not. A filtered `count(table)` over an embedded or composite id is `MQ1412`
+even where `count(*)` would be allowed, except for a joined entity or a join below one. A joined source is
+classified by its join kind (`INNER` the row count, `LEFT` its first key field). A joined entity, and every join
+below it, always counts its first basic id attribute, for LEFT and INNER alike, including composite ids and
+filtered counts: never the entity or a tuple of its id attributes (R-SRC-23, D-193).
 
 ## 5. Generated support
 

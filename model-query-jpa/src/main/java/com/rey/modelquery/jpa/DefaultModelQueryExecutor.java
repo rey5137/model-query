@@ -312,6 +312,10 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 .flatMap(ProviderSupport::aggregates)
                 .map(options::withAggregateRenderer)
                 .orElse(options);
+        options = vendor.providerSupport()
+                .flatMap(ProviderSupport::entityJoins)
+                .map(options::withEntityJoinRenderer)
+                .orElse(options);
         // Asked once, as the binder is; without a ProviderSupport no Hibernate key is read here (R-VND-28, INV-7).
         options = options.withInlinesValues(vendor.providerSupport()
                 .map(support -> support.inlinesValues(emf))
@@ -847,7 +851,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      */
     private <M> Optional<M> modelOf(ModelQuery<E, ?, M> q, BuiltQuery<M> built, List<Tuple> tuples) {
         return tuples.isEmpty() ? Optional.empty()
-                : Optional.of(models(q, List.of(loaded(built, tuples.get(0), filterOnlyToManyJoin(built).isPresent()))).get(0));
+                : Optional.of(models(q,
+                        List.of(loaded(built, tuples.get(0), filterOnlyToManyJoin(built).isPresent()))).get(0));
     }
 
     /**
@@ -2892,6 +2897,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     private <E2> Optional<String> checkFirstRun(ModelQuery<E2, ?, ?> q, boolean fetchesModels, StatementShape shape,
             boolean laterPages, boolean withCount) {
+        if (!q.entityJoins().isEmpty() && !vendor.profile().sources(SourceFeature.CTE)) {
+            throw new ModelQueryConfigurationException(MqCode.MQ4015, rootEntity.getSimpleName()
+                    + ": this query joins an entity off a source, and " + vendor.detectedVendor()
+                    + " has no CTE support (VendorProfile#sources(SourceFeature.CTE))");
+        }
         Optional<String> clientSide = Optional.empty();
         if (renderOptions.treatRenderer().isPresent()) {
             if (shape == StatementShape.COUNT) {

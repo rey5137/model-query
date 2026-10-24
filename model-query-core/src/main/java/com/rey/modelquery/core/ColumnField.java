@@ -434,7 +434,8 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
     private Path<C> leftJoined(JoinContext ctx) {
-        return (Path<C>) ((TableField) TableField.join((TableField) table, attribute, JoinType.LEFT)).resolve(ctx, this);
+        return (Path<C>) ((TableField) TableField.join((TableField) table, attribute, JoinType.LEFT))
+                .resolve(ctx, this);
     }
 
     /**
@@ -490,6 +491,9 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
      * {@code null} for a join over a collection of basic values.
      */
     private static ManagedType<?> managedType(From<?, ?> from) {
+        if (from.getModel() instanceof ManagedType<?> managed) {
+            return managed;
+        }
         if (from instanceof Join<?, ?> join) {
             Attribute<?, ?> joined = join.getAttribute();
             Type<?> target = joined instanceof PluralAttribute<?, ?, ?> plural
@@ -497,7 +501,7 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
                     : ((SingularAttribute<?, ?>) joined).getType();
             return target instanceof ManagedType<?> managed ? managed : null;
         }
-        return ((Root<?>) from).getModel();
+        return null;
     }
 
     /**

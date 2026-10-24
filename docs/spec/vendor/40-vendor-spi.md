@@ -631,6 +631,16 @@ R-SRC-22). `core` never calls `Join#on` itself, since the type a provider joins 
 `model-query-hibernate` calls `JpaFrom#join(JpaCteCriteria, SqmJoinType)` and applies `on` through the type its line
 returns, `JpaJoinedFrom` on 6.6 and `JpaJoin` on 7.4, so `jpa` imports no `org.hibernate` (INV-7).
 
+**R-VND-32** *(D-193, `@Incubating`)* `ProviderSupport#entityJoins()` is an `@Incubating` default method returning
+`Optional.empty()`. Its `core.EntityJoinRenderer` attaches an entity join to the statement's root, takes
+`annotations.JoinKind`, and applies the engine's standard-Criteria key predicate with one `on` call per join.
+There is no portable default on Jakarta Persistence 3.1. Hibernate uses reflective
+`JpaFrom#join(Class, SqmJoinType)` on both supported lines and looks up `on` once per join. An absent hook or a
+provider unable to attach to the root refuses with `MQ4014` before SQL, after vendor `MQ4015` and the
+`SourceRenderer` `MQ4014`; `PortabilityCheck` reports it per target (R-SRC-24). This is a provider capability,
+not a new `VendorProfile` fact. The SPI preserves INV-7: core sees Jakarta Persistence and the JDK only, and jpa
+has no Hibernate imports.
+
 ## 2. Detection
 
 **R-VND-04** Resolution order:

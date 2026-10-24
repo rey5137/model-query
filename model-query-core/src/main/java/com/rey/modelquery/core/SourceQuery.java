@@ -190,7 +190,7 @@ public final class SourceQuery<S> {
             this.fields = Objects.requireNonNull(fields, "fields");
             this.key = Objects.requireNonNull(key, "key");
             this.inner = inner;
-            if (root.rootEntity() == null || root.isJoinedSource()) {
+            if (root.rootEntity() == null || root.isJoinedSource() || root.isJoinedEntity()) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1203,
                         "builder(...) takes a TableField.root(...) or a TableField.source(...), not the "
                                 + root.describe());
