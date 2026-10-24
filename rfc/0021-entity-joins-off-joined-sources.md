@@ -28,7 +28,7 @@
   - **`docs/site`:** the sources page (an entity joined off a joined source), the joins page (join filters), each
     runnable snippet in both tabs (CC-DOC-01).
 - **Discussion:** none yet.
-- **Target:** 0.11.0, as M33; the freeze moves to M34. Every new type, member and annotation member is
+- **Target:** 0.11.0, as M33; the freeze moves to M34 (then to M35, D-197). Every new type, member and annotation member is
   `@Incubating`. Both parts are additive (§Compatibility). Part B can be accepted or deferred on its own.
 
 ## Summary

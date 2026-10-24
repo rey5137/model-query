@@ -1,10 +1,13 @@
 # RFC 0022 — Portable entity joins, outer-column anchors, request-bound expression values, joined-entity row counts
 
-- **Status:** draft. Follows RFC 0021 (D-193 to D-196), and closes what it left out: its Resolution 3 (no portable
-  renderer), A.2 (no anchor on an outer entity's plain column) and Resolution 7 (no row-count form for a joined
-  entity), plus Q-24 (request-time values in a `@Computed`, left by RFC 0015).
+- **Status:** accepted (D-197 to D-200), after the acceptance spike (`rfc/0022-spike-results.md`): Parts B, C and D
+  are built in M34; **Part A is deferred** (D-200). Follows RFC 0021 (D-193 to D-196), and closes what it left out:
+  its A.2 (no anchor on an outer entity's plain column) and Resolution 7 (no row-count form for a joined entity),
+  plus Q-24 (request-time values in a `@Computed`, left by RFC 0015). Its Resolution 3 (no portable renderer) stays
+  open until Part A returns.
 - **Affects:**
-  - **Part A, `vendor/40`:** new R-VND-33, a portable `EntityJoinRenderer` on Jakarta Persistence 3.2, found when the
+  - **Part A (deferred, D-200; nothing below it is built in M34), `vendor/40`:** new R-VND-33, a portable
+    `EntityJoinRenderer` on Jakarta Persistence 3.2, found when the
     factory's `ProviderSupport` has none; R-VND-32's "no portable default" sentence points to it; new `MQ4017`; new
     AC-VND-23, AC-VND-24. **`delivery/61`, `SPEC.md`:** the module tree and the module table gain
     `model-query-jpa32`; the BOM gains it.
@@ -18,20 +21,20 @@
   - **Part D, `api/13`:** R-AGG-19's walk continues through an `INNER` joined entity to the root it is attached to,
     read from the statement's join record, not from `Join#getParent()`. **`processor/30`:** new R-PROC-47,
     `@Aggregate#entityJoin`. New AC-AGG-31, AC-AGG-32, AC-PROC-50.
-  - **`reference/90`:** new `MQ1512`, `MQ4017`; widened rows for `MQ1911`, `MQ1912`, `MQ3046`.
+  - **`reference/90`:** new `MQ1512` (`MQ4017` waits for Part A); widened rows for `MQ1911`, `MQ1912`, `MQ3046`.
   - **`docs/site`:** the joins page (outer-column anchors), the sources page (the entity join's provider note), the
-    expressions page (`QueryParam`), the providers page (`model-query-jpa32`); each runnable snippet in both tabs
+    expressions page (`QueryParam`); each runnable snippet in both tabs
     (CC-DOC-01).
 - **Discussion:** none yet.
-- **Target:** 0.11.0, as M34; the 1.0 freeze moves to M35 and stays last. Every new type, member and annotation member
-  is `@Incubating`. The four parts are separable (§Compatibility, Resolution 1). Part A on its own gives no user a new
-  query: see A.1.
+- **Target:** 0.11.0, as M34 (Parts B, C and D); the 1.0 freeze moves to M35 and stays last. Every new type, member
+  and annotation member is `@Incubating`. The parts are separable (§Compatibility, Resolution 1). Part A is deferred
+  (D-200): see its note under §Design.
 
 ## Summary
 
-Four parts, separately acceptable:
+Four parts, separately acceptable (A is deferred, D-200; B, C and D are accepted):
 
-- **A.** A new artifact, `model-query-jpa32`, compiled against `jakarta.persistence-api` 3.2.0, supplies an
+- **A (deferred).** A new artifact, `model-query-jpa32`, compiled against `jakarta.persistence-api` 3.2.0, supplies an
   `EntityJoinRenderer` that calls `From#join(Class, JoinType)` and `Join#on(Predicate...)` directly, with no
   reflection. It serves only when the factory's provider supplies no renderer of its own, so Hibernate 6.6 and 7.4
   render as today. On a classpath whose Jakarta Persistence API or provider is below 3.2, the executor refuses at
@@ -51,7 +54,8 @@ Four parts, separately acceptable:
 
 **A.** RFC 0021 Resolution 3 left every provider but Hibernate at `MQ4014`: `core` compiles against 3.1.0
 (`pom.xml:73`) and the 6.6 line runs it, so `core` can't call 3.2's `From#join(Class, JoinType)`. Jakarta Persistence
-3.2 providers exist (Hibernate 7, EclipseLink 5.0). Without a 3.2 route, the only way for them is a `ProviderSupport` per
+3.2 providers exist (Hibernate 7, EclipseLink 5.0), but the spike found none that a portable renderer would serve
+(Part A's deferral note). Without a 3.2 route, the only way for them is a `ProviderSupport` per
 provider, written with reflection as `HibernateEntityJoinRenderer` is
 (`model-query-hibernate/.../HibernateEntityJoinRenderer.java:36-46`).
 
@@ -75,12 +79,14 @@ RFC 0021 A.2 says to map a read-only `@ManyToOne` instead. That route fails here
 1. **The entity can't be changed.** The mapping belongs to another module, and adding an association changes that
    module's entity graph for every caller (its `equals`, its serialisation, its `JOIN FETCH` behaviour).
 2. **Orphans.** With no foreign key, a read-only `@ManyToOne(fetch = LAZY)` over `rep_code` is a proxy that throws
-   `EntityNotFoundException` when any other code path in the application touches an orphan. Hibernate's
+   Hibernate's `ObjectNotFoundException` when it is initialized (spike B.1, both lines, all three vendors) and any
+   other code path in the application touches an orphan. Hibernate's
    `@NotFound(IGNORE)` avoids that but forces an eager load and is provider-specific. Model-query never loads the
    entity, so a criteria join by id equality is the safe read.
 3. **Portability.** An entity join today needs a joined source, and a source needs a `SourceRenderer`, which only
-   Hibernate supplies. A column anchor needs neither, so Part A plus Part B is the first entity join that renders on a
-   3.2 provider other than Hibernate.
+   Hibernate supplies. A column anchor needs neither, so Part B is the first entity join that needs no joined source,
+   and would render on a 3.2 provider whose Criteria `From#join(Class, JoinType)` works. EclipseLink 5.0.2's does not
+   (spike A.4), so no tested provider other than Hibernate runs it yet.
 
 **C.** Q-24 (`reference/92-decisions-questions.md:3158-3161`): a `@Computed` definition is built once into a
 constant, so two common report columns can't be written:
@@ -105,11 +111,25 @@ member, so a grouped generated model can't count, sum or `max` a joined entity's
 
 ### Part A — a portable entity-join renderer on Jakarta Persistence 3.2 (R-VND-33)
 
+> **Deferred (D-200).** Nothing in this part is built in M34; the text below is the design to start from. Spike
+> results (`rfc/0022-spike-results.md`): EclipseLink 5.0.2's Criteria `From#join(Class)` plus `on` resolves the joined
+> entity's attributes against the root (`IllegalArgumentException … not present in the managed type Invoice`),
+> untyped and typed before or after `on`, on H2, PostgreSQL and MySQL; its JPQL entity join works. It refuses even the
+> self-join probe (`IllegalStateException`, spike A.2). Hibernate 7.4 already has `HibernateEntityJoinRenderer`, which
+> wins over a portable one, so no provider would run `model-query-jpa32`. The portable renderer matched Hibernate's
+> SQL, binds and rows in all 192 parity cells per vendor on 7.4 with Hibernate's renderer withheld, and the probe saw
+> the `LinkageError`s A.4 names at the first call, with no connection. The prototype stays at
+> `rfc/0022-spike-data/PlainEntityJoinRenderer.java.template`. Part A is additive later through the existing
+> `@EngineFacing EntityJoinRenderer` (Resolution 3a), together with an EclipseLink-support milestone: vendor detection
+> falls back to `OTHER` on EclipseLink, and paging and export are untested there. M34 has no `model-query-jpa32`, no
+> `MQ4017` and no AC-VND-23 or AC-VND-24.
+
 **A.1 What it buys, alone and with Part B.** Every entity join that RFC 0021 allows is anchored on a joined source.
 A joined source needs `ProviderSupport#sources()`, and only `model-query-hibernate` supplies one. Hibernate also
 supplies `entityJoins()` and ranks first (A.3). So **Part A alone changes no query for any user**: it serves only a
 third-party `ProviderSupport` that has `sources()` and no `entityJoins()`. With Part B, a model with a column-anchored
-entity join and no source runs on any 3.2 provider. Recommendation: accept A only with B, and build B first
+entity join and no source runs on a 3.2 provider whose Criteria `From#join(Class, JoinType)` works; EclipseLink
+5.0.2's does not (spike A.4). Recommendation: accept A only with B, and build B first
 (Resolution 1).
 
 **A.2 The module.** `model-query-jpa32`, package `com.rey.modelquery.jpa32`:
@@ -172,7 +192,11 @@ options (`DefaultModelQueryExecutor.java:315-318`):
 The provider's renderer always wins, so **on Hibernate 7.4 `HibernateEntityJoinRenderer` serves**, with or without the
 module on the class path, and the 6.6 and 7.4 lines render byte for byte as at `m33-verified`. When the module is on
 the class path and isn't used, the executor logs one DEBUG line naming it. Step 2 runs whether or not a `ProviderSupport`
-serves the factory: EclipseLink has none, and vendor detection then falls back to `DatabaseMetaData` (R-VND-06).
+serves the factory: EclipseLink has none, and vendor detection then falls back to `DatabaseMetaData` (R-VND-06). An
+EclipseLink factory
+built from a `PersistenceUnitInfo` doesn't expose its data source as `jakarta.persistence.nonJtaDataSource`, so
+detection gives `OTHER` unless `ModelQueryConfig.vendor(...)` is set (spike A.4 log). That is a finding about R-VND-06
+on non-Hibernate providers today, not caused by this RFC.
 `PortabilityCheck`'s offline factory (`OfflineFactory.java:93`) resolves the same way, so it reports `MQ4014` or
 `MQ4017` per target. `ServiceLoader` iteration reuses `VendorResolver.loadable`'s guard: a renderer class that fails to
 load is skipped with the existing log levels (`VendorResolver.java:196-230`).
@@ -202,7 +226,10 @@ application that put the module there by mistake gets nothing from it, and a cod
 Hibernate application with the module present never reaches the probe (A.3, step 1), so it is never refused. The
 probe's result is cached with the factory's vendor resolution. A probe that throws anything other than a
 `LinkageError` (a provider refusing a self-join on `conjunction()`) is `MQ4017` too, with the cause attached: the
-renderer can't be trusted on that factory. Spike A.2 picks the probe predicate each Tier-1 vendor and provider accepts.
+renderer can't be trusted on that factory. EclipseLink 5.0.2 refuses the self-join with `IllegalStateException` before
+any predicate (spike A.2), so that clause refuses it with `MQ4017`; its non-self join fails as well (A.4). The probe
+predicate stays `cb.conjunction()`: Hibernate 7.4 accepts both forms, `conjunction()` at a 12.5 µs median against 27 µs,
+and it needs no id attribute.
 
 **A.5 Spring Boot starter.** No change. The starter depends on `model-query-hibernate` and Spring Boot 3.4.13, which
 is Hibernate 6.6 on Jakarta Persistence 3.1. It doesn't depend on `model-query-jpa32`, because with `provided` scope
@@ -292,7 +319,8 @@ At first resolution: the id rules, and an anchor path through a to-many associat
 
 **B.3 Rendering.** The engine creates each column-anchored entity join in one step per statement. The step runs right
 after the joined sources and their entity joins (`ModelQuery.java:650-704`), in registration order. Each anchor's own
-to-one joins resolve first, as a joined source's outer columns do (`:681-683`), so the `ON` reads only tables that
+to-one joins resolve first (spike B.1), as a joined source's outer columns do (`:681-683`), so the `ON` reads only
+tables that
 come before it. It goes through the same `joinEntity(...)` helper, with the root as anchor and one `on` call, so
 `MQ4014`'s checks apply unchanged. Example with `include_inactive = false`:
 
@@ -306,7 +334,8 @@ left join region r   on r.code = i.region_code
 **B.4 Join kind, filters, counts.** As RFC 0021 A.4 says for a source-anchored join. Under `LEFT` every column of the
 join is nullable. An orphan `rep_code` reads NULL and keeps the row, which a read-only association can't give
 (§Motivation 2). `INNER` drops outer rows with no match. That includes rows whose anchor is NULL because the anchor's
-own to-one path was `LEFT` and unmatched: the flat SQL's meaning. `joinFilter` (R-COL-39) applies to a `LEFT`
+own to-one path was `LEFT` and unmatched (spike B.1: 2,000 null-path rows drop on both lines and all vendors): the
+flat SQL's meaning. `joinFilter` (R-COL-39) applies to a `LEFT`
 column-anchored join, with the D-194 timing. **D-195 extended:** an `INNER` entity join is `MQ1912` at statement build
 when its anchor reads through a `joinFilter` join. If the filter blanked the anchor's row, the anchor would be NULL
 and the `INNER` join would drop the row, which is the silent drop D-195 refuses. Keyset over a nullable joined column
@@ -314,15 +343,19 @@ needs `nullsFirst` or `nullsLast` (R-PAG-05); cursor identity paths are `entity(
 
 **B.5 Statements, vendors, locks, children, writes.**
 
-- **Every statement carries the join**, even a `LEFT` one nothing reads, as R-SRC-24 chose: content, count, the
+- **Every statement carries the join**, even a `LEFT` one nothing reads, as R-SRC-24 chose (PostgreSQL removes an
+  unreferenced `LEFT` entity join on the target's primary key from the count, on both lines; MySQL and H2 keep one
+  primary-key lookup per outer row, spike B.2): content, count, the
   root-id count of a treated path, both primary-key-first steps, keyset page, every `byKeys` chunk, `one(q, key)`,
   every export page and the stream, and a fetch plan's parent reads. The phases keep the same joins (R-QRY-09).
 - **No CTE gate.** `DefaultModelQueryExecutor.java:2900` raises `MQ4015` for every entity join on a vendor without
   CTEs. It narrows to entity joins anchored on a joined source. A column-anchored join needs no database fact, so
   `OTHER` renders it.
 - **The count over groups.** By default, a grouped model with a column-anchored entity join counts its groups
-  client-side, as D-192 does for a joined source. Spike B.3 shows whether `ProviderSupport#countQuery`'s copy keeps the
-  join on both lines and every vendor. If it does, the copy path is kept for this case, and D-n records which one ships.
+  client-side, as D-192 does for a joined source. `ProviderSupport#countQuery`'s copy keeps a column-anchored entity
+  join and returns the native group count for `LEFT` and `INNER`, simple, `@IdClass` and `@EmbeddedId`, on both lines
+  and all three vendors (spike B.3), so the copy path ships for this case (D-197). A grouped model that joins a source
+  still counts client-side (D-192).
 - **Locks.** A locked query with a join is `MQ2211` (R-QRY-17, R-EXE-14). Every statement has the entity join, so
   `withLock(...)` on such a query is `MQ2211`, raised where R-EXE-14 raises it today. No new code.
 - **Child models.** A `@Child` whose child model has an entity join is refused with the codes a child model that
@@ -371,7 +404,10 @@ public static <M, C> ExpressionField<M, C> param(QueryParam<C> param);
   arrays, `Collection`, `Map`, `Optional`, `Date`, `Calendar`, enums and entities are `MQ1502`. It renders the way an
   `Expr.value` does: a bind parameter typed by its operand (R-COL-18), one Criteria `ParameterExpression` per
   `QueryParam` per statement (R-COL-19). A param in a select item, a group key and an order key is then one node, and
-  PostgreSQL matches the group key.
+  PostgreSQL matches the group key. Where no operand gives the type (a bare select item, an arithmetic or concat
+  operand, a CASE result, a group key), the parameter renders as `cast(? as <type>)` on both lines. As a comparison
+  operand, in `coalesce` beside a column or in a correlation it renders bare, and PostgreSQL reports no undetermined
+  type (spike C.1). As a group and order key it renders one node (`group by 1 order by 1`).
 - **Where it goes.** Anywhere an `ExpressionField` goes: a `@Computed` or `@Aggregate(expression)` definition, an
   operand of `coalesce`, `nullIf`, arithmetic, `concat`, a CASE result or a `function` argument, and a filter
   through the existing `compare(left, Op, right)` (`FilterGroup.java:453`). That includes a CASE condition and a
@@ -434,7 +470,7 @@ ModelQuery<OrderEntity, Long, OrderRow> q = QOrderRow.query()
   (`ModelQuery.java:672-676`). A `Correlated` sub-select is part of the outer expression, so it reads the outer
   query's bindings.
 - **Engine-built queries.** Wherever the engine builds a `ModelQuery` itself rather than running one the caller built,
-  it either copies the caller's bindings or refuses with `MQ1512` at that build. The M34.4 slice lists every such
+  it either copies the caller's bindings or refuses with `MQ1512` at that build. The M34.3 slice lists every such
   entry point (the fetch-plan child loads, the treated root-id count, `orderedBy` copies) and the outcome for each.
 - **Writes.** A write that reads a caller's `ModelQuery` (`ModelInsert.select`) uses that query's bindings. Any other
   write expression that reads a `QueryParam` is `MQ1512` at the write's build. Binding in writes is a later, additive
@@ -445,12 +481,14 @@ ModelQuery<OrderEntity, Long, OrderRow> q = QOrderRow.query()
 - **Every statement binds what it renders, and only that.** The per-statement `ParameterSink` (`ParameterSink.java:15-21`)
   binds each `QueryParam` a statement's tree renders, once: content, count, both primary-key-first steps, keyset page,
   each export page and the stream, each `byKeys` chunk, `one(q, key)`, the inline-count window (R-EXE-03), a fetch
-  plan's parent reads, and a joined source's CTE body (its own bindings). A param read only by a select column is
+  plan's parent reads, and a joined source's CTE body (its own bindings) (spike C.2). A param read only by a select
+  column is
   absent from the count statement and isn't bound there, so no provider reports an unknown parameter.
 - **Caching and compiled queries.** D-184 adopted no compiled queries or build cache. Criteria are built per
   statement, so a param adds no cache key. The SQL text is the same across calls with different values, which is
   better for the driver's statement cache than a per-call constant. Under Hibernate's
-  `value_handling_mode=inline` (R-VND-28, D-177) a param inlines as `Expr.value` does.
+  `value_handling_mode=inline` (R-VND-28, D-177) a param stays a bound parameter, as every value does (R-FLT-08).
+  Spike C.1 and C.2 found the same SQL and binds in both modes, on both lines and every vendor.
 - **Cursors.** R-PAG-19's fingerprint covers the root and the order keys. A keyset order key can't be an expression
   (R-QRY-16), so a param never reaches a cursor and no fingerprint changes. A cursor reused under different bound
   values continues with the new values, as with different `where` values today; the docs say so.
@@ -475,6 +513,11 @@ registered entity join as one hop, by that record and never by `Join#getParent()
   eligible chain contains a filtered join.
 - **Unchanged:** a customizer, a treated node, `countDistinct`, a filtered count's `1`-under-condition form
   (R-AGG-17), and a composite id, which counts as one identity (`count(*)` replaces `count(p.<first id>)`).
+  Spike D.1: `count(*)` equals `count(id)` for every `INNER` entity join, column- or source-anchored, three id forms,
+  with a to-one `INNER` below, grouped and ungrouped, on both lines and Tier 1; `LEFT`, plain or filtered, differs.
+  Hibernate 7.4 renders the filtered count's `1`-under-condition form as `sum(case … then 1 else 0 end)`, which is
+  NULL over no rows where 6.6's `count` is 0 (a finding about R-AGG-17 on 7.4 today, not caused by this RFC). D-199
+  keeps 0: M34.4 adds a filtered count over an empty input on both lines.
 
 ```java
 Agg.count(QNodeDetail.MANAGER.root())   // INNER manager:   count(*)      — was count(p.id)
@@ -508,6 +551,10 @@ Generated: `Agg.count(REP_CODE_COLUMN).named("reps")` over a column of `REP.root
 
 ## Spike plan
 
+Done (M34.0): every item ran and is recorded in `rfc/0022-spike-results.md`. A.4's seven joined-engine cells are
+`NOT_RUN`, stopped at join creation by the EclipseLink failure, and B.1's treated-path dispatch is `NOT_RUN` (no
+inherited mapping). Nothing else is deferred.
+
 A throwaway branch `spike/rfc-0022` with one test-source module `spike-rfc0022/`, on Hibernate 6.6.58.Final and
 7.4.11.Final, against H2, PostgreSQL 16 (`postgres:16-alpine`) and MySQL 8.0.31. Part A also uses EclipseLink 5.0
 (Jakarta Persistence 3.2; pin the newest 5.0.x) and EclipseLink 4.0 (3.1). Results go to `rfc/0022-spike-results.md`
@@ -525,7 +572,7 @@ invoices, 2% orphan `rep_code`s, 300 employees, composite-id and `@EmbeddedId` v
    (i) API 3.1.0 with Hibernate 6.6 and its renderer withheld;
    (ii) API 3.2.0 forced over Hibernate 6.6;
    (iii) EclipseLink 4.0;
-   (iv) EclipseLink 5.0 (passes).
+   (iv) EclipseLink 5.0 (observed: refuses the self-join with `IllegalStateException`, spike A.2).
    Also: which probe predicate (`conjunction()`, an id self-equality) each provider accepts, and the probe's cost (µs).
 3. **A.3 Parity on 7.4.** The portable renderer against `HibernateEntityJoinRenderer` on Hibernate 7.4 (Hibernate's
    withheld by a delegating test `ProviderSupport`), over every statement kind in R-SRC-22's list, `LEFT` and `INNER`,
@@ -533,10 +580,11 @@ invoices, 2% orphan `rep_code`s, 300 employees, composite-id and `@EmbeddedId` v
 4. **A.4 EclipseLink 5.0.** Part B's model (no source): `LEFT`, `INNER`, a to-one path below, a filter, a count, a
    keyset page with `nullsLast`, an export, against the native SQL, on all three vendors. This records whether the rest
    of the engine (vendor detection by `DatabaseMetaData`, paging, `Tuple` aliases) runs on EclipseLink at all. That
-   result decides Resolution 4.
+   result decided Resolution 4: it fails (spike A.4).
 5. **B.1 Rendering.** Column-anchored joins on both Hibernate lines and all three vendors. An anchor on a root basic
    column and on a `LEFT` and an `INNER` to-one path. Creation order against the anchor's path joins. An `INNER` entity
-   join over a `LEFT`-unmatched anchor path (rows drop). Orphan anchors read NULL with no `EntityNotFoundException`, set
+   join over a `LEFT`-unmatched anchor path (rows drop). Orphan anchors read NULL, with Hibernate's
+   `ObjectNotFoundException` on the read-only association's proxy, set
    beside a read-only `@ManyToOne` over the same column loaded through `em.find`. Every statement kind of B.5.
 6. **B.2 Cost.** The invoice page of 20, its count and a full export, with the rep join unreferenced in the count:
    `EXPLAIN (ANALYZE, BUFFERS)` on PostgreSQL (is the LEFT join on `employee`'s primary key removed?), `EXPLAIN
@@ -560,15 +608,15 @@ invoices, 2% orphan `rep_code`s, 300 employees, composite-id and `@EmbeddedId` v
     the grouped read, for information.
 12. **Line parity.** The spike module compiles and behaves the same on 6.6 and 7.4.
 
-## New ids (placeholders)
+## New ids
 
+Part A's ids (R-VND-33, AC-VND-23, AC-VND-24, `MQ4017`) are not allocated: they return with Part A (D-200).
 Checked against the spec and RFCs 0019 to 0021. The highest in use are R-SRC-24, R-COL-39, R-AGG-19, R-VND-32,
 R-PROC-46, AC-SRC-58, AC-COL-58, AC-AGG-30, AC-VND-22, AC-PROC-48, D-196, `MQ1511`, `MQ1912`, `MQ3046` and `MQ4016`.
 RFC 0019's released ids (R-COL-38, R-VND-31, `MQ1210`, `MQ2215`) are not reused, following RFC 0021's practice.
 
 | Id | Part | What |
 |---|---|---|
-| R-VND-33 | A | `model-query-jpa32`'s `EntityJoinRenderer`; resolution order (provider's first, then `ServiceLoader`, probed once per factory); `MQ4017` at executor creation on a 3.1 API or provider; no reflection |
 | R-SRC-25 | B | An entity join anchored on columns of the root or its to-one paths; no joined source or CTE needed; the creation step; the static `when` term; locks, children and writes |
 | R-PROC-46 (amended) | B | `@JoinEntity.On#column`, `@JoinEntity.When`, defaults on `source` and `On#field` |
 | R-COL-40 | C | `QueryParam`, `Expr.param`, `Builder#bind` on `ModelQuery` and `SourceQuery`; checked at `build()`; bound per statement |
@@ -577,8 +625,6 @@ RFC 0019's released ids (R-COL-38, R-VND-31, `MQ1210`, `MQ2215`) are not reused,
 
 | AC | Part | Asserts |
 |---|---|---|
-| AC-VND-23 | A | With the provider's renderer withheld, the portable renderer on Hibernate 7.4 renders the same SQL and rows as Hibernate's on every R-SRC-22 statement kind and Tier-1 vendor; one `on` call; on EclipseLink 5.0, B's model returns the native SQL's rows (if Resolution 4 keeps the lane) |
-| AC-VND-24 | A | The provider's renderer wins when present (Hibernate 6.6 and 7.4 unchanged, module present or not); the probe raises `MQ4017` at executor creation on API 3.1 and on a 3.2 API over a 3.1 provider; `PortabilityCheck` reports `MQ4014` and `MQ4017` per target; the ArchUnit rule bans `java.lang.reflect`, `java.lang.invoke` and `org.hibernate` in the module |
 | AC-SRC-59 | B | A `LEFT` column-anchored join matches the native SQL on Tier 1 and both lines; orphan anchors read NULL; an anchor on a to-one path; two joins of one entity stay apart; no CTE gate on `OTHER` |
 | AC-SRC-60 | B | `INNER` drops unmatched rows, including rows with a `LEFT`-unmatched anchor path, in content and count; the join is in every B.5 statement; keyset over a nullable joined column with `nullsLast` loses no row |
 | AC-SRC-61 | B | `MQ1911` cases (B.2) at build and at first resolution; `MQ1912` for an `INNER` entity join whose anchor reads through a `joinFilter` join; `MQ2211` for a lock; the child-model and write refusals |
@@ -587,25 +633,25 @@ RFC 0019's released ids (R-COL-38, R-VND-31, `MQ1210`, `MQ2215`) are not reused,
 | AC-COL-59 | C | `Expr.param` in each C.1 position returns the expected values on Tier 1 and both lines; a param as group and order key on PostgreSQL renders one node |
 | AC-COL-60 | C | A param binds in every C.4 statement that renders it and in no other; values differ per call over one shared definition; the static constants are unchanged after a bound build (INV-9) |
 | AC-COL-61 | C | `MQ1512`: an unbound param at `build()`, two params with one name, a param in a non-query write; `MQ1502`: a `null` value, a non-instance value, an unbindable `type()`; a second `bind` replaces |
-| AC-COL-62 | C | A source body's param binds on its `SourceQuery` only; a `Correlated` correlation reads the outer binding; each engine-built query listed in C.3 copies or refuses; inspection and `toString` name params and never values |
+| AC-COL-62 | C | A source body's param binds on its `SourceQuery` only; a `Correlated` correlation reads the outer binding; each engine-built query listed in C.3 copies or refuses; the value bound in a source body is asserted per statement on both lines (the spike's 7.4 capture disagreed with its rows, spike C.2); inspection and `toString` name params and never values |
 | AC-AGG-31 | D | `Agg.count` over an `INNER` joined entity and over an `INNER` to-one below it render the row count on both lines, with equal results; `LEFT`, filtered or not, renders `count(<first id>)`, 0 for unmatched; SQL snapshots for those cases change |
 | AC-AGG-32 | D | Composite and embedded ids under `INNER` render the row count; a customizer or a filtered count keeps today's forms |
 | AC-PROC-50 | D | `@Aggregate(entityJoin)` generates over the joined entity; an unknown join is `MQ3046` |
 
 | Code | Part | Meaning |
 |---|---|---|
-| `MQ4017` (new) | A | A discovered `EntityJoinRenderer` fails its probe on this factory: Jakarta Persistence API or provider below 3.2, or the provider refuses the probe join |
 | `MQ1512` (new) | C | A query reads a `QueryParam` it doesn't bind, or reads two `QueryParam`s with one name; a non-query write reads a `QueryParam`; an engine-built query can't carry the caller's bindings |
 | `MQ1911` (widened) | B | B.2's anchor and `when` cases |
 | `MQ1912` (widened) | B | An `INNER` entity join whose anchor reads through a `joinFilter` join (D-195 extended) |
 | `MQ3046` (widened) | B, D | B.1's and B.6's annotation cases; `@Aggregate#entityJoin` naming an unknown join |
-| `MQ4014`, `MQ2211`, `MQ1502`, `MQ4015` | A, B, C | Meanings unchanged; new cases: none for `MQ4014`/`MQ2211`/`MQ1502` beyond B.5 and C.3; `MQ4015` narrowed to source-anchored entity joins |
+| `MQ4014`, `MQ2211`, `MQ1502`, `MQ4015` | B, C | Meanings unchanged; new cases: none for `MQ4014`/`MQ2211`/`MQ1502` beyond B.5 and C.3; `MQ4015` narrowed to source-anchored entity joins |
 
 ## Compatibility
 
 All of it is additive or unreleased. 0.11.0 isn't tagged, so M33's surface can still change without a shim.
 
-- **A.** A new artifact in the BOM. `core`'s 3.1.0 baseline, `model-query-hibernate` and the starter are unchanged.
+- **A (deferred).** When it lands: a new artifact in the BOM. `core`'s 3.1.0 baseline, `model-query-hibernate` and the
+  starter are unchanged.
   Hibernate 6.6 and 7.4 render byte for byte as at `m33-verified` (AC-VND-24). One new failure, only for new setups:
   the module on a 3.1 factory whose provider has no renderer refuses at executor creation (`MQ4017`).
 - **B.** `@JoinEntity#source` and `@JoinEntity.On#field` gain `""` defaults. Adding a default to an annotation member
@@ -652,29 +698,38 @@ Everything new is `@Incubating`; the M35 freeze review decides each piece.
 
 ## Resolutions to record
 
-No question stays open. Each resolution below is recorded in D-197 (or one D-n per part, D-197 to D-200, if the
-parts are accepted separately), with the spike's evidence (`rfc/0022-spike-results.md`). Q-24 is resolved by Part C's
-D-n.
+No question stays open. The parts are recorded as D-197 (Part B), D-198 (Part C, which resolves Q-24), D-199 (Part D)
+and D-200 (Part A deferred), each with the spike's evidence (`rfc/0022-spike-results.md`).
 
-Review of the draft (2026-10-24): every resolution below takes its recommended option, Resolution 10 included
-(`Builder#bind` only). A spike result that contradicts a recommendation reopens only that resolution.
+Accepted (2026-10-24): every resolution below takes its recommended option, Resolution 10 included (`Builder#bind`
+only), except Resolution 1, which takes (c), and Resolution 4, which is moot. The spike's contradiction of Resolution 4
+reopened Resolution 1 only (below).
 
 1. **Part order and coupling.** Options: (a) four independent parts; (b) A only with B, B before A; (c) defer A.
-   Recommended: (b). A alone serves no user (A.1). C and D are independent of both.
-2. **Module name and BOM.** Options: `model-query-jpa32`, `model-query-jakarta-persistence-32`, a classifier of `core`.
+   Recommended: (b). A alone serves no user (A.1). C and D are independent of both. **Accepted: (c), Part A is
+   deferred (D-200).** Spike A.4: EclipseLink 5.0.2's Criteria `From#join(Class)` returns a join bound to its parent's
+   managed type and refuses a self-join, and Hibernate 7.4 already has a renderer that wins over a portable one, so no
+   provider would run `model-query-jpa32`. The spike's prototype stays as the starting point; Part A returns through
+   the existing `@EngineFacing EntityJoinRenderer` (Resolution 3a) with an EclipseLink-support milestone.
+2. **Module name and BOM** (applies when Part A returns). Options: `model-query-jpa32`,
+   `model-query-jakarta-persistence-32`, a classifier of `core`.
    Recommended: `model-query-jpa32` in the BOM, package `com.rey.modelquery.jpa32`. A classifier can't carry its own
    `provided` API version, and the short name matches `model-query-jpa`.
-3. **How it's found.** Options: (a) a `ServiceLoader` service of the existing `@EngineFacing core.EntityJoinRenderer`,
+3. **How it's found** (applies when Part A returns). Options: (a) a `ServiceLoader` service of the existing
+   `@EngineFacing core.EntityJoinRenderer`,
    probed generically in `jpa`; (b) a new public `jpa.spi.EntityJoinSupport { Optional<EntityJoinRenderer>
    renderer(EntityManagerFactory) }`; (c) a `ProviderSupport` in the module. Recommended: (a). No new public SPI type,
    no `jpa` dependency, and the BOM keeps the module's version in step with `core`'s `@EngineFacing` contract.
    (b) is the fallback if a third-party renderer needs `supports(emf)`.
 4. **Which providers it is verified on.** Options: (a) Hibernate 7.4 with Hibernate's renderer withheld, in the
    module's tests; (b) plus an EclipseLink 5.0 lane on H2 in the module's tests; (c) EclipseLink in the full TCK.
-   Recommended: (b) if spike A.4 shows the engine runs on EclipseLink, else (a). The providers page then says the module
-   is verified for entity-join statements on those providers, and model-query's supported providers stay Hibernate 6.6
-   and 7.4.
-5. **A 3.1 classpath.** Options: `MQ4017` at executor creation from a `LinkageError` probe; `MQ4014` (with the cause)
+   Recommended: (b) if spike A.4 shows the engine runs on EclipseLink, else (a). **Moot (Part A is deferred); the
+   finding is option (a)'s: there is no EclipseLink lane.** EclipseLink 5.0.2's Criteria `From#join(Class)` plus `on`
+   resolves the joined entity's attributes against the root (`IllegalArgumentException … not present in the managed
+   type Invoice`), untyped and typed before or after `on`, on H2, PostgreSQL and MySQL. Its JPQL entity join works
+   (spike A.4).
+5. **A 3.1 classpath** (applies when Part A returns). Options: `MQ4017` at executor creation from a `LinkageError`
+   probe; `MQ4014` (with the cause)
    at the first entity-join query; a documented requirement only. Recommended: `MQ4017` at creation, probed only when
    the provider has no renderer, so a Hibernate application with the module present is never refused.
 6. **The anchor's scope (B).** Options: (a) root and to-one paths from it; (b) also another entity join's columns
@@ -682,9 +737,11 @@ Review of the draft (2026-10-24): every resolution below takes its recommended o
    entity joins is specified; (c) would leave out legacy codes reached through a to-one path.
 7. **The static `when` term (B.6).** Options: include; defer with a docs warning. Recommended: include. A polymorphic
    id join without it returns another table's row with no error (INV-5), and it is one definition constant ANDed into
-   the one `ON`.
+   the one `ON`. Evidence: without `when` 100 of 202 attachment rows read the colliding invoice, with it none; `when`
+   binds once per statement as a `?` (spike B.4).
 8. **The group count with a column-anchored join (B.5).** Recommended: client-side (D-192's path) unless spike B.3
-   shows `countQuery`'s copy keeps the join on both lines and all three vendors; the D-n records which.
+   shows `countQuery`'s copy keeps the join on both lines and all three vendors; the D-n records which. **Accepted: the
+   copy path** (spike B.3 shows it keeps the join; D-197).
 9. **Locks, children, writes (B.5).** Recommended: `MQ2211` for locks (existing rule), the source-join child-model codes
    for `@Child`, and read-only joined columns in writes. No new code.
 10. **`QueryParam` binding point (C).** Options: `Builder#bind` (per built query); `ModelQuery#with` (per call on a
@@ -694,24 +751,26 @@ Review of the draft (2026-10-24): every resolution below takes its recommended o
 12. **Param scope (C).** Recommended: `ModelQuery` and `SourceQuery` bind their own; a `Correlated` reads the outer
     query's; non-query writes refuse (`MQ1512`).
 13. **The row-count rule (D).** Recommended: an `INNER` joined entity is a hop to its root by the join record, on both
-    lines; `LEFT` stops, filtered or not.
+    lines; `LEFT` stops, filtered or not. Evidence in D.1 (spike D.1).
 14. **`@Aggregate#entityJoin` (D.2).** Options: include; leave aggregates over a joined entity to the builder.
     Recommended: include, defaulted to `""`.
 
 ## Milestone sketch (M34, 0.11.0; the freeze moves to M35)
 
-Model line: `architect-review` at the gate (the `EntityJoinRenderer` discovery surface and module boundary, INV-7 and
-INV-9, paging correctness of a column-anchored `INNER` join in every phase, the `QueryParam` public API).
+Part A is deferred (D-200), so M34 has no `model-query-jpa32` slice.
+
+Model line: `architect-review` at the gate (INV-7 and INV-9, paging correctness of a column-anchored `INNER` join in
+every
+phase, the `QueryParam` public API).
 
 | Slice | Content | Tier | Done when |
 |---|---|---|---|
-| M34.0 | RFC review and acceptance spike (`rfc/0022-spike-results.md`) | `opus` / `high` (review) | Resolutions recorded as D-197 (to D-200) |
-| M34.1 | Part B engine: anchor rule widened in `EntityJoin`, the creation step, the static `when`, `MQ4015` gate narrowed, `MQ1911`/`MQ1912` cases, locks, children, writes, the group count | `opus` / `high` (paging correctness, INV-5, public API) | AC-SRC-59 to AC-SRC-62 green on both lines and Tier 1; SQL snapshots unchanged |
+| M34.0 | RFC review and acceptance spike (`rfc/0022-spike-results.md`) | `opus` / `high` (review) | Resolutions recorded as D-197 to D-200 |
+| M34.1 | Part B engine: anchor rule widened in `EntityJoin`, the creation step, the static `when`, `MQ4015` gate narrowed, `MQ1911`/`MQ1912` cases, locks, children, writes, the group count (copy path) | `opus` / `high` (paging correctness, INV-5, public API) | AC-SRC-59 to AC-SRC-62 green on both lines and Tier 1; SQL snapshots unchanged |
 | M34.2 | Part B processor: `On#column`, `When`, defaults, `MQ3046` cases (R-PROC-46) | `sonnet` / `medium` | AC-PROC-49 green |
-| M34.3 | Part A: `model-query-jpa32`, BOM, services file, resolution order and probe in `jpa`, `MQ4017`, `PortabilityCheck`, ArchUnit rule, the 7.4-withheld and (Resolution 4) EclipseLink lanes | `opus` / `high` (`ProviderSupport`/SPI surface, module boundary) | AC-VND-23, AC-VND-24 green; 6.6 and 7.4 snapshots unchanged |
-| M34.4 | Part C: `QueryParam`, `Expr.param`, `bind` on both builders, `MQ1512`, every phase, the engine-built query list | `opus` / `high` (public API, INV-9) | AC-COL-59 to AC-COL-62 green on both lines and Tier 1 |
-| M34.5 | Part D: the join record and R-AGG-19's hop, `@Aggregate#entityJoin` (R-PROC-47) | `opus` / `high` (a wrong eligibility is a silent over-count) | AC-AGG-31, AC-AGG-32, AC-PROC-50 green; changed snapshots listed |
-| M34.6 | Docs: joins page (outer-column anchors, `when`), expressions page (`QueryParam`), providers page (`model-query-jpa32`, 3.2 requirement, `MQ4017`), both tabs (CC-DOC-01); `CHANGELOG.md` 0.11.0 extended | `sonnet` / `medium` | `mkdocs build --strict` green |
+| M34.3 | Part C: `QueryParam`, `Expr.param`, `bind` on both builders, `MQ1512`, every phase, the engine-built query list; settles the spike's open C.2 item (7.4 captured binds 7/9 against set 8/10 in a source-body cell) with a per-statement test | `opus` / `high` (public API, INV-9) | AC-COL-59 to AC-COL-62 green on both lines and Tier 1 |
+| M34.4 | Part D: the join record and R-AGG-19's hop, `@Aggregate#entityJoin` (R-PROC-47); a filtered count over an empty input keeps 0 on both lines (D-199) | `opus` / `high` (a wrong eligibility is a silent over-count) | AC-AGG-31, AC-AGG-32, AC-PROC-50 green; changed snapshots listed |
+| M34.5 | Docs: joins page (outer-column anchors, `when`), expressions page (`QueryParam`), both tabs (CC-DOC-01); `CHANGELOG.md` 0.11.0 extended | `sonnet` / `medium` | `mkdocs build --strict` green |
 
-M34.1 lands before M34.3 (Resolution 1). M34.4 and M34.5 depend on neither and may run in either order after M34.1
-(M34.5's tests use column-anchored `INNER` joins).
+M34.3 and M34.4 depend on neither each other nor, apart from M34.4's tests (column-anchored `INNER` joins), on M34.1,
+and may run in either order after M34.1.

@@ -3053,6 +3053,73 @@ renderer or provider decides (Hibernate may throw its own `IllegalArgumentExcept
 no `EntityType` is `MQ4014`). The renderer contract is R-VND-32's, now with `MQ4014` for a bad `EntityJoinRenderer`. → `api/10`
 R-COL-39, `api/17` R-SRC-23, R-SRC-24, `engine/21` R-PAG-19, AC-PAG-33, `processor/30`, `vendor/40` R-VND-32, AC-VND-22.
 
+**D-197 — Column-anchored entity joins (RFC 0022 Part B, 2026-10-24, user decision).** RFC 0022 is accepted after its
+acceptance spike (`rfc/0022-spike-results.md`), run on Hibernate 6.6.58 and 7.4.11 against H2, PostgreSQL 16 and MySQL
+8.0.31. M34 (0.11.0) builds Parts B, C and D; the freeze moves from M34 to M35 and stays last.
+Every new type, member and annotation member is `@Incubating`. Part B (R-SRC-25) joins an entity on its full id, equal
+to columns of the root or of its to-one paths, with no joined source: `@JoinEntity.On(column = ...)`, or
+`EntityJoin.on` by hand. The anchor's own to-one joins render before the entity join, an `INNER` join over a
+`LEFT`-unmatched anchor path drops those rows, and the join is on every statement (spike B.1). Every B.1 statement kind
+returns the native SQL's rows on all three vendors and both lines. The `MQ4015` CTE gate narrows to entity joins
+anchored on a joined source, since a column anchor needs no database fact, so `OTHER` renders it. The orphan
+read-only association raises Hibernate's `ObjectNotFoundException`, not `EntityNotFoundException`, so Motivation 2
+names Hibernate's exception. PostgreSQL removes an unreferenced `LEFT` entity join from the count on both lines; MySQL
+and H2 keep a primary-key lookup per outer row (spike B.2). A grouped model with a column-anchored join counts its
+groups through `ProviderSupport#countQuery`'s copy, which keeps the join for `LEFT` and `INNER`, simple, `@IdClass`
+and `@EmbeddedId` ids, on both lines and all three vendors (spike B.3); a grouped model that joins a source still counts
+client-side (D-192). The static `when` term is included: without it 100 of 202 colliding-id attachment rows read the
+wrong table's row with no error (INV-5), with it none, and it binds once per statement as a `?` (spike B.4). Locks are
+`MQ2211`, children use the source-join child-model codes, and joined columns are read-only in writes; no new code. An
+`INNER` entity join whose anchor reads through a `joinFilter` join is `MQ1912` (D-195 extended). `@JoinEntity#source`
+and `On#field` gain `""` defaults.
+→ `rfc/0022`, `rfc/0022-spike-results.md`, `api/17` R-SRC-23 to R-SRC-25, `processor/32` R-PROC-46, D-193, D-195,
+D-196.
+
+**D-198 — `QueryParam`: request-bound values in expressions (RFC 0022 Part C, resolves Q-24, 2026-10-24, user
+decision).** A `QueryParam<C>` is an immutable, named and typed placeholder that may be `static final`, read through
+`Expr.param(...)` in any expression (a `@Computed`, a CASE, a correlated count's filter), and bound per built query by
+`Builder#bind(param, value)` on `ModelQuery` and `SourceQuery` only, as `where` and `joinFilter` take values (INV-9).
+`ModelQuery#with(param, value)` is additive later. An unbound read param is `MQ1512` at `build()`, two params with one
+name are `MQ1512`, a bound param nothing reads is allowed, a `Correlated` reads the outer query's binding, and a
+non-query write that reads a param is `MQ1512`. Spike C: where no operand gives the type (a bare select item, an
+arithmetic or concat operand, a CASE result, a group key), the param renders as `cast(? as <type>)` on both lines; as
+a comparison operand, in `coalesce` beside a column or in a correlation it renders bare, and PostgreSQL reports no
+undetermined type; as a group and order key it is one node. A param stays a bound `?` under `value_handling_mode=inline`
+(R-FLT-08), with the same SQL and binds as the default mode. Every statement binds the params it renders and no
+others, with the same SQL text across values. One spike observation is open for M34.3: on 7.4 the captured binds in a
+source-body cell (7 and 9) disagree with the set values (8 and 10), so M34.3 asserts the value bound in a source body
+per statement on both lines with a test, not with the spike's data. Q-24 is resolved.
+→ `rfc/0022`, `rfc/0022-spike-results.md`, `api/10` R-COL-17, R-COL-18, R-COL-40, `rfc/0015`, D-150, D-177.
+
+**D-199 — A joined-entity row count (RFC 0022 Part D, 2026-10-24, user
+decision).** R-AGG-19's walk treats a registered
+entity join as one hop by the statement's join record, never by `Join#getParent()`: an `INNER` joined entity is a hop
+to the root it is attached to, so `Agg.count` over it, and over an `INNER` to-one join below it, renders the provider's
+row count (`count(*)`) on both lines; `LEFT`, filtered or not, stops the walk and keeps `count(<first id attribute>)`,
+which counts 0 for an unmatched or blanked row. Spike D.1: `count(*)` equals `count(id)` for every `INNER` entity join,
+column- or source-anchored, three id forms, with a to-one `INNER` below, grouped and ungrouped, on both lines and
+Tier 1; `LEFT` differs. A customizer, a treated node, `countDistinct` and a filtered count's `1`-under-condition form
+(R-AGG-17) are unchanged. Hibernate 7.4 renders that filtered form as `sum(case … then 1 else 0 end)`, which is NULL
+over no rows where 6.6's `count` is 0 (a finding about R-AGG-17 on 7.4 today): the slice must keep 0, and adds a
+filtered count over an empty input on both lines. `@Aggregate` gains `entityJoin`, defaulted to `""` (R-PROC-47).
+Snapshots of `INNER` entity-join counts change from `count(p.id)` to `count(*)`; the slice lists them.
+→ `rfc/0022`, `rfc/0022-spike-results.md`, `api/13` R-AGG-17, R-AGG-19, `processor/30` R-PROC-47, D-193.
+
+**D-200 — A portable entity-join renderer on Jakarta Persistence 3.2 is deferred (RFC 0022 Part A, 2026-10-24, user
+decision).** Resolution 1 takes option (c); Resolution 4 is moot. Spike A.4: EclipseLink 5.0.2's Criteria
+`From#join(Class)` plus `on` returns a join bound to its parent's managed type and fails
+(`IllegalArgumentException: The attribute [code] is not present in the managed type Invoice`), untyped and typed
+before or after `on`, on all three vendors; its JPQL entity join works. It refuses the self-join probe
+(`IllegalStateException`). Hibernate 7.4 already has `HibernateEntityJoinRenderer`, which wins over a portable one, so
+no provider would run `model-query-jpa32`. The portable renderer matched Hibernate's SQL, binds and rows in all 192
+parity cells per vendor on 7.4 with Hibernate's renderer withheld. The prototype
+(`rfc/0022-spike-data/PlainEntityJoinRenderer.java.template`) stays the starting point. Part A is additive later
+through the existing `@EngineFacing EntityJoinRenderer` (D-193), together with an EclipseLink-support milestone:
+an EclipseLink factory built from a `PersistenceUnitInfo` gives vendor `OTHER` unless `ModelQueryConfig.vendor(...)`
+is set (R-VND-06), and paging and export are untested there. M34 has no `model-query-jpa32`, no `MQ4017`, and no
+AC-VND-23 or AC-VND-24; `vendor/40` R-VND-32 is unchanged.
+→ `rfc/0022`, `rfc/0022-spike-results.md`, D-193, D-196, `vendor/40` R-VND-32.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
@@ -3155,10 +3222,11 @@ model rooted at one generate no `changes()`, `update(...)`, `from(...)` or `dele
 ignored there. Should it instead be an `MQnnnn`, as a `@Child` or a `@Join` on such a model is? → D-144,
 `processor/31` R-GEN-37, `processor/32`.
 
-**Q-24 — Request-time values in a `@Computed` expression.** A `@Computed` definition builds once into a constant, so a
-value known only per call ("count lines with the status the request names", "days overdue relative to a date the
-caller passes") can't appear in it, correlated or not. A per-call bound parameter node in any expression, bound when
-the query runs, would answer it without breaking INV-9. → `rfc/0015` (Unresolved), D-150, `api/10` R-COL-17.
+**Q-24 — Request-time values in a `@Computed` expression.** Resolved by D-198 (`QueryParam`, M34.3). Was: a
+`@Computed` definition builds once into a constant, so a value known only per call ("count lines with the status the
+request names", "days overdue relative to a date the caller passes") can't appear in it, correlated or not. A per-call
+bound parameter node in any expression, bound when the query runs, would answer it without breaking INV-9. →
+`rfc/0015` (Unresolved), D-150, `api/10` R-COL-17.
 
 **Q-25 — `@Subtype`'s value type.** `Class` only for now (D-154). A `String` (entity name or discriminator value) or
 an enum through a converter is additive, once a use shows which; `JOINED` has no discriminator value to give, and a
