@@ -30,7 +30,7 @@ carry an `MqCode`; sealing after 1.0 would break subclasses.
 
 The sub-ranges are `MQ10xx` columns and joins, `MQ11xx` definitions, `MQ12xx` the query builder, `MQ13xx` filters, `MQ14xx`
 aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch plans, `MQ18xx` inserts (D-116) and
-`MQ19xx` query sources (D-143), `MQ1901`–`MQ1911`.
+`MQ19xx` query sources (D-143), `MQ1901`–`MQ1912`.
 
 | Code | Meaning | Owner |
 |---|---|---|
@@ -132,6 +132,7 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ1909` | A sub-select (`exists`, `in`, `Correlated`) whose own root is a source; at first resolution, no statement executed. Read the source in an outer query instead | `api/12` R-FLT-27 |
 | `MQ1910` | A hand-written `joinSource` binding refused when the query is built, before any statement: its `SourceJoin` pairs miss a key field of the source, name a field that is not a key field or pair one twice; the source is not unique (a set operation R-SRC-09 treats as non-unique, a plain `recursive(...)` source or an ungrouped source over one; the message names `tree(...)` when it recurses); one join is bound twice, by name; a source of another model is bound through a raw type; the joined chains walk more than one recursive source (D-187); or a hand-written `on(...)` pair has a converted source key field or differing attribute types (D-191). `@JoinSource`'s compile-time form is `MQ3044` | `api/17` R-SRC-21, D-185, D-187, D-191 |
 | `MQ1911` | Invalid hand-written entity join: at build, a converted anchor, pairs over two joined sources or an unbound source, or a name registered twice; at first resolution before SQL, partial, extra, repeated, non-id or association-id pairs, boxed-type mismatch, or a to-many path below the entity. `int` and `Integer` agree. An unregistered entity-join column is `MQ1003`; source-binding errors stay `MQ1910` | `api/17` R-SRC-23, D-191, D-193 |
+| `MQ1912` | Invalid join filter: at build, another table or any descendant path regardless of cardinality, `exists`, an aggregate, window or correlated value, a sub-query crossing the filtered join, or a root or INNER join; at first resolution before any statement, an id-form column reading the join (map the foreign key as a basic column instead), a join key whose filter the content statement never applies, another join key resolving to the filtered join, or a filter column reading a path below the filtered join | `api/10` R-COL-39, D-193, D-194 |
 
 ## 3. `MQ2xxx` — execution
 

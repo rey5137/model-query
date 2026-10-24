@@ -356,8 +356,12 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
         if (toOne == null) {
             return from.get(attribute);
         }
-        Path<?> association = ctx.readsToOneLeft() ? leftJoined(ctx) : from.get(attribute);
         SingularAttribute<?, ?> id = idOf(toOne);
+        if (id != null && ctx.readsToOneLeft()) {
+            ctx.checkJoinFilterId(this, new JoinKey(table.key(), attribute, jakarta.persistence.criteria.JoinType.LEFT,
+                    ""));
+        }
+        Path<?> association = ctx.readsToOneLeft() ? leftJoined(ctx) : from.get(attribute);
         if (id == null) {
             return (Path<C>) association; // unchecked until the MQ1001 check in path(JoinContext) compares the type
         }

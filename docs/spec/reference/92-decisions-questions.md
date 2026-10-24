@@ -2993,8 +2993,8 @@ join is `MQ1003`. The processor's checks are `MQ3046`. Locks stay `MQ1903` and c
 **Part B (R-COL-39).** `joinFilter(join, f -> ...)` on the built query ANDs a request-bound filter into one LEFT join's
 `ON`, the entity join or an ordinary to-one join, so a per-request condition blanks the joined columns and keeps the
 row; nothing is held on a static constant (INV-9). A second `joinFilter` on one join replaces the first, as `where`
-does. The filter reads that join's own columns, values and constants only; anything else is `MQ1912` at build, and a
-join key the content statement never creates is `MQ1912` at first resolution. An `exists` inside an `ON` renders alike
+does. The filter reads that join's own columns, values and constants only; other reads are `MQ1912`, with build and
+first-resolution checks split by D-194. An `exists` inside an `ON` renders alike
 on all three vendors, so its refusal is a scope choice; a sub-query crossing the filtered join is refused because
 Hibernate drops the `ON` of a join off a correlated root, confirmed on both lines and all vendors. Part B is built as
 its own slice after Part A; Part A ships alone if Part B's review rejects it.
@@ -3008,6 +3008,16 @@ MQ3046 cases in AC-SRC-56 belong to M33.2; R-COL-39 and the join-filter ids rema
 
 → `rfc/0021`, `rfc/0021-spike-results.md`, `api/17` R-SRC-23, R-SRC-24, AC-SRC-53–58, `api/10` R-COL-03,
 `api/13` R-AGG-19, `vendor/40` R-VND-32, `reference/90` MQ1911, MQ4014, D-185, D-191, D-192.
+
+**D-194 — Join-filter validation timing.** `MQ1912`'s id-form refusal is checked at first resolution, before any
+statement, since build has no metamodel to tell an association attribute; every other `MQ1912` case stays at build,
+a path below the filtered join refused whatever its cardinality. As D-193 Resolution 8 does for `MQ1911`.
+A join key the content statement never creates is also checked at first resolution, before any statement.
+A different join key resolving to the filtered join, and a join created below the filtered join while its `ON` is
+built, are checked there too; a lifted outer column (`outer.column(...)`) crosses nothing. A semi-join's `EXISTS`
+(R-EXE-16) carries the filters over its non-correlated root, and an all-skipped filter is not in force.
+
+→ `api/10` R-COL-39, `reference/90` MQ1912, D-193.
 
 ## 2. Open questions
 
