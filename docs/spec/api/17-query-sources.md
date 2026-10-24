@@ -648,8 +648,8 @@ returns, refuses a joined source with `MQ4014` and still renders every other sou
 
 **R-SRC-23** *(D-193, `@Incubating`)* **Entity joins off joined sources.** An immutable `EntityJoin<M, E>`
 binds an entity's full id to fields of one registered joined source. `EntityJoin.of(...)` takes a unique name,
-the entity class, `annotations.JoinKind` (`LEFT` by default, or `INNER`) and immutable `EntityJoin.on(field, id)`
-pairs; `Builder#joinEntity` registers it. Its `root()` is a joined-entity `TableField`, keyed by the name, safe to
+the entity class, `annotations.JoinKind` (`LEFT` by default, or `INNER`) and immutable `EntityJoin.on(ColumnField<M, ?, ?> anchor, String idAttribute)`
+pairs (the id attribute stays a `String`; the former key type parameter is gone, D-196); `Builder#joinEntity` registers it. Its `root()` is a joined-entity `TableField`, keyed by the name, safe to
 share as a `static final` definition (INV-9). Columns read its basic attributes or to-one paths. A LEFT join keeps
 an outer row when the source or entity is unmatched and yields null joined values; INNER drops either unmatched
 row. Separate names joining the same entity remain separate. Inspection includes each entity join and its kind,
@@ -661,8 +661,13 @@ after boxing (`int` and `Integer` agree, D-191). Association ids and to-many pat
 `MQ1911` is raised at build, without a metamodel, for a converted anchor, pairs spanning two joined sources, an
 unbound source or a name registered twice (including a source join's name). At first resolution, before any
 statement, it refuses partial or extra id pairs, repeated or non-id attributes, association id attributes,
-boxed-type mismatches and to-many paths. A column over an unregistered entity join is `MQ1003`; `MQ1910` stays the
-source-binding code. The processor forms and `MQ3046` belong to M33.2.
+boxed-type mismatches and to-many paths, and an entity class the render options' metamodel rejects as unmapped (without a
+metamodel, the renderer or provider decides: Hibernate may throw its own `IllegalArgumentException`, and a joined
+`From` whose model is no `EntityType` is `MQ4014`). A column over an entity join the query does not bind,
+or a named source or entity-join column under a join plan (R-FCH-07, AC-FCH-05), is `MQ1003`; `MQ1910` stays the
+source-binding code. A to-one column below an entity join resolves by its model field name, as the root's does. A cursor's identity
+path for an entity-join column is `entity(<join>).<attr...>` (R-PAG-19, D-196). The processor forms and `MQ3046`
+belong to M33.2.
 
 `Agg.count` over a joined entity, or any join below it, counts its first basic id attribute, including for INNER
 joins and composite ids (R-AGG-19). A LEFT-unmatched entity counts 0. Filtered counts use that same attribute;
@@ -681,7 +686,9 @@ and engine predicate factory. The engine builds the full equality predicate with
 calls `on` exactly once per join. Hibernate resolves `JpaFrom#join(Class, SqmJoinType)` for each supported line
 and looks up `on` once per join: Hibernate 6.6 ANDs repeated calls while 7.4 replaces the earlier predicate.
 A missing hook, or one unable to attach to the root, is `MQ4014` before any statement, after vendor `MQ4015` and
-the `SourceRenderer` `MQ4014`. `PortabilityCheck` reports the refusal separately for every declared target.
+the `SourceRenderer` `MQ4014`. `PortabilityCheck` reports the refusal separately for every declared target. A
+renderer that does not call `on` exactly once, returns a join other than the one it passed to `on` or returns one with
+no `ON` is also `MQ4014` naming the renderer class (R-VND-32, AC-VND-22).
 Lock `MQ1903`, child-model `MQ3039` and the source-query write restrictions remain unchanged.
 
 ## 10. Acceptance criteria
@@ -743,6 +750,6 @@ Lock `MQ1903`, child-model `MQ3039` and the source-query write restrictions rema
 | AC-SRC-53 | On Tier 1, a LEFT entity join matches native SQL; unmatched source and entity rows yield null joined columns; two names joining the same entity remain independent; to-one paths below the entity retain their declared join kind (R-SRC-23). The processor-generated form is covered by `GeneratedEntityJoinExecutionTest.ac_src_53_ac_proc_48_generated_left_entity_joins_match_native_sql`. |
 | AC-SRC-54 | Entity joins, including unused ones, occur after their anchor source join in every R-SRC-22 statement, including fetch-parent reads and through-child loads (R-SRC-24). |
 | AC-SRC-55 | INNER entity joins drop missing entity and LEFT-source rows in content and totals; nullable joined keyset ordering with `nullsLast` loses no row under the existing cursor rules; an unmatched LEFT entity count is 0 (R-SRC-23, R-SRC-24). |
-| AC-SRC-56 | Hand-written forms raise `MQ1911` at build or first resolution as R-SRC-23 specifies, and an unregistered joined-entity column is `MQ1003`. **M33.2 covered by `EntityJoinChecksTest.ac_src_56_*` and `JoinEntityModelTest.ac_proc_48_*` (AC-PROC-48):** processor `MQ3046` cases: partial or extra id pair, non-id or association id, converted field, boxed-type mismatch, unknown join or field, anchor not a joined source, to-many path, nested `@Join`, joined-column `@PrimaryKey`, `@SourceModel`, duplicate name shared with source joins, unknown entity-join `join` member, and pairs naming different source joins. |
+| AC-SRC-56 | Hand-written forms raise `MQ1911` at build or first resolution as R-SRC-23 specifies, and an unregistered joined-entity column is `MQ1003`; an entity class the render options' metamodel rejects as unmapped is `MQ1911` (without a metamodel the renderer or provider decides). **M33.2 covered by `EntityJoinChecksTest.ac_src_56_*` and `JoinEntityModelTest.ac_proc_48_*` (AC-PROC-48):** processor `MQ3046` cases: partial or extra id pair, non-id or association id, converted field, boxed-type mismatch, unknown join or field, `source` not a joined source, to-many path, nested `@Join`, joined-column `@PrimaryKey`, `@SourceModel`, duplicate name shared with source joins, unknown `entityJoin` member, `treat` combined with `entityJoin`, and a `source` that names no `@JoinSource`, once per join. |
 | AC-SRC-57 | Lock `MQ1903` and child-model `MQ3039` remain unchanged; entity joins to `@IdClass` and `@EmbeddedId` targets match every id attribute (R-SRC-23, R-SRC-24). |
-| AC-SRC-58 | Missing `entityJoins()` is `MQ4014` before SQL, after vendor `MQ4015` and SourceRenderer `MQ4014`, reported per PortabilityCheck target. Entity and descendant counts use the first id attribute on both Hibernate lines, including composite ids; `on` is called once per entity join; `firstBy` returns one value per group (R-SRC-24, R-AGG-19, R-VND-32). |
+| AC-SRC-58 | Missing `entityJoins()` is `MQ4014` before SQL, after vendor `MQ4015` and SourceRenderer `MQ4014`, reported per PortabilityCheck target. Entity and descendant counts use the first id attribute on both Hibernate lines, including composite ids; `on` is called once per entity join, and a renderer breaking that is `MQ4014` (AC-VND-22); `firstBy` returns one value per group (R-SRC-24, R-AGG-19, R-VND-32). |

@@ -186,7 +186,7 @@ final class QueryModelReader {
                     mirror(field, Depth.class) != null,
                     treat(field, Column.class),
                     mirror(field, Subtype.class) != null,
-                    sourceColumn(field), column == null ? "" : column.join()));
+                    sourceColumn(field), column == null ? "" : column.entityJoin()));
         }
         // Both kinds of read may be rooted at a source (R-PROC-39, R-PROC-40). Writes still need an entity.
         TypeElement rootElement = (TypeElement) rootType.asElement();
@@ -233,11 +233,12 @@ final class QueryModelReader {
             if (explicit(annotation, "on") instanceof List<?> pairs) {
                 for (Object pair : pairs) {
                     AnnotationMirror each = (AnnotationMirror) ((AnnotationValue) pair).getValue();
-                    on.add(new EntityJoinOn((String) explicit(each, "join"), (String) explicit(each, "field"),
+                    on.add(new EntityJoinOn((String) explicit(each, "field"),
                             explicit(each, "id") instanceof String id ? id : ""));
                 }
             }
-            joins.add(new EntityJoinDefinition((String) explicit(annotation, "name"), type(annotation, "entity"),
+            joins.add(new EntityJoinDefinition((String) explicit(annotation, "name"),
+                    explicit(annotation, "source") instanceof String source ? source : "", type(annotation, "entity"),
                     explicit(annotation, "type") instanceof Element kind ? kind.getSimpleName().toString()
                             : JoinKind.LEFT.name(), on));
         }
@@ -437,7 +438,7 @@ final class QueryModelReader {
                     joinType instanceof Element,
                     explicit(mirror, "alias") instanceof String alias ? alias : "",
                     converter(mirror), type(mirror, TREAT),
-                    explicit(mirror, "join") instanceof String join ? join : "", false));
+                    explicit(mirror, "entityJoin") instanceof String join ? join : "", false));
         }
         return columns;
     }

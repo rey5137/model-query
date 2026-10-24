@@ -18,6 +18,9 @@ public @interface JoinEntity {
     /** @return the join's name, unique among the model's source and entity joins */
     String name();
 
+    /** @return the name of the model's joined source whose fields the pairs read */
+    String source();
+
     /** @return the entity to join */
     Class<?> entity();
 
@@ -27,15 +30,12 @@ public @interface JoinEntity {
     /** @return pairs covering every basic id attribute exactly once */
     On[] on();
 
-    /** One field of a joined source paired with an entity id attribute. */
+    /** One field of the joined source paired with an entity id attribute. */
     @Incubating
     @Documented
     @Target({})
     @Retention(RetentionPolicy.CLASS)
     @interface On {
-
-        /** @return the name of the model's joined source */
-        String join();
 
         /** @return the source field */
         String field();

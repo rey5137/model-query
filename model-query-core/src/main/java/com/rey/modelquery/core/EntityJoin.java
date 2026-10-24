@@ -106,7 +106,7 @@ public final class EntityJoin<M, E> {
 
     /** Pairs {@code anchor}, a joined source's column, with an entity id attribute path (R-SRC-23). */
     @Incubating
-    public static <M, K> On<M> on(ColumnField<M, ?, K> anchor, String idAttribute) {
+    public static <M> On<M> on(ColumnField<M, ?, ?> anchor, String idAttribute) {
         return new On<>(anchor, idAttribute);
     }
 

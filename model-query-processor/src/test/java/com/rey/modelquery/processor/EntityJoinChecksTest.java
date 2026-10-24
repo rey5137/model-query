@@ -16,8 +16,8 @@ class EntityJoinChecksTest {
                     on = @JoinSource.On(column = "id", key = "nodeId"))
             """;
     private static final String ENTITY_JOIN = """
-            @JoinEntity(name = "manager", entity = Profile.class,
-                    on = @JoinEntity.On(join = "edge", field = "managerId"))
+            @JoinEntity(name = "manager", source = "edge", entity = Profile.class,
+                    on = @JoinEntity.On(field = "managerId"))
             """;
     private static final String FIELDS = "@PrimaryKey Long id";
     private static final String PROFILE = "@Id Long id; String name;";
@@ -92,21 +92,21 @@ class EntityJoinChecksTest {
     @Test
     void ac_src_56_treat_on_joined_entity_column_is_mq3046() {
         rejected(model(SOURCE_JOIN + ENTITY_JOIN,
-                FIELDS + ", @Column(join = \"manager\", treat = Profile.class) String name", PROFILE),
-                "treat cannot be combined with join");
+                FIELDS + ", @Column(entityJoin = \"manager\", treat = Profile.class) String name", PROFILE),
+                "treat cannot be combined with entityJoin");
     }
 
     @Test
     void ac_src_56_treat_on_joined_entity_filter_is_mq3046() {
         rejected(model(SOURCE_JOIN + ENTITY_JOIN, FIELDS, PROFILE, "Long managerId", "Long managerId",
-                "@FilterColumn(name = \"NAME\", join = \"manager\", path = \"name\", treat = Profile.class)",
-                "@QueryModel"), "treat cannot be combined with join");
+                "@FilterColumn(name = \"NAME\", entityJoin = \"manager\", path = \"name\", treat = Profile.class)",
+                "@QueryModel"), "treat cannot be combined with entityJoin");
     }
 
     @Test
     void ac_proc_48_bad_joined_column_path_reports_only_the_real_field() {
         Compilation compilation = model(SOURCE_JOIN + ENTITY_JOIN,
-                FIELDS + ", @Column(join = \"manager\", attribute = \"nope\") String name", PROFILE);
+                FIELDS + ", @Column(entityJoin = \"manager\", attribute = \"nope\") String name", PROFILE);
         assertThat(compilation).failed();
         assertThat(compilation).hadErrorCount(1);
         assertThat(compilation).hadErrorContaining("Detail.name:");
@@ -115,7 +115,7 @@ class EntityJoinChecksTest {
     @Test
     void ac_proc_48_bad_joined_column_converter_is_reported_once() {
         Compilation compilation = model(SOURCE_JOIN + ENTITY_JOIN,
-                FIELDS + ", @Column(join = \"manager\", converter = CodeConverter.class) String name", PROFILE);
+                FIELDS + ", @Column(entityJoin = \"manager\", converter = CodeConverter.class) String name", PROFILE);
         assertThat(compilation).failed();
         assertThat(compilation).hadErrorCount(1);
         assertThat(compilation).hadErrorContaining("MQ3014:");
@@ -130,9 +130,9 @@ class EntityJoinChecksTest {
 
     @Test
     void ac_src_56_extra_id_pair_is_mq3046() {
-        rejected(model(SOURCE_JOIN + ENTITY_JOIN.replace("on = @JoinEntity.On(join = \"edge\", field = \"managerId\")",
-                "on = {@JoinEntity.On(join = \"edge\", field = \"managerId\"), "
-                        + "@JoinEntity.On(join = \"edge\", field = \"nodeId\")}"), FIELDS, PROFILE),
+        rejected(model(SOURCE_JOIN + ENTITY_JOIN.replace("on = @JoinEntity.On(field = \"managerId\")",
+                "on = {@JoinEntity.On(field = \"managerId\"), "
+                        + "@JoinEntity.On(field = \"nodeId\")}"), FIELDS, PROFILE),
                 "more than once");
     }
 
@@ -174,8 +174,8 @@ class EntityJoinChecksTest {
 
     @Test
     void ac_src_56_unknown_anchor_join_is_mq3046() {
-        rejected(model(SOURCE_JOIN + ENTITY_JOIN.replace("join = \"edge\"", "join = \"missing\""), FIELDS, PROFILE),
-                "anchor 'missing' must name a @JoinSource of this model");
+        rejected(model(SOURCE_JOIN + ENTITY_JOIN.replace("source = \"edge\"", "source = \"missing\""), FIELDS, PROFILE),
+                "source 'missing' must name a @JoinSource of this model");
     }
 
     @Test
@@ -186,22 +186,32 @@ class EntityJoinChecksTest {
 
     @Test
     void ac_src_56_anchor_must_be_a_join_source_declared_on_this_model() {
-        rejected(model(ENTITY_JOIN.replace("join = \"edge\"", "join = \"EdgeView\""), FIELDS, PROFILE),
+        rejected(model(ENTITY_JOIN.replace("source = \"edge\"", "source = \"EdgeView\""), FIELDS, PROFILE),
                 "must name a @JoinSource of this model");
+    }
+
+    @Test
+    void ac_src_56_a_join_source_whose_model_failed_to_resolve_reports_only_its_own_error() {
+        var compilation = model(SOURCE_JOIN + ENTITY_JOIN, FIELDS, PROFILE, "Long managerId",
+                "@Column(attribute = \"nope\") Long managerId", "", "@QueryModel");
+        assertThat(compilation).failed();
+        assertThat(compilation).hadErrorContaining("nope");
+        compilation.errors().forEach(error -> org.assertj.core.api.Assertions
+                .assertThat(error.getMessage(java.util.Locale.ROOT)).doesNotContain("must name a @JoinSource"));
     }
 
     @Test
     void ac_src_56_entity_join_cannot_anchor_another_entity_join() {
         rejected(model(SOURCE_JOIN + ENTITY_JOIN
                 + ENTITY_JOIN.replace("name = \"manager\"", "name = \"other\"")
-                        .replace("join = \"edge\"", "join = \"manager\""), FIELDS, PROFILE),
-                "anchor 'manager' must name a @JoinSource of this model");
+                        .replace("source = \"edge\"", "source = \"manager\""), FIELDS, PROFILE),
+                "source 'manager' must name a @JoinSource of this model");
     }
 
     @Test
     void ac_src_56_selected_to_many_path_is_mq3046() {
         rejected(model(SOURCE_JOIN + ENTITY_JOIN,
-                FIELDS + ", @Column(join = \"manager\", attribute = \"reports.id\") Long reportId",
+                FIELDS + ", @Column(entityJoin = \"manager\", attribute = \"reports.id\") Long reportId",
                 PROFILE + " @OneToMany java.util.List<Profile> reports;"), "to-many attribute");
     }
 
@@ -209,21 +219,21 @@ class EntityJoinChecksTest {
     void ac_src_56_filter_to_many_path_is_mq3046() {
         rejected(model(SOURCE_JOIN + ENTITY_JOIN, FIELDS,
                 PROFILE + " @OneToMany java.util.List<Profile> reports;", "Long managerId", "Long managerId",
-                "@FilterColumn(name = \"REPORT\", join = \"manager\", path = \"reports.id\")", "@QueryModel"),
+                "@FilterColumn(name = \"REPORT\", entityJoin = \"manager\", path = \"reports.id\")", "@QueryModel"),
                 "to-many attribute");
     }
 
     @Test
     void ac_src_56_nested_join_on_entity_column_is_mq3046() {
         rejected(model(SOURCE_JOIN + ENTITY_JOIN,
-                FIELDS + ", @Join @Column(join = \"manager\", attribute = \"boss\") Detail boss",
+                FIELDS + ", @Join @Column(entityJoin = \"manager\", attribute = \"boss\") Detail boss",
                 PROFILE + " @ManyToOne Profile boss;"), "a nested @Join on a joined entity is forbidden");
     }
 
     @Test
     void ac_src_56_primary_key_on_entity_column_is_mq3046() {
         rejected(model(SOURCE_JOIN + ENTITY_JOIN,
-                FIELDS + ", @PrimaryKey @Column(join = \"manager\", attribute = \"id\") Long managerId", PROFILE),
+                FIELDS + ", @PrimaryKey @Column(entityJoin = \"manager\", attribute = \"id\") Long managerId", PROFILE),
                 "@PrimaryKey is forbidden");
     }
 
@@ -247,41 +257,30 @@ class EntityJoinChecksTest {
     @Test
     void ac_src_56_column_naming_unknown_entity_join_is_mq3046() {
         rejected(model(SOURCE_JOIN + ENTITY_JOIN,
-                FIELDS + ", @Column(join = \"missing\", attribute = \"name\") String managerName", PROFILE),
+                FIELDS + ", @Column(entityJoin = \"missing\", attribute = \"name\") String managerName", PROFILE),
                 "unknown entity join");
     }
 
     @Test
     void ac_src_56_filter_naming_unknown_entity_join_is_mq3046() {
         rejected(model(SOURCE_JOIN + ENTITY_JOIN, FIELDS, PROFILE, "Long managerId", "Long managerId",
-                "@FilterColumn(name = \"NAME\", join = \"missing\", path = \"name\")", "@QueryModel"),
+                "@FilterColumn(name = \"NAME\", entityJoin = \"missing\", path = \"name\")", "@QueryModel"),
                 "unknown entity join");
-    }
-
-    @Test
-    void ac_src_56_id_pairs_naming_different_source_joins_are_mq3046() {
-        String pairs = """
-                @JoinEntity(name = "manager", entity = Profile.class, on = {
-                    @JoinEntity.On(join = "edge", field = "managerId", id = "key.id"),
-                    @JoinEntity.On(join = "other", field = "nodeId", id = "key.tenant")})
-                """;
-        rejected(model(SOURCE_JOIN + SOURCE_JOIN.replace("name = \"edge\"", "name = \"other\"") + pairs, FIELDS,
-                "@EmbeddedId Key key;"), "all id pairs must name the same source join");
     }
 
     @Test
     void ac_src_56_complete_embedded_id_pairs_are_accepted() {
         Compilation compilation = model(SOURCE_JOIN + """
-                @JoinEntity(name = "manager", entity = Profile.class, on = {
-                    @JoinEntity.On(join = "edge", field = "managerId", id = "key.id"),
-                    @JoinEntity.On(join = "edge", field = "nodeId", id = "key.tenant")})
+                @JoinEntity(name = "manager", source = "edge", entity = Profile.class, on = {
+                    @JoinEntity.On(field = "managerId", id = "key.id"),
+                    @JoinEntity.On(field = "nodeId", id = "key.tenant")})
                 """, FIELDS, "@EmbeddedId Key key;");
         assertThat(compilation).succeededWithoutWarnings();
     }
 
     @Test
     void ac_src_56_empty_id_pairs_are_mq3046() {
-        rejected(model(SOURCE_JOIN + "@JoinEntity(name = \"manager\", entity = Profile.class, on = {})",
+        rejected(model(SOURCE_JOIN + "@JoinEntity(name = \"manager\", source = \"edge\", entity = Profile.class, on = {})",
                 FIELDS, PROFILE), "cover every basic id attribute exactly once");
     }
 
@@ -300,7 +299,7 @@ class EntityJoinChecksTest {
     @Test
     void ac_src_56_entity_must_not_be_a_primitive_class() {
         rejected(model(SOURCE_JOIN + ENTITY_JOIN.replace("entity = Profile.class", "entity = int.class"),
-                FIELDS + ", @Column(join = \"manager\", attribute = \"id\") Long managerId", PROFILE),
+                FIELDS + ", @Column(entityJoin = \"manager\", attribute = \"id\") Long managerId", PROFILE),
                 "entity must name a JPA @Entity");
     }
 

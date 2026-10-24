@@ -1,5 +1,15 @@
 # RFC 0021 — Entity joins off joined sources, and request-bound join filters
 
+> **Amended at the M33 gate** (user decisions; see `reference/92`). D-195: a join that renders `INNER` (declared,
+> not turned `LEFT`) below a `joinFilter` join is `MQ1912`, at statement build rather than at `build()`. D-196: a
+> cursor's identity path for an entity-join column is `entity(<join>).<attr...>` and for a joined-source column
+> `source(<name>).<field>`, so it never collides with a root attribute. Annotation shape (all `@Incubating`):
+> `@JoinEntity(name, entity, source, type, on = @JoinEntity.On(field, id))` with `source` required, and
+> `@Column(entityJoin = ...)` / `@FilterColumn(entityJoin = ...)` in place of `join`. `EntityJoin.on` is
+> `on(ColumnField<M, ?, ?> anchor, String idAttribute)`. A `joinFilter` on an entity join the query does not bind is
+> `MQ1912` at `build()`; an entity class the render options' metamodel rejects as unmapped is `MQ1911` (without a metamodel the provider decides); an `EntityJoinRenderer` that breaks the one-`on`
+> contract is `MQ4014`. Snippets below show the amended shape.
+
 - **Status:** accepted (D-193), after the acceptance spike (`rfc/0021-spike-results.md`). Prompted by a hierarchy report (a closure-table node search, native MySQL today) that RFC 0020
   Part A almost expresses: the source joins, but nothing joins *off* it.
 - **Affects:**
@@ -9,7 +19,7 @@
     model rooted at a source) is unchanged.
   - **`api/10`:** new R-COL-39, a request-bound `ON` filter on a LEFT join (Part B); R-COL-03's `on(...)` bullet points
     to it; new AC-COL-54 to AC-COL-57.
-  - **`processor/30`, `processor/32`:** new R-PROC-46 (`@JoinEntity`, and the `join` member of `@Column` and
+  - **`processor/30`, `processor/32`:** new R-PROC-46 (`@JoinEntity`, and the `entityJoin` member of `@Column` and
     `@FilterColumn`); new `MQ3046`.
   - **`vendor/40`:** new R-VND-32, `ProviderSupport#entityJoins()` returning a `core.EntityJoinRenderer`, a provider
     fact; no `VendorProfile` change.
@@ -82,7 +92,7 @@ filter would drop the node instead, and a static `TableField.on(...)` (R-COL-03,
 ### Part A — an entity joined off a joined source (R-SRC-23, R-SRC-24)
 
 **A.1 The model.** A model that declares a `@JoinSource` declares an entity join with `@JoinEntity`, and reads the
-entity's columns with a new `join` member on `@Column` and `@FilterColumn`:
+entity's columns with a new `entityJoin` member on `@Column` and `@FilterColumn`:
 
 ```java
 @SourceModel(root = HierarchyEdgeEntity.class)
@@ -98,11 +108,11 @@ public record ManagerEdge(
 @JoinSource(name = "edge", source = ManagerEdge.class, on = {
         @JoinSource.On(column = "hierarchyId", key = "hierarchyId"),
         @JoinSource.On(column = "nodeId", key = "endVertex")})
-@JoinEntity(name = "manager", entity = ProfileEntity.class,
-        on = @JoinEntity.On(join = "edge", field = "startVertex"))
+@JoinEntity(name = "manager", entity = ProfileEntity.class, source = "edge",
+        on = @JoinEntity.On(field = "startVertex"))
 @FilterColumn(name = "deleted", path = "deleted")
 @FilterColumn(name = "nodeDeleted", path = "node.deleted")
-@FilterColumn(name = "managerDeleted", join = "manager", path = "deleted")
+@FilterColumn(name = "managerDeleted", entityJoin = "manager", path = "deleted")
 public record NodeDetail(
         @PrimaryKey Long id,
         Long hierarchyId,
@@ -110,15 +120,15 @@ public record NodeDetail(
         @Column(attribute = "node.firstName") String nodeFirstName,
         @Column(attribute = "node.type.name") String nodeType,
         @SourceColumn(join = "edge", field = "startVertex") Long managerId,
-        @Column(join = "manager", attribute = "firstName") String managerFirstName,
-        @Column(join = "manager", attribute = "type.name") String managerType,
+        @Column(entityJoin = "manager", attribute = "firstName") String managerFirstName,
+        @Column(entityJoin = "manager", attribute = "type.name") String managerType,
         @SourceColumn(join = "edge", field = "createdAt") Instant createdAt) {}
 ```
 
 `HierarchyNodeEntity` maps `nodeId` as a basic column and `node` as a read-only `@ManyToOne(fetch = LAZY)
 @JoinColumn(name = "node_id", insertable = false, updatable = false)` to `ProfileEntity` (A.2, "outer plain column").
 
-- **`on` covers the entity's full id, and only it.** Each `On` pairs a field of a joined source (`join`, `field`) with
+- **`on` covers the entity's full id, and only it.** Each `On` pairs a field of the joined source named by `@JoinEntity#source` (`field`) with
   one id attribute of `entity` (`id`, default `""` for a single id). The pairs name every id attribute once: one for a
   single id, one per attribute of an `@IdClass`, one per attribute of an `@EmbeddedId` (`id = "key.part"`). Since the
   id is unique per row of the entity's table, the join adds at most one row per outer row: no row multiplication, so
@@ -127,17 +137,17 @@ public record NodeDetail(
   association (derived identity), a converted source field, or an id whose boxed type differs from the source field's
   (INV-3; `int` against `Integer` is the same type) is `MQ3046`. The join compares database values, so a converted
   field is refused outright, as D-191 and D-189 refuse it for a joined source's key.
-- **The anchor is a joined source of the same model.** `join` names a `@JoinSource` on the model; a field of the root,
-  of a `@Join`, or of another `@JoinEntity` is `MQ3046` in this RFC. All pairs of one `@JoinEntity` name the same
-  joined source.
+- **The anchor is a joined source of the same model.** `source` names a `@JoinSource` on the model; a field of the root,
+  of a `@Join`, or of another `@JoinEntity` is `MQ3046` in this RFC. The pairs of one `@JoinEntity` all
+  belong to its `source`.
 - **`type` is `JoinKind.LEFT` by default**; `INNER` keeps only outer rows that have a matching entity row, which also
   drops the rows a `LEFT`-joined anchor source left unmatched (the flat SQL's meaning; A.6 pins the rendering that
   keeps it).
-- **The entity's columns.** `@Column(join = "manager", attribute = "...")` reads an attribute path of the joined
+- **The entity's columns.** `@Column(entityJoin = "manager", attribute = "...")` reads an attribute path of the joined
   entity, checked against its metamodel with the codes a root path has (`MQ3001`, `MQ3002`, `MQ3014`, `MQ3016`,
   `MQ3029`), through to-one joins as `@Column.attribute` allows (R-COL-25, R-COL-29), so `type.name` is
   `left join profile_type pt on pt.id = p.type_id`. A path that crosses a to-many association is `MQ3046`, since it
-  would multiply rows. `@FilterColumn(join = ...)` is the filter-only counterpart (R-COL-07). `join` defaults to `""`,
+  would multiply rows. `@FilterColumn(entityJoin = ...)` is the filter-only counterpart (R-COL-07). `entityJoin` defaults to `""`,
   the model's root, so every existing model compiles unchanged.
 - **Out of Part A**, each `MQ3046`: a nested `Optional<Model>` (`@Join`) on a joined entity, since its presence key and
   mapper rules (R-COL-15, R-GEN-13) are written for association joins and flat columns cover the case; a `@PrimaryKey`
@@ -152,7 +162,7 @@ the root (`p.id = hn.manager_id` with no association mapped). It is out of this 
 mapped as a read-only association (`insertable = false, updatable = false`), which the metamodel then checks and to
 which R-COL-25, R-COL-29 and `@Join` already apply; a source's column has no mapping at all, so there is no such route
 for it, which is the gap this RFC closes. The annotation leaves room: a later `On(column = "...")` naming an outer path
-in place of `join`/`field` is additive.
+in place of `field` is additive.
 
 **A.3 Generated code and runtime API.** The generated `query(...)` keeps RFC 0020's signature, one `SourceQuery` per
 joined source, and registers each entity join, which binds no request value:
@@ -178,7 +188,7 @@ public static final ColumnField<NodeDetail, ProfileTypeEntity, String> MANAGER_T
 ```
 
 - `@Incubating EntityJoin<M, E>` (`core`) is immutable (INV-9): a name, the entity class, the kind and the pairs.
-  `EntityJoin.on(ColumnField<M, ?, K> anchor, String idAttribute)` pairs a column over a joined source's root with an
+  `EntityJoin.on(ColumnField<M, ?, ?> anchor, String idAttribute)` pairs a column over a joined source's root with an
   id attribute. `MANAGER.root()` is a `TableField<E, E>` of a new kind, a *joined entity* keyed by the join's name, as
   R-SRC-21's joined source is: it resolves to its own join in `JoinContext`, created once per statement, and is equal
   only to a field of the same join name. `TableField.join(MANAGER.root(), ...)` and `ColumnField.of(...)` over it
@@ -196,7 +206,7 @@ public static final ColumnField<NodeDetail, ProfileTypeEntity, String> MANAGER_T
 
   A column or table over a joined entity the query does not register is `MQ1003` at first resolution, as a column over
   an unregistered joined source is (R-SRC-21). `MQ1910` stays the `SourceJoin` code.
-- `@Incubating` throughout: `@JoinEntity`, `@JoinEntity.On`, `@Column#join`, `@FilterColumn#join`, `EntityJoin`,
+- `@Incubating` throughout: `@JoinEntity`, `@JoinEntity.On`, `@Column#entityJoin`, `@FilterColumn#entityJoin`, `EntityJoin`,
   `EntityJoin.On`, `Builder#joinEntity`, `EntityJoinRenderer`, `ProviderSupport#entityJoins`.
 
 **A.4 Nullability, filters, orders, groups, counts.**
@@ -493,7 +503,7 @@ both and unused in the repository.
 | R-SRC-23 | A model that joins a source joins an entity on its full id, equal to fields of one joined source (`@JoinEntity`, `EntityJoin`, `joinEntity`); a joined entity is a table-field kind keyed by the join name; its columns are nullable under `LEFT`; `Agg.count` over it and every join below it counts its id on both lines; `firstBy` may read it |
 | R-SRC-24 | The entity join is created right after its anchor source join, so it is on exactly R-SRC-22's statements; it renders through `EntityJoinRenderer` with the root as anchor on every line; locks, fetch plans and writes follow the joined source |
 | R-COL-39 | `joinFilter`: a request-bound filter ANDed into one LEFT join's `ON`, over that join's own columns only |
-| R-PROC-46 | `@JoinEntity`, `@JoinEntity.On`, `@Column#join`, `@FilterColumn#join` checks |
+| R-PROC-46 | `@JoinEntity`, `@JoinEntity.On`, `@Column#entityJoin`, `@FilterColumn#entityJoin` checks |
 | R-VND-32 | `ProviderSupport#entityJoins()`, `EntityJoinRenderer` |
 
 | AC | Asserts |
@@ -513,12 +523,12 @@ both and unused in the repository.
 |---|---|
 | `MQ1911` | A hand-written `EntityJoin`: at build, a converted anchor, pairs spanning two sources or over an unbound source, a join registered twice; at first resolution, pairs that miss or exceed the id, a non-id or association id attribute, a boxed-type mismatch, a to-many path from a joined entity |
 | `MQ1912` | A join filter that reads another table, a path from the filtered table, a to-many path, `exists`, an aggregate, window or correlated value, or a sub-query term crossing the filtered join; on an `INNER` join, a root, a join an id-form column reads, or a join key the content statement never creates |
-| `MQ3046` | A `@JoinEntity` whose `on` misses or exceeds the id, names an association id attribute or a converted field, mismatches a boxed type, names an unknown or non-source join or an unknown field; a duplicate join name; on a `@SourceModel`; a `join` member naming an unknown entity join; a to-many path, a nested `@Join` or a `@PrimaryKey` over a joined entity |
+| `MQ3046` | A `@JoinEntity` whose `on` misses or exceeds the id, names an association id attribute or a converted field, mismatches a boxed type, names a `source` that is not a model `@JoinSource` or an unknown field; a duplicate join name; on a `@SourceModel`; an `entityJoin` member naming an unknown entity join; a to-many path, a nested `@Join` or a `@PrimaryKey` over a joined entity |
 | `MQ4014` | Widened to a provider without `entityJoins()`; meaning unchanged |
 
 ## Compatibility
 
-All additive. `@Column` and `@FilterColumn` gain a `join` member defaulting to `""`, the root, so every existing model
+All additive. `@Column` and `@FilterColumn` gain an `entityJoin` member defaulting to `""`, the root, so every existing model
 compiles and generates the same code. `ProviderSupport` gains a default method returning empty, so a third-party
 provider fails safe (`MQ4014`). `ModelQuery.Builder` gains `joinEntity` and `joinFilter`; no shipped signature,
 result or committed SQL snapshot changes. Everything new is `@Incubating`; the freeze review decides each piece.
@@ -549,10 +559,10 @@ result or committed SQL snapshot changes. Everything new is `@Incubating`; the f
 No question stays open. Each resolution below is recorded in D-193, with the spike's evidence
 (`rfc/0021-spike-results.md`).
 
-1. **The annotation shape.** Options: (a) a class-level repeatable `@JoinEntity(name, entity, type, on =
-   @JoinEntity.On(join, field, id))`, columns via `@Column(join = ...)`; (b) entity joins nested in the source,
+1. **The annotation shape.** Options: (a) a class-level repeatable `@JoinEntity(name, entity, source, type, on =
+   @JoinEntity.On(field, id))`, columns via `@Column(entityJoin = ...)`; (b) entity joins nested in the source,
    `@JoinSource(..., entities = @JoinSource.Entity(...))`; (c) a separate `@EntityColumn(join, attribute)` in place of
-   `@Column#join`. Decided: (a) with `@Column#join`. A joined entity's column is checked as an entity path, the
+   `@Column#entityJoin`. Decided: (a) with `@Column#entityJoin`. A joined entity's column is checked as an entity path, the
    check `@Column` already runs, so a separate annotation (RFC 0020's reason for `@SourceColumn`) does not apply; (a)
    keeps the join named on its own, which A.2's later outer-column anchor needs, where (b) would tie it to a source.
 2. **The hook's home.** Options: a new `EntityJoinRenderer` behind `ProviderSupport#entityJoins()`, or a

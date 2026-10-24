@@ -13,6 +13,7 @@ import java.util.function.Function;
 import java.util.function.UnaryOperator;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class EntityJoinTest {
@@ -54,20 +55,20 @@ class EntityJoinTest {
     @Test
     void ac_src_56_entity_identity_and_to_one_properties_keep_join_and_model_names() {
         var other = entity("other", MANAGER_ID);
-        assertThat(NAME.identityPath()).isEqualTo("manager.name");
+        assertThat(NAME.identityPath()).isEqualTo("entity(manager).name");
         assertThat(ColumnField.of(View.class, other.root(), "name", String.class).identityPath())
-                .isEqualTo("other.name");
+                .isEqualTo("entity(other).name");
         var type = TableField.<Profile, Profile>join(MANAGER.root(), "type", JoinType.LEFT);
         var nested = TableField.<Profile, Profile>join(type, "parent", JoinType.LEFT);
         var column = ColumnField.of(View.class, nested, "name", String.class).named("managerType");
-        assertThat(column.identityPath()).isEqualTo("manager.type.parent.name");
+        assertThat(column.identityPath()).isEqualTo("entity(manager).type.parent.name");
         assertThat(column.propertyPath()).isEqualTo("managerType");
         assertThat(ColumnField.of(View.class, type.named("kind"), "name", String.class).named("label")
                 .propertyPath()).isEqualTo("kind.label");
         var root = TableField.root(Profile.class);
         assertThat(ColumnField.of(View.class, root, "name", String.class).identityPath()).isEqualTo("name");
         assertThat(TableField.<Profile, Profile>join(root, "type", JoinType.LEFT).propertyPath()).isNull();
-        assertThat(MANAGER_ID.identityPath()).isEqualTo("mq_managerId");
+        assertThat(MANAGER_ID.identityPath()).isEqualTo("source(sales).mq_managerId");
     }
 
     @Test
@@ -231,6 +232,18 @@ class EntityJoinTest {
         assertThatThrownBy(() -> MANAGER.checkIds(null))
                 .isInstanceOfSatisfying(ModelQueryConfigurationException.class,
                         e -> assertThat(e.code()).isEqualTo(MqCode.MQ4014));
+    }
+
+    @Test
+    void ac_pag_33_filter_only_entries_of_an_entity_join_and_a_root_path_of_the_same_name_do_not_clash() {
+        var rootName = ColumnField.of(View.class, DAY, "name", String.class);
+        TableField<Day, Profile> association = TableField.join(DAY, "manager", JoinType.LEFT);
+        var associationName = ColumnField.of(View.class, association, "name", String.class);
+        assertThat(rootName.identityPath()).isEqualTo("name");
+        assertThat(associationName.identityPath()).isEqualTo("manager.name");
+        assertThat(NAME.identityPath()).isEqualTo("entity(manager).name");
+        assertThatCode(() -> FieldIndex.builder(View.class).filterOnly(rootName, associationName, NAME).build())
+                .doesNotThrowAnyException();
     }
 
     private static void mq1911(Runnable action, String detail) {

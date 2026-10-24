@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rey.modelquery.core.BuiltQuery;
 import com.rey.modelquery.core.ColumnField;
+import com.rey.modelquery.annotations.JoinKind;
+import com.rey.modelquery.core.EntityJoin;
 import com.rey.modelquery.core.KeysetCursorCodec;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryExecutionException;
@@ -19,6 +21,8 @@ import com.rey.modelquery.core.Row;
 import com.rey.modelquery.core.RowMapper;
 import com.rey.modelquery.core.SelectField;
 import com.rey.modelquery.core.SelectSet;
+import com.rey.modelquery.core.SourceJoin;
+import com.rey.modelquery.core.SourceQuery;
 import com.rey.modelquery.core.TableField;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Tuple;
@@ -33,6 +37,7 @@ import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.UnaryOperator;
 import org.hibernate.SessionFactory;
 import org.hibernate.boot.registry.StandardServiceRegistryBuilder;
 import org.hibernate.cfg.AvailableSettings;
@@ -275,6 +280,55 @@ class KeysetCursorTest {
                 .orderBy(reference.asc().nullsFirst()).keyset().build();
         return Keyset.of(query, query.primaryKey().orElseThrow(), NullOrdering.UNKNOWN, Optional.empty(),
                 KeysetNullKeys.HONOUR_NULL_PRECEDENCE).fingerprint();
+    }
+
+    @Test
+    void ac_pag_33_an_entity_join_column_and_a_root_path_of_the_same_name_have_different_fingerprints() {
+        var root = TableField.root(CursorPayment.class);
+        var sourceId = ColumnField.of(CursorPayment.class, root, "id", Long.class).named("id");
+        var source = SourceQuery.builder(CursorPayment.class, root, SelectSet.of(sourceId),
+                PrimaryKey.of(sourceId)).build();
+        var id = ColumnField.of(String.class, root, "id", Long.class);
+        var sourceJoin = SourceJoin.of("src", CursorPayment.class, JoinKind.LEFT,
+                List.of(SourceJoin.on(id, sourceId)));
+        var entity = EntityJoin.of("customer", CursorOwner.class, JoinKind.LEFT,
+                List.of(EntityJoin.on(ColumnField.over(String.class, sourceJoin.root(), sourceId), "id")));
+        var joined = ColumnField.of(String.class, entity.root(), "name", String.class);
+        TableField<CursorPayment, CursorOwner> association =
+                TableField.join(root, "customer", jakarta.persistence.criteria.JoinType.LEFT);
+        var rooted = ColumnField.of(String.class, association, "name", String.class);
+        assertThat(joined.identityPath()).isEqualTo("entity(customer).name");
+        assertThat(rooted.identityPath()).isEqualTo("customer.name");
+        assertThat(identityFingerprint(root, joined, b -> b.joinSource(sourceJoin, source).joinEntity(entity)))
+                .isNotEqualTo(identityFingerprint(root, rooted, b -> b));
+    }
+
+    @Test
+    void ac_pag_33_a_joined_source_column_and_a_root_column_of_the_same_name_have_different_fingerprints() {
+        var root = TableField.root(CursorPayment.class);
+        var sourceId = ColumnField.of(CursorPayment.class, root, "id", Long.class).named("id");
+        var sourceTotal = ColumnField.of(CursorPayment.class, root, "total", Long.class).named("total");
+        var source = SourceQuery.builder(CursorPayment.class, root, SelectSet.of(sourceId, sourceTotal),
+                PrimaryKey.of(sourceId)).build();
+        var id = ColumnField.of(String.class, root, "id", Long.class);
+        var join = SourceJoin.of("totals", CursorPayment.class, JoinKind.LEFT, List.of(SourceJoin.on(id, sourceId)));
+        var joined = ColumnField.over(String.class, join.root(), sourceTotal);
+        var rooted = ColumnField.of(String.class, root, "total", Long.class);
+        assertThat(joined.identityPath()).startsWith("source(totals).");
+        assertThat(rooted.identityPath()).isEqualTo("total");
+        assertThat(identityFingerprint(root, joined, b -> b.joinSource(join, source)))
+                .isNotEqualTo(identityFingerprint(root, rooted, b -> b));
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static byte[] identityFingerprint(TableField<CursorPayment, CursorPayment> root,
+            ColumnField<String, ?, ?> order, UnaryOperator<ModelQuery.Builder> joins) {
+        var id = ColumnField.of(String.class, root, "id", Long.class);
+        ModelQuery.Builder builder = ModelQuery.builder(root, row -> String.valueOf(row.get(id)))
+                .select(SelectSet.of(id)).primaryKey(PrimaryKey.of(id));
+        ModelQuery<?, ?, String> query = joins.apply(builder).orderBy(order.asc().nullsFirst()).keyset().build();
+        return Keyset.of(query, (PrimaryKey) query.primaryKey().orElseThrow(), NullOrdering.UNKNOWN,
+                Optional.empty(), KeysetNullKeys.HONOUR_NULL_PRECEDENCE).fingerprint();
     }
 
     private static class CursorPayment {}

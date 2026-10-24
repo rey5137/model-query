@@ -20,7 +20,7 @@ public @interface FilterColumn {
 
     /** @return the entity join to read, or empty for the model's root */
     @Incubating
-    String join() default "";
+    String entityJoin() default "";
 
     /**
      * Name of the generated constant.
@@ -30,7 +30,7 @@ public @interface FilterColumn {
     String name();
 
     /**
-     * Dotted attribute path from the root entity or named entity {@link #join()}
+     * Dotted attribute path from the root entity or named entity {@link #entityJoin()}
      * ({@code "deleted"}, {@code "customer.country"}).
      *
      * @return the attribute path
@@ -46,7 +46,8 @@ public @interface FilterColumn {
     Class<?> treat() default void.class;
 
     /**
-     * How an association on the path is joined when no {@link Join} already joins it.
+     * How an association on the path is joined when no {@link Join} already joins it. It applies to the associations
+     * on the path, not to the named {@link #entityJoin()}, whose kind {@link JoinEntity#type()} sets.
      *
      * @return the join kind
      */

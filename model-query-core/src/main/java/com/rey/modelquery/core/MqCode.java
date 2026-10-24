@@ -17,7 +17,10 @@ public enum MqCode {
     /** An attribute named by a column or join does not exist on its entity (R-COL-01, R-COL-08). */
     MQ1002("An attribute named by a column or join does not exist"),
 
-    /** A column or table sits on a root entity the query is not rooted at (R-COL-01). */
+    /**
+     * A column or table sits on a root entity the query is not rooted at (R-COL-01); also a column over an entity join
+     * the query does not bind, and a named source or entity-join column under a join plan (R-SRC-23, R-FCH-07).
+     */
     MQ1003("A column or table sits on a root entity the query is not rooted at"),
 
     /**
@@ -382,12 +385,19 @@ public enum MqCode {
 
     /**
      * An entity join is bound twice, has an invalid source anchor, or does not pair that source with every basic
-     * entity id attribute exactly once using the same boxed Java types (R-SRC-23, R-SRC-24).
+     * entity id attribute exactly once using the same boxed Java types, or names an entity class the render
+     * options' metamodel rejects. Without a metamodel the renderer or provider decides (Hibernate may throw its own
+     * {@code IllegalArgumentException}; a {@code From} whose model is no {@code EntityType} is MQ4014)
+     * (R-SRC-23, R-SRC-24).
      */
     @Incubating
     MQ1911("An entity join must bind one joined source to its full entity id, once"),
 
-    /** A request-bound join filter has an unsafe target or value, or a query could bypass its ON (R-COL-39, D-194). */
+    /**
+     * A request-bound join filter has an unsafe target or value, targets an entity join the query does not bind, or a
+     * query could bypass its ON; also a join that resolves to INNER below a join-filtered join, refused at statement
+     * build rather than at {@code build()} (R-COL-39, D-194, D-195).
+     */
     @Incubating
     MQ1912("A join filter must read only its LEFT join's own columns, values and constants"),
 
@@ -577,7 +587,9 @@ public enum MqCode {
     /**
      * The persistence provider lacks a source, ordered sub-query or source-feature renderer, including a tree's
      * duplicate-key check, or can't render an operator feature; raised at build time, before any statement (R-SRC-11,
-     * R-SRC-14, R-COL-32, R-VND-25, R-VND-23, R-AGG-16, R-AGG-18, R-VND-30, R-VND-32).
+     * R-SRC-14, R-COL-32, R-VND-25, R-VND-23, R-AGG-16, R-AGG-18, R-VND-30, R-VND-32); also an entity-join renderer
+     * that does not call {@code on} exactly once, returns another join than the one it passed to {@code on}, or
+     * returns one with no ON, naming the renderer class (R-VND-32).
      */
     MQ4014("The persistence provider lacks a renderer for a source, ordered sub-query, source feature, "
             + "entity join, treated path, operator feature, exact average or first-by aggregate"),

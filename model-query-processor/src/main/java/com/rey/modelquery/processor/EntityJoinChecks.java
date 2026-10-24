@@ -44,7 +44,7 @@ final class EntityJoinChecks {
                 continue;
             }
             if (field.treat() != null) {
-                error(model, field.entityJoin(), "treat cannot be combined with join", diagnostics);
+                error(model, field.entityJoin(), "treat cannot be combined with entityJoin", diagnostics);
             }
             if (field.primaryKey()) {
                 error(model, field.entityJoin(), "@PrimaryKey is forbidden on a joined-entity column", diagnostics);
@@ -57,7 +57,7 @@ final class EntityJoinChecks {
         for (var column : model.filterColumns()) {
             if (!column.entityJoin().isEmpty()) {
                 if (column.treat() != null) {
-                    error(model, column.entityJoin(), "treat cannot be combined with join", diagnostics);
+                    error(model, column.entityJoin(), "treat cannot be combined with entityJoin", diagnostics);
                 }
                 checkPath(model, column.entityJoin(), column.path(), diagnostics);
             }
@@ -75,11 +75,14 @@ final class EntityJoinChecks {
         var id = metamodel.id(entity);
         Set<String> required = id.components().isEmpty() ? id.attributes() : id.components();
         var paired = new HashSet<String>();
-        String anchor = join.on().isEmpty() ? "" : join.on().get(0).join();
+        var sourceJoin = model.joinSources().stream().filter(source -> source.name().equals(join.source()))
+                .findFirst().orElse(null);
+        // A @JoinSource whose model failed to resolve is reported by that model's own error.
+        if (sourceJoin == null) {
+            error(model, join.name(), "source '" + join.source() + "' must name a @JoinSource of this model",
+                    diagnostics);
+        }
         for (var pair : join.on()) {
-            if (!anchor.equals(pair.join())) {
-                error(model, join.name(), "all id pairs must name the same source join", diagnostics);
-            }
             String path = pair.id();
             if (path.isEmpty() && id.components().isEmpty() && required.size() == 1) {
                 path = required.iterator().next();
@@ -94,24 +97,18 @@ final class EntityJoinChecks {
             if (!paired.add(path)) {
                 error(model, join.name(), "pairs id attribute '" + path + "' more than once", diagnostics);
             }
-            checkAnchor(model, join, pair, basic
-                    ? walk.steps().get(walk.steps().size() - 1).attribute() : null, diagnostics);
+            if (sourceJoin != null && sourceJoin.sourceModel() != null) {
+                checkAnchor(join, pair, sourceJoin.sourceModel(), basic
+                        ? walk.steps().get(walk.steps().size() - 1).attribute() : null, model, diagnostics);
+            }
         }
         if (required.isEmpty() || !paired.equals(required)) {
             error(model, join.name(), "id pairs must cover every basic id attribute exactly once", diagnostics);
         }
     }
 
-    private void checkAnchor(ModelDefinition model, EntityJoinDefinition join, EntityJoinOn pair,
-            EntityAttribute id, Diagnostics diagnostics) {
-        var sourceJoin = model.joinSources().stream().filter(source -> source.name().equals(pair.join()))
-                .findFirst().orElse(null);
-        if (sourceJoin == null || sourceJoin.sourceModel() == null) {
-            error(model, join.name(), "anchor '" + pair.join() + "' must name a @JoinSource of this model",
-                    diagnostics);
-            return;
-        }
-        var source = sourceJoin.sourceModel();
+    private void checkAnchor(EntityJoinDefinition join, EntityJoinOn pair, ModelDefinition source,
+            EntityAttribute id, ModelDefinition model, Diagnostics diagnostics) {
         var field = source.readable().stream().filter(candidate -> candidate.name().equals(pair.field()))
                 .findFirst().orElse(null);
         if (field == null) {
