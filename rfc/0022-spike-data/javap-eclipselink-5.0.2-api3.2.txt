@@ -1,0 +1,60 @@
+# API 3.2 and eclipselink-5.0.2-api3.2; javap -public -s
+## jakarta.persistence.criteria.From
+public interface jakarta.persistence.criteria.From<Z, X> extends jakarta.persistence.criteria.Path<X>, jakarta.persistence.criteria.FetchParent<Z, X> {
+  public abstract java.util.Set<jakarta.persistence.criteria.Join<X, ?>> getJoins();
+  public abstract <Y> jakarta.persistence.criteria.Join<X, Y> join(java.lang.Class<Y>);
+    descriptor: (Ljava/lang/Class;)Ljakarta/persistence/criteria/Join;
+  public abstract <Y> jakarta.persistence.criteria.Join<X, Y> join(java.lang.Class<Y>, jakarta.persistence.criteria.JoinType);
+    descriptor: (Ljava/lang/Class;Ljakarta/persistence/criteria/JoinType;)Ljakarta/persistence/criteria/Join;
+## jakarta.persistence.criteria.Join
+public interface jakarta.persistence.criteria.Join<Z, X> extends jakarta.persistence.criteria.From<Z, X> {
+  public abstract jakarta.persistence.criteria.Join<Z, X> on(jakarta.persistence.criteria.Expression<java.lang.Boolean>);
+    descriptor: (Ljakarta/persistence/criteria/Expression;)Ljakarta/persistence/criteria/Join;
+  public abstract jakarta.persistence.criteria.Join<Z, X> on(jakarta.persistence.criteria.Predicate...);
+    descriptor: ([Ljakarta/persistence/criteria/Predicate;)Ljakarta/persistence/criteria/Join;
+  public abstract jakarta.persistence.criteria.Predicate getOn();
+    descriptor: ()Ljakarta/persistence/criteria/Predicate;
+## org.eclipse.persistence.internal.jpa.querydef.FromImpl
+public class org.eclipse.persistence.internal.jpa.querydef.FromImpl<Z, X> extends org.eclipse.persistence.internal.jpa.querydef.PathImpl<X> implements jakarta.persistence.criteria.From<Z, X> {
+  public <T> org.eclipse.persistence.internal.jpa.querydef.FromImpl(jakarta.persistence.criteria.Path<Z>, jakarta.persistence.metamodel.ManagedType, jakarta.persistence.metamodel.Metamodel, java.lang.Class<X>, org.eclipse.persistence.expressions.Expression, jakarta.persistence.metamodel.Bindable<T>);
+  public <Y> jakarta.persistence.criteria.Join<X, Y> join(java.lang.Class<Y>);
+    descriptor: (Ljava/lang/Class;)Ljakarta/persistence/criteria/Join;
+  public <Y> jakarta.persistence.criteria.Join<X, Y> join(java.lang.Class<Y>, jakarta.persistence.criteria.JoinType);
+    descriptor: (Ljava/lang/Class;Ljakarta/persistence/criteria/JoinType;)Ljakarta/persistence/criteria/Join;
+## PortableRenderer: direct invokeinterface descriptors
+Compiled from "LinkProbe.java"
+class PortableRenderer implements LinkProbe$Renderer {
+  public PortableRenderer();
+    Code:
+       0: aload_0
+       1: invokespecial #1                  // Method java/lang/Object."<init>":()V
+       4: return
+
+  public jakarta.persistence.criteria.Join<?, ?> join(jakarta.persistence.criteria.From<?, ?>, jakarta.persistence.criteria.CriteriaBuilder, boolean);
+    Code:
+       0: aload_1
+       1: ldc           #7                  // class LinkProbe$ProbeEntity
+       3: getstatic     #9                  // Field jakarta/persistence/criteria/JoinType.LEFT:Ljakarta/persistence/criteria/JoinType;
+       6: invokeinterface #15,  3           // InterfaceMethod jakarta/persistence/criteria/From.join:(Ljava/lang/Class;Ljakarta/persistence/criteria/JoinType;)Ljakarta/persistence/criteria/Join;
+      11: astore        4
+      13: iload_3
+      14: ifeq          43
+      17: aload_2
+      18: aload         4
+      20: ldc           #21                 // String id
+      22: invokeinterface #23,  2           // InterfaceMethod jakarta/persistence/criteria/Join.get:(Ljava/lang/String;)Ljakarta/persistence/criteria/Path;
+      27: aload_1
+      28: ldc           #21                 // String id
+      30: invokeinterface #29,  2           // InterfaceMethod jakarta/persistence/criteria/From.get:(Ljava/lang/String;)Ljakarta/persistence/criteria/Path;
+      35: invokeinterface #30,  3           // InterfaceMethod jakarta/persistence/criteria/CriteriaBuilder.equal:(Ljakarta/persistence/criteria/Expression;Ljakarta/persistence/criteria/Expression;)Ljakarta/persistence/criteria/Predicate;
+      40: goto          49
+      43: aload_2
+      44: invokeinterface #36,  1           // InterfaceMethod jakarta/persistence/criteria/CriteriaBuilder.conjunction:()Ljakarta/persistence/criteria/Predicate;
+      49: astore        5
+      51: aload         4
+      53: aload         5
+      55: invokeinterface #40,  2           // InterfaceMethod jakarta/persistence/criteria/Join.on:(Ljakarta/persistence/criteria/Expression;)Ljakarta/persistence/criteria/Join;
+      60: pop
+      61: aload         4
+      63: areturn
+}

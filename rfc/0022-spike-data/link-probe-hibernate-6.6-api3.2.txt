@@ -1,0 +1,25 @@
+Oct 24, 2026 5:56:04 PM org.hibernate.jpa.internal.util.LogHelper logPersistenceUnitInformation
+INFO: HHH000204: Processing PersistenceUnitInfo [name: rfc0022-link]
+Oct 24, 2026 5:56:04 PM org.hibernate.Version logVersion
+INFO: HHH000412: Hibernate ORM core version 6.6.58.Final
+Oct 24, 2026 5:56:04 PM org.hibernate.cache.internal.RegionFactoryInitiator initiateService
+INFO: HHH000026: Second-level cache disabled
+Oct 24, 2026 5:56:04 PM org.hibernate.engine.jdbc.dialect.internal.DialectFactoryImpl constructDialect
+WARN: HHH90000025: H2Dialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+Oct 24, 2026 5:56:04 PM org.hibernate.engine.jdbc.env.internal.JdbcEnvironmentInitiator logConnectionInfo
+INFO: HHH10001005: Database info:
+	Database JDBC URL [undefined/unknown]
+	Database driver: undefined/unknown
+	Database version: 2.1.214
+	Autocommit mode: undefined/unknown
+	Isolation level: <unknown>
+	Minimum pool size: undefined/unknown
+	Maximum pool size: undefined/unknown
+Oct 24, 2026 5:56:05 PM org.hibernate.engine.transaction.jta.platform.internal.JtaPlatformInitiator initiateService
+INFO: HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+bootstrap_connections=0
+A.2 hibernate-6.6-api3.2/class-load PASS PortableRenderer
+A.2 hibernate-6.6-api3.2/initialize-verify PASS -Xverify:all; constructor returned
+A.2 hibernate-6.6-api3.2/conjunction PASS first_call=java.lang.AbstractMethodError: Receiver class org.hibernate.query.sqm.tree.from.SqmRoot does not define or inherit an implementation of the resolved method 'abstract jakarta.persistence.criteria.Join join(java.lang.Class, jakarta.persistence.criteria.JoinType)' of interface jakarta.persistence.criteria.From.; connections=0; cold_us=5205.0 (info only); expected=java.lang.AbstractMethodError
+A.2 hibernate-6.6-api3.2/id-self-equality PASS first_call=java.lang.AbstractMethodError: Receiver class org.hibernate.query.sqm.tree.from.SqmRoot does not define or inherit an implementation of the resolved method 'abstract jakarta.persistence.criteria.Join join(java.lang.Class, jakarta.persistence.criteria.JoinType)' of interface jakarta.persistence.criteria.From.; connections=0; cold_us=22.167 (info only); expected=java.lang.AbstractMethodError
+A.1 hibernate-6.6-api3.2/signatures-and-implementation NOT_RUN A.1 implementation contract applies to Hibernate 7.4 and EclipseLink 5 only

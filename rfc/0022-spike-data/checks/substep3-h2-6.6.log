@@ -1,0 +1,29 @@
+Oct 24, 2026 11:31:00 AM org.hibernate.Version logVersion
+INFO: HHH000412: Hibernate ORM core version 6.6.58.Final
+Oct 24, 2026 11:31:01 AM org.hibernate.cache.internal.RegionFactoryInitiator initiateService
+INFO: HHH000026: Second-level cache disabled
+Oct 24, 2026 11:31:01 AM org.hibernate.engine.jdbc.env.internal.JdbcEnvironmentInitiator logConnectionInfo
+INFO: HHH10001005: Database info:
+	Database JDBC URL [Connecting through datasource 'net.ttddyy.dsproxy.support.ProxyDataSource@7baf6acf']
+	Database driver: undefined/unknown
+	Database version: 2.5.252
+	Autocommit mode: undefined/unknown
+	Isolation level: undefined/unknown
+	Minimum pool size: undefined/unknown
+	Maximum pool size: undefined/unknown
+Oct 24, 2026 11:31:01 AM org.hibernate.engine.transaction.jta.platform.internal.JtaPlatformInitiator initiateService
+INFO: HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+Oct 24, 2026 11:31:02 AM org.hibernate.cache.internal.RegionFactoryInitiator initiateService
+INFO: HHH000026: Second-level cache disabled
+Oct 24, 2026 11:31:02 AM org.hibernate.engine.jdbc.env.internal.JdbcEnvironmentInitiator logConnectionInfo
+INFO: HHH10001005: Database info:
+	Database JDBC URL [Connecting through datasource 'net.ttddyy.dsproxy.support.ProxyDataSource@7baf6acf']
+	Database driver: undefined/unknown
+	Database version: 2.5.252
+	Autocommit mode: undefined/unknown
+	Isolation level: undefined/unknown
+	Minimum pool size: undefined/unknown
+	Maximum pool size: undefined/unknown
+Oct 24, 2026 11:31:02 AM org.hibernate.engine.transaction.jta.platform.internal.JtaPlatformInitiator initiateService
+INFO: HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+RFC0022 H2 6.6.58.Final: PASS 106, FAIL 0, NOT_RUN 0

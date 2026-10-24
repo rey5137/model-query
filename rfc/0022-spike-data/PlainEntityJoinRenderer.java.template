@@ -1,0 +1,29 @@
+package com.rey.modelquery.spike.rfc0022;
+
+import com.rey.modelquery.annotations.JoinKind;
+import com.rey.modelquery.core.EntityJoinRenderer;
+import jakarta.persistence.criteria.From;
+import jakarta.persistence.criteria.Join;
+import jakarta.persistence.criteria.JoinType;
+import jakarta.persistence.criteria.Predicate;
+import java.util.function.Function;
+
+/** A.3's prototype: no provider classes, reflection, per-query fields or predicate replacement. */
+public final class PlainEntityJoinRenderer implements EntityJoinRenderer {
+    public PlainEntityJoinRenderer() {}
+
+    @Override
+    public <E> From<?, E> join(From<?, ?> root, Class<E> entity, JoinKind kind,
+            Function<From<?, E>, Predicate> on) {
+        Join<?, E> joined = root.join(entity, kind == JoinKind.LEFT ? JoinType.LEFT : JoinType.INNER);
+        if (!entity.equals(joined.getJavaType())) {
+            throw new IllegalStateException("From.join(" + entity.getName() + ") returned Java type "
+                    + joined.getJavaType().getName());
+        }
+        joined.on(on.apply(joined));
+        if (joined.getOn() == null) {
+            throw new IllegalStateException("getOn() is null after on");
+        }
+        return joined;
+    }
+}

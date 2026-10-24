@@ -1,0 +1,177 @@
+[EL Warning]: metadata: 2026.10.24 11:35:04.413--ServerSession(539690370)--Reverting the lazy setting on the OneToOne or ManyToOne attribute [team] for the entity class [class com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Employee] since weaving was not enabled or did not occur.
+[EL Warning]: metadata: 2026.10.24 11:35:04.416--ServerSession(539690370)--Reverting the lazy setting on the OneToOne or ManyToOne attribute [team] for the entity class [class com.rey.modelquery.spike.rfc0022.Rfc0022Entities$EmployeeIc] since weaving was not enabled or did not occur.
+[EL Warning]: metadata: 2026.10.24 11:35:04.416--ServerSession(539690370)--Reverting the lazy setting on the OneToOne or ManyToOne attribute [region] for the entity class [class com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice] since weaving was not enabled or did not occur.
+[EL Warning]: metadata: 2026.10.24 11:35:04.416--ServerSession(539690370)--Reverting the lazy setting on the OneToOne or ManyToOne attribute [rep] for the entity class [class com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice] since weaving was not enabled or did not occur.
+[EL Warning]: metadata: 2026.10.24 11:35:04.416--ServerSession(539690370)--Reverting the lazy setting on the OneToOne or ManyToOne attribute [team] for the entity class [class com.rey.modelquery.spike.rfc0022.Rfc0022Entities$EmployeeEmb] since weaving was not enabled or did not occur.
+A.4-repro untyped:
+java.lang.IllegalArgumentException: The attribute [code] is not present in the managed type [EntityTypeImpl@1048855692:Invoice [ javaType: class com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice descriptor: RelationalDescriptor(com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice --> [DatabaseTable(invoice)]), mappings: 7]].
+	at org.eclipse.persistence.internal.jpa.metamodel.ManagedTypeImpl.getAttribute(ManagedTypeImpl.java:151)
+	at org.eclipse.persistence.internal.jpa.querydef.FromImpl.get(FromImpl.java:310)
+	at com.rey.modelquery.spike.rfc0022.PlainJoinReproduction.apply(PlainJoinReproduction.java:26)
+	at com.rey.modelquery.spike.rfc0022.PlainJoinReproduction.apply(PlainJoinReproduction.java:12)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.lambda$reproduce$7(EclipseLinkEngineProbe.java:168)
+	at com.rey.modelquery.spike.rfc0022.SpikeHarness.cell(SpikeHarness.java:162)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.reproduce(EclipseLinkEngineProbe.java:166)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.main(EclipseLinkEngineProbe.java:76)
+A.4-repro typed-before-on:
+java.lang.IllegalArgumentException: The attribute [code] is not present in the managed type [EntityTypeImpl@1048855692:Invoice [ javaType: class com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice descriptor: RelationalDescriptor(com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice --> [DatabaseTable(invoice)]), mappings: 7]].
+	at org.eclipse.persistence.internal.jpa.metamodel.ManagedTypeImpl.getAttribute(ManagedTypeImpl.java:151)
+	at org.eclipse.persistence.internal.jpa.querydef.FromImpl.get(FromImpl.java:310)
+	at com.rey.modelquery.spike.rfc0022.PlainJoinReproduction.apply(PlainJoinReproduction.java:31)
+	at com.rey.modelquery.spike.rfc0022.PlainJoinReproduction.apply(PlainJoinReproduction.java:12)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.lambda$reproduce$7(EclipseLinkEngineProbe.java:168)
+	at com.rey.modelquery.spike.rfc0022.SpikeHarness.cell(SpikeHarness.java:162)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.reproduce(EclipseLinkEngineProbe.java:166)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.main(EclipseLinkEngineProbe.java:76)
+A.4-repro typed-after-on:
+java.lang.IllegalArgumentException: The attribute [code] is not present in the managed type [EntityTypeImpl@1048855692:Invoice [ javaType: class com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice descriptor: RelationalDescriptor(com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice --> [DatabaseTable(invoice)]), mappings: 7]].
+	at org.eclipse.persistence.internal.jpa.metamodel.ManagedTypeImpl.getAttribute(ManagedTypeImpl.java:151)
+	at org.eclipse.persistence.internal.jpa.querydef.FromImpl.get(FromImpl.java:310)
+	at com.rey.modelquery.spike.rfc0022.PlainJoinReproduction.apply(PlainJoinReproduction.java:31)
+	at com.rey.modelquery.spike.rfc0022.PlainJoinReproduction.apply(PlainJoinReproduction.java:12)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.lambda$reproduce$7(EclipseLinkEngineProbe.java:168)
+	at com.rey.modelquery.spike.rfc0022.SpikeHarness.cell(SpikeHarness.java:162)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.reproduce(EclipseLinkEngineProbe.java:166)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.main(EclipseLinkEngineProbe.java:76)
+Oct 24, 2026 11:35:05 AM com.rey.modelquery.jpa.vendor.VendorResolver log
+WARNING: model-query uses the conservative OTHER profile built-in OTHER, because no provider support detected the database and the factory has no jakarta.persistence.nonJtaDataSource; set ModelQueryConfig.vendor(...) to use the database limits (R-VND-04, R-VND-06)
+java.lang.IllegalArgumentException: The attribute [code] is not present in the managed type [EntityTypeImpl@1048855692:Invoice [ javaType: class com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice descriptor: RelationalDescriptor(com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice --> [DatabaseTable(invoice)]), mappings: 7]].
+	at org.eclipse.persistence.internal.jpa.metamodel.ManagedTypeImpl.getAttribute(ManagedTypeImpl.java:151)
+	at org.eclipse.persistence.internal.jpa.querydef.FromImpl.get(FromImpl.java:310)
+	at com.rey.modelquery.spike.rfc0022.Q.lambda$invoice$2(Q.java:62)
+	at com.rey.modelquery.spike.rfc0022.PlainEntityJoinRenderer.join(PlainEntityJoinRenderer.java:23)
+	at com.rey.modelquery.spike.rfc0022.Q.invoice(Q.java:59)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.lambda$portable$8(EclipseLinkEngineProbe.java:184)
+	at com.rey.modelquery.spike.rfc0022.SpikeHarness.cell(SpikeHarness.java:162)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.portable(EclipseLinkEngineProbe.java:181)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.main(EclipseLinkEngineProbe.java:91)
+java.lang.IllegalArgumentException: The attribute [code] is not present in the managed type [EntityTypeImpl@1048855692:Invoice [ javaType: class com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice descriptor: RelationalDescriptor(com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice --> [DatabaseTable(invoice)]), mappings: 7]].
+	at org.eclipse.persistence.internal.jpa.metamodel.ManagedTypeImpl.getAttribute(ManagedTypeImpl.java:151)
+	at org.eclipse.persistence.internal.jpa.querydef.FromImpl.get(FromImpl.java:310)
+	at com.rey.modelquery.spike.rfc0022.Q.lambda$invoice$2(Q.java:62)
+	at com.rey.modelquery.spike.rfc0022.PlainEntityJoinRenderer.join(PlainEntityJoinRenderer.java:23)
+	at com.rey.modelquery.spike.rfc0022.Q.invoice(Q.java:59)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.lambda$portable$8(EclipseLinkEngineProbe.java:184)
+	at com.rey.modelquery.spike.rfc0022.SpikeHarness.cell(SpikeHarness.java:162)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.portable(EclipseLinkEngineProbe.java:181)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.main(EclipseLinkEngineProbe.java:92)
+RFC0022 H2 EclipseLink 5.0.2: PASS 3, FAIL 5, NOT_RUN 7
+SLF4J: Failed to load class "org.slf4j.impl.StaticLoggerBinder".
+SLF4J: Defaulting to no-operation (NOP) logger implementation
+SLF4J: See http://www.slf4j.org/codes.html#StaticLoggerBinder for further details.
+[EL Warning]: metadata: 2026.10.24 11:35:10.445--ServerSession(366370767)--Reverting the lazy setting on the OneToOne or ManyToOne attribute [team] for the entity class [class com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Employee] since weaving was not enabled or did not occur.
+[EL Warning]: metadata: 2026.10.24 11:35:10.445--ServerSession(366370767)--Reverting the lazy setting on the OneToOne or ManyToOne attribute [team] for the entity class [class com.rey.modelquery.spike.rfc0022.Rfc0022Entities$EmployeeIc] since weaving was not enabled or did not occur.
+[EL Warning]: metadata: 2026.10.24 11:35:10.445--ServerSession(366370767)--Reverting the lazy setting on the OneToOne or ManyToOne attribute [region] for the entity class [class com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice] since weaving was not enabled or did not occur.
+[EL Warning]: metadata: 2026.10.24 11:35:10.445--ServerSession(366370767)--Reverting the lazy setting on the OneToOne or ManyToOne attribute [rep] for the entity class [class com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice] since weaving was not enabled or did not occur.
+[EL Warning]: metadata: 2026.10.24 11:35:10.445--ServerSession(366370767)--Reverting the lazy setting on the OneToOne or ManyToOne attribute [team] for the entity class [class com.rey.modelquery.spike.rfc0022.Rfc0022Entities$EmployeeEmb] since weaving was not enabled or did not occur.
+A.4-repro untyped:
+java.lang.IllegalArgumentException: The attribute [code] is not present in the managed type [EntityTypeImpl@1142350221:Invoice [ javaType: class com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice descriptor: RelationalDescriptor(com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice --> [DatabaseTable(invoice)]), mappings: 7]].
+	at org.eclipse.persistence.internal.jpa.metamodel.ManagedTypeImpl.getAttribute(ManagedTypeImpl.java:151)
+	at org.eclipse.persistence.internal.jpa.querydef.FromImpl.get(FromImpl.java:310)
+	at com.rey.modelquery.spike.rfc0022.PlainJoinReproduction.apply(PlainJoinReproduction.java:26)
+	at com.rey.modelquery.spike.rfc0022.PlainJoinReproduction.apply(PlainJoinReproduction.java:12)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.lambda$reproduce$7(EclipseLinkEngineProbe.java:168)
+	at com.rey.modelquery.spike.rfc0022.SpikeHarness.cell(SpikeHarness.java:162)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.reproduce(EclipseLinkEngineProbe.java:166)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.main(EclipseLinkEngineProbe.java:76)
+A.4-repro typed-before-on:
+java.lang.IllegalArgumentException: The attribute [code] is not present in the managed type [EntityTypeImpl@1142350221:Invoice [ javaType: class com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice descriptor: RelationalDescriptor(com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice --> [DatabaseTable(invoice)]), mappings: 7]].
+	at org.eclipse.persistence.internal.jpa.metamodel.ManagedTypeImpl.getAttribute(ManagedTypeImpl.java:151)
+	at org.eclipse.persistence.internal.jpa.querydef.FromImpl.get(FromImpl.java:310)
+	at com.rey.modelquery.spike.rfc0022.PlainJoinReproduction.apply(PlainJoinReproduction.java:31)
+	at com.rey.modelquery.spike.rfc0022.PlainJoinReproduction.apply(PlainJoinReproduction.java:12)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.lambda$reproduce$7(EclipseLinkEngineProbe.java:168)
+	at com.rey.modelquery.spike.rfc0022.SpikeHarness.cell(SpikeHarness.java:162)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.reproduce(EclipseLinkEngineProbe.java:166)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.main(EclipseLinkEngineProbe.java:76)
+A.4-repro typed-after-on:
+java.lang.IllegalArgumentException: The attribute [code] is not present in the managed type [EntityTypeImpl@1142350221:Invoice [ javaType: class com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice descriptor: RelationalDescriptor(com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice --> [DatabaseTable(invoice)]), mappings: 7]].
+	at org.eclipse.persistence.internal.jpa.metamodel.ManagedTypeImpl.getAttribute(ManagedTypeImpl.java:151)
+	at org.eclipse.persistence.internal.jpa.querydef.FromImpl.get(FromImpl.java:310)
+	at com.rey.modelquery.spike.rfc0022.PlainJoinReproduction.apply(PlainJoinReproduction.java:31)
+	at com.rey.modelquery.spike.rfc0022.PlainJoinReproduction.apply(PlainJoinReproduction.java:12)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.lambda$reproduce$7(EclipseLinkEngineProbe.java:168)
+	at com.rey.modelquery.spike.rfc0022.SpikeHarness.cell(SpikeHarness.java:162)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.reproduce(EclipseLinkEngineProbe.java:166)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.main(EclipseLinkEngineProbe.java:76)
+Oct 24, 2026 11:35:11 AM com.rey.modelquery.jpa.vendor.VendorResolver log
+WARNING: model-query uses the conservative OTHER profile built-in OTHER, because no provider support detected the database and the factory has no jakarta.persistence.nonJtaDataSource; set ModelQueryConfig.vendor(...) to use the database limits (R-VND-04, R-VND-06)
+java.lang.IllegalArgumentException: The attribute [code] is not present in the managed type [EntityTypeImpl@1142350221:Invoice [ javaType: class com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice descriptor: RelationalDescriptor(com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice --> [DatabaseTable(invoice)]), mappings: 7]].
+	at org.eclipse.persistence.internal.jpa.metamodel.ManagedTypeImpl.getAttribute(ManagedTypeImpl.java:151)
+	at org.eclipse.persistence.internal.jpa.querydef.FromImpl.get(FromImpl.java:310)
+	at com.rey.modelquery.spike.rfc0022.Q.lambda$invoice$2(Q.java:62)
+	at com.rey.modelquery.spike.rfc0022.PlainEntityJoinRenderer.join(PlainEntityJoinRenderer.java:23)
+	at com.rey.modelquery.spike.rfc0022.Q.invoice(Q.java:59)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.lambda$portable$8(EclipseLinkEngineProbe.java:184)
+	at com.rey.modelquery.spike.rfc0022.SpikeHarness.cell(SpikeHarness.java:162)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.portable(EclipseLinkEngineProbe.java:181)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.main(EclipseLinkEngineProbe.java:91)
+java.lang.IllegalArgumentException: The attribute [code] is not present in the managed type [EntityTypeImpl@1142350221:Invoice [ javaType: class com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice descriptor: RelationalDescriptor(com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice --> [DatabaseTable(invoice)]), mappings: 7]].
+	at org.eclipse.persistence.internal.jpa.metamodel.ManagedTypeImpl.getAttribute(ManagedTypeImpl.java:151)
+	at org.eclipse.persistence.internal.jpa.querydef.FromImpl.get(FromImpl.java:310)
+	at com.rey.modelquery.spike.rfc0022.Q.lambda$invoice$2(Q.java:62)
+	at com.rey.modelquery.spike.rfc0022.PlainEntityJoinRenderer.join(PlainEntityJoinRenderer.java:23)
+	at com.rey.modelquery.spike.rfc0022.Q.invoice(Q.java:59)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.lambda$portable$8(EclipseLinkEngineProbe.java:184)
+	at com.rey.modelquery.spike.rfc0022.SpikeHarness.cell(SpikeHarness.java:162)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.portable(EclipseLinkEngineProbe.java:181)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.main(EclipseLinkEngineProbe.java:92)
+RFC0022 MYSQL EclipseLink 5.0.2: PASS 3, FAIL 5, NOT_RUN 7
+[EL Warning]: metadata: 2026.10.24 11:35:13.037--ServerSession(904927065)--Reverting the lazy setting on the OneToOne or ManyToOne attribute [team] for the entity class [class com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Employee] since weaving was not enabled or did not occur.
+[EL Warning]: metadata: 2026.10.24 11:35:13.037--ServerSession(904927065)--Reverting the lazy setting on the OneToOne or ManyToOne attribute [team] for the entity class [class com.rey.modelquery.spike.rfc0022.Rfc0022Entities$EmployeeIc] since weaving was not enabled or did not occur.
+[EL Warning]: metadata: 2026.10.24 11:35:13.037--ServerSession(904927065)--Reverting the lazy setting on the OneToOne or ManyToOne attribute [region] for the entity class [class com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice] since weaving was not enabled or did not occur.
+[EL Warning]: metadata: 2026.10.24 11:35:13.037--ServerSession(904927065)--Reverting the lazy setting on the OneToOne or ManyToOne attribute [rep] for the entity class [class com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice] since weaving was not enabled or did not occur.
+[EL Warning]: metadata: 2026.10.24 11:35:13.037--ServerSession(904927065)--Reverting the lazy setting on the OneToOne or ManyToOne attribute [team] for the entity class [class com.rey.modelquery.spike.rfc0022.Rfc0022Entities$EmployeeEmb] since weaving was not enabled or did not occur.
+A.4-repro untyped:
+java.lang.IllegalArgumentException: The attribute [code] is not present in the managed type [EntityTypeImpl@1494084149:Invoice [ javaType: class com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice descriptor: RelationalDescriptor(com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice --> [DatabaseTable(invoice)]), mappings: 7]].
+	at org.eclipse.persistence.internal.jpa.metamodel.ManagedTypeImpl.getAttribute(ManagedTypeImpl.java:151)
+	at org.eclipse.persistence.internal.jpa.querydef.FromImpl.get(FromImpl.java:310)
+	at com.rey.modelquery.spike.rfc0022.PlainJoinReproduction.apply(PlainJoinReproduction.java:26)
+	at com.rey.modelquery.spike.rfc0022.PlainJoinReproduction.apply(PlainJoinReproduction.java:12)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.lambda$reproduce$7(EclipseLinkEngineProbe.java:168)
+	at com.rey.modelquery.spike.rfc0022.SpikeHarness.cell(SpikeHarness.java:162)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.reproduce(EclipseLinkEngineProbe.java:166)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.main(EclipseLinkEngineProbe.java:76)
+A.4-repro typed-before-on:
+java.lang.IllegalArgumentException: The attribute [code] is not present in the managed type [EntityTypeImpl@1494084149:Invoice [ javaType: class com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice descriptor: RelationalDescriptor(com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice --> [DatabaseTable(invoice)]), mappings: 7]].
+	at org.eclipse.persistence.internal.jpa.metamodel.ManagedTypeImpl.getAttribute(ManagedTypeImpl.java:151)
+	at org.eclipse.persistence.internal.jpa.querydef.FromImpl.get(FromImpl.java:310)
+	at com.rey.modelquery.spike.rfc0022.PlainJoinReproduction.apply(PlainJoinReproduction.java:31)
+	at com.rey.modelquery.spike.rfc0022.PlainJoinReproduction.apply(PlainJoinReproduction.java:12)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.lambda$reproduce$7(EclipseLinkEngineProbe.java:168)
+	at com.rey.modelquery.spike.rfc0022.SpikeHarness.cell(SpikeHarness.java:162)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.reproduce(EclipseLinkEngineProbe.java:166)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.main(EclipseLinkEngineProbe.java:76)
+A.4-repro typed-after-on:
+java.lang.IllegalArgumentException: The attribute [code] is not present in the managed type [EntityTypeImpl@1494084149:Invoice [ javaType: class com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice descriptor: RelationalDescriptor(com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice --> [DatabaseTable(invoice)]), mappings: 7]].
+	at org.eclipse.persistence.internal.jpa.metamodel.ManagedTypeImpl.getAttribute(ManagedTypeImpl.java:151)
+	at org.eclipse.persistence.internal.jpa.querydef.FromImpl.get(FromImpl.java:310)
+	at com.rey.modelquery.spike.rfc0022.PlainJoinReproduction.apply(PlainJoinReproduction.java:31)
+	at com.rey.modelquery.spike.rfc0022.PlainJoinReproduction.apply(PlainJoinReproduction.java:12)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.lambda$reproduce$7(EclipseLinkEngineProbe.java:168)
+	at com.rey.modelquery.spike.rfc0022.SpikeHarness.cell(SpikeHarness.java:162)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.reproduce(EclipseLinkEngineProbe.java:166)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.main(EclipseLinkEngineProbe.java:76)
+Oct 24, 2026 11:35:13 AM com.rey.modelquery.jpa.vendor.VendorResolver log
+WARNING: model-query uses the conservative OTHER profile built-in OTHER, because no provider support detected the database and the factory has no jakarta.persistence.nonJtaDataSource; set ModelQueryConfig.vendor(...) to use the database limits (R-VND-04, R-VND-06)
+java.lang.IllegalArgumentException: The attribute [code] is not present in the managed type [EntityTypeImpl@1494084149:Invoice [ javaType: class com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice descriptor: RelationalDescriptor(com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice --> [DatabaseTable(invoice)]), mappings: 7]].
+	at org.eclipse.persistence.internal.jpa.metamodel.ManagedTypeImpl.getAttribute(ManagedTypeImpl.java:151)
+	at org.eclipse.persistence.internal.jpa.querydef.FromImpl.get(FromImpl.java:310)
+	at com.rey.modelquery.spike.rfc0022.Q.lambda$invoice$2(Q.java:62)
+	at com.rey.modelquery.spike.rfc0022.PlainEntityJoinRenderer.join(PlainEntityJoinRenderer.java:23)
+	at com.rey.modelquery.spike.rfc0022.Q.invoice(Q.java:59)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.lambda$portable$8(EclipseLinkEngineProbe.java:184)
+	at com.rey.modelquery.spike.rfc0022.SpikeHarness.cell(SpikeHarness.java:162)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.portable(EclipseLinkEngineProbe.java:181)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.main(EclipseLinkEngineProbe.java:91)
+java.lang.IllegalArgumentException: The attribute [code] is not present in the managed type [EntityTypeImpl@1494084149:Invoice [ javaType: class com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice descriptor: RelationalDescriptor(com.rey.modelquery.spike.rfc0022.Rfc0022Entities$Invoice --> [DatabaseTable(invoice)]), mappings: 7]].
+	at org.eclipse.persistence.internal.jpa.metamodel.ManagedTypeImpl.getAttribute(ManagedTypeImpl.java:151)
+	at org.eclipse.persistence.internal.jpa.querydef.FromImpl.get(FromImpl.java:310)
+	at com.rey.modelquery.spike.rfc0022.Q.lambda$invoice$2(Q.java:62)
+	at com.rey.modelquery.spike.rfc0022.PlainEntityJoinRenderer.join(PlainEntityJoinRenderer.java:23)
+	at com.rey.modelquery.spike.rfc0022.Q.invoice(Q.java:59)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.lambda$portable$8(EclipseLinkEngineProbe.java:184)
+	at com.rey.modelquery.spike.rfc0022.SpikeHarness.cell(SpikeHarness.java:162)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.portable(EclipseLinkEngineProbe.java:181)
+	at com.rey.modelquery.spike.rfc0022.EclipseLinkEngineProbe.main(EclipseLinkEngineProbe.java:92)
+RFC0022 POSTGRESQL EclipseLink 5.0.2: PASS 3, FAIL 5, NOT_RUN 7

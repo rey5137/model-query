@@ -1,0 +1,6 @@
+vendor	probe	case	status	value	sql
+OFFLINE	A.2	eclipselink-4.0.8-api3.2/class-load	PASS	PortableRenderer	
+OFFLINE	A.2	eclipselink-4.0.8-api3.2/initialize-verify	PASS	-Xverify:all; constructor returned	
+OFFLINE	A.2	eclipselink-4.0.8-api3.2/conjunction	PASS	first_call=java.lang.AbstractMethodError: Receiver class org.eclipse.persistence.internal.jpa.querydef.RootImpl does not define or inherit an implementation of the resolved method 'abstract jakarta.persistence.criteria.Join join(java.lang.Class, jakarta.persistence.criteria.JoinType)' of interface jakarta.persistence.criteria.From.; connections=0; cold_us=1806.208 (info only); expected=java.lang.AbstractMethodError	
+OFFLINE	A.2	eclipselink-4.0.8-api3.2/id-self-equality	PASS	first_call=java.lang.AbstractMethodError: Receiver class org.eclipse.persistence.internal.jpa.querydef.RootImpl does not define or inherit an implementation of the resolved method 'abstract jakarta.persistence.criteria.Join join(java.lang.Class, jakarta.persistence.criteria.JoinType)' of interface jakarta.persistence.criteria.From.; connections=0; cold_us=18.291 (info only); expected=java.lang.AbstractMethodError	
+OFFLINE	A.1	eclipselink-4.0.8-api3.2/signatures-and-implementation	NOT_RUN	A.1 implementation contract applies to Hibernate 7.4 and EclipseLink 5 only	

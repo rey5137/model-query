@@ -1,0 +1,27 @@
+Oct 24, 2026 5:56:05 PM org.hibernate.jpa.internal.util.LogHelper logPersistenceUnitInformation
+INFO: HHH008540: Processing PersistenceUnitInfo [name: rfc0022-link]
+Oct 24, 2026 5:56:05 PM org.hibernate.Version logVersion
+INFO: HHH000001: Hibernate ORM core version 7.4.11.Final
+Oct 24, 2026 5:56:05 PM org.hibernate.engine.jdbc.dialect.internal.DialectFactoryImpl constructDialect
+WARN: HHH90000025: H2Dialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+Oct 24, 2026 5:56:05 PM org.hibernate.engine.jdbc.env.internal.JdbcEnvironmentInitiator logConnectionInfo
+INFO: HHH10001005: Database info:
+	Database JDBC URL [undefined/unknown]
+	Database driver: undefined/unknown
+	Database dialect: H2Dialect
+	Database version: 2.1.214
+	Default catalog/schema: unknown/unknown
+	Autocommit mode: undefined/unknown
+	Isolation level: <unknown>
+	JDBC fetch size: undefined/unknown
+	Pool: undefined/unknown
+	Minimum pool size: undefined/unknown
+	Maximum pool size: undefined/unknown
+Oct 24, 2026 5:56:06 PM org.hibernate.engine.transaction.jta.platform.internal.JtaPlatformInitiator initiateService
+INFO: HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+bootstrap_connections=0
+A.2 hibernate-7.4-api3.2/class-load PASS PortableRenderer
+A.2 hibernate-7.4-api3.2/initialize-verify PASS -Xverify:all; constructor returned
+A.2 hibernate-7.4-api3.2/conjunction PASS first_call=PASS; jakarta.Join=true; getOn=true; root=org.hibernate.query.sqm.tree.from.SqmRoot; joined=org.hibernate.query.sqm.tree.from.SqmEntityJoin; connections=0; cold_us=15508.417; median_7_us=12.5 (info only)
+A.2 hibernate-7.4-api3.2/id-self-equality PASS first_call=PASS; jakarta.Join=true; getOn=true; root=org.hibernate.query.sqm.tree.from.SqmRoot; joined=org.hibernate.query.sqm.tree.from.SqmEntityJoin; connections=0; cold_us=907.333; median_7_us=27.25 (info only)
+A.1 hibernate-7.4-api3.2/signatures-and-implementation PASS public abstract <Y> jakarta.persistence.criteria.Join<X, Y> jakarta.persistence.criteria.From.join(java.lang.Class<Y>,jakarta.persistence.criteria.JoinType); jakarta.Join=true; getOn=true; root=org.hibernate.query.sqm.tree.from.SqmRoot; joined=org.hibernate.query.sqm.tree.from.SqmEntityJoin; connections=0

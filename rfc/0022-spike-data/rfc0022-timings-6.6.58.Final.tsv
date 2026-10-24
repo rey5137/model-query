@@ -1,0 +1,19 @@
+vendor	cell	variant	status	median_ms	rows	value
+H2	CONTENT	renderer	PASS	0.081	20	info only: execution cost, no performance acceptance limit
+H2	CONTENT	native	PASS	0.074	20	info only: execution cost, no performance acceptance limit
+H2	COUNT	renderer	PASS	14.185625	1	info only: execution cost, no performance acceptance limit
+H2	COUNT	native	PASS	14.138	1	info only: execution cost, no performance acceptance limit
+H2	STREAM	renderer	PASS	19.559625	50000	info only: execution cost, no performance acceptance limit
+H2	STREAM	native	PASS	19.553792	50000	info only: execution cost, no performance acceptance limit
+MYSQL	CONTENT	renderer	PASS	0.421958	20	info only: execution cost, no performance acceptance limit
+MYSQL	CONTENT	native	PASS	0.416125	20	info only: execution cost, no performance acceptance limit
+MYSQL	COUNT	renderer	PASS	30.920959	1	info only: execution cost, no performance acceptance limit
+MYSQL	COUNT	native	PASS	30.237458	1	info only: execution cost, no performance acceptance limit
+MYSQL	STREAM	renderer	PASS	47.411583	50000	info only: execution cost, no performance acceptance limit
+MYSQL	STREAM	native	PASS	47.913708	50000	info only: execution cost, no performance acceptance limit
+POSTGRESQL	CONTENT	renderer	PASS	0.398917	20	info only: execution cost, no performance acceptance limit
+POSTGRESQL	CONTENT	native	PASS	0.386625	20	info only: execution cost, no performance acceptance limit
+POSTGRESQL	COUNT	renderer	PASS	1.682125	1	info only: employee PK LEFT join removed=true
+POSTGRESQL	COUNT	native	PASS	1.395542	1	info only: employee PK LEFT join removed=true
+POSTGRESQL	STREAM	renderer	PASS	18.007125	50000	info only: execution cost, no performance acceptance limit
+POSTGRESQL	STREAM	native	PASS	18.477791	50000	info only: execution cost, no performance acceptance limit

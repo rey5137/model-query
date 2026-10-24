@@ -1,0 +1,5 @@
+vendor	anchor	form	median_ms	value
+POSTGRESQL	column	star	7.602625	info only: grouped read execution; no latency threshold
+POSTGRESQL	column	id	8.427667	info only: grouped read execution; no latency threshold
+POSTGRESQL	source	star	7.680042	info only: grouped read execution; no latency threshold
+POSTGRESQL	source	id	8.512167	info only: grouped read execution; no latency threshold
