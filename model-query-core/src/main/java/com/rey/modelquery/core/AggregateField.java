@@ -461,6 +461,18 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
         conditions.forEach(vocabulary::condition);
     }
 
+    void checkJoinFilters(JoinFilterChecks checks) {
+        if (kind == Kind.ROUND) {
+            inner.checkJoinFilters(checks);
+            return;
+        }
+        checks.table(source);
+        checks.field(converted);
+        checks.field(sourceExpression);
+        orders.forEach(order -> checks.field(order.column()));
+        conditions.forEach(checks::condition);
+    }
+
     void checkTreats(TreatChecks checks) {
         if (kind == Kind.ROUND) {
             inner.checkTreats(checks);

@@ -127,6 +127,19 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
         return columns;
     }
 
+    void checkJoinFilters(JoinFilterChecks checks) {
+        columns().forEach(checks::field);
+        typeReads(this).forEach(table -> checks.table(table.key()));
+        containsNode(this, node -> {
+            if (node instanceof CorrelatedValue value) {
+                checks.correlated(value);
+            } else if (node instanceof Case value) {
+                value.branches().forEach(branch -> branch.conditions().forEach(checks::condition));
+            }
+            return false;
+        });
+    }
+
     void checkTreats(TreatChecks checks) {
         if (node instanceof TypeOf value) {
             checks.typeOf(value.table()); // its own site, not an expression operand (R-COL-36)

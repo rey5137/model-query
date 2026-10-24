@@ -19,12 +19,14 @@ import jakarta.persistence.criteria.Subquery;
 import jakarta.persistence.metamodel.EntityType;
 import jakarta.persistence.metamodel.PluralAttribute;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -128,6 +130,7 @@ public final class ModelQuery<E, K, M> {
     /** The sources this query joins, in binding order; empty for most queries (R-SRC-21). */
     private final List<JoinedSource> joinedSources;
     private final List<EntityJoin<M, ?>> entityJoins;
+    private final Map<TableField<?, ?>, List<Filter>> joinFilters;
 
     private ModelQuery(Builder<E, K, M> b, SelectSet<M> columns, List<ColumnField<M, ?, ?>> needed, boolean grouped,
             ModelQuery<E, K, M> definition) {
@@ -149,9 +152,18 @@ public final class ModelQuery<E, K, M> {
         this.where = b.where;
         this.groupBy = b.groupBy;
         this.having = b.having == null ? List.of() : b.having.filters();
+        var recorded = new LinkedHashMap<TableField<?, ?>, List<Filter>>();
+        // An all-skipped filter adds nothing (R-FLT-01), so it is not in force: it stays out of the map and inspection.
+        b.joinFilters.forEach((table, binding) -> {
+            if (!binding.terms().isEmpty()) {
+                recorded.put(table, binding.terms());
+            }
+        });
+        this.joinFilters = Collections.unmodifiableMap(recorded);
         // An orderedBy copy differs in its order alone, which the view leaves out, so it shares the view (R-INS-04).
         this.conditions = definition != null ? definition.conditions
-                : new QueryConditions(ConditionGroup.conditions(where), ConditionGroup.conditions(having));
+                : new QueryConditions(ConditionGroup.conditions(where), ConditionGroup.conditions(having),
+                        joinFilters);
         this.grouped = grouped;
         this.lock = b.lock;
         this.source = b.source;
@@ -179,7 +191,7 @@ public final class ModelQuery<E, K, M> {
                     "builder(...) takes a TableField.root(...), not the " + root.describe());
         }
         return new Builder<>(root, mapper, null, null, List.of(), false, null, null, null, null, List.of(), List.of(),
-                null, null, null, null, List.of(), List.of());
+                null, null, null, null, List.of(), List.of(), Map.of());
     }
 
     /**
@@ -202,7 +214,7 @@ public final class ModelQuery<E, K, M> {
                     "builder(root, mapper, source) takes a TableField.source(...), not the " + root.describe());
         }
         return new Builder<>(root, mapper, null, null, List.of(), false, null, null, null, null, List.of(), List.of(),
-                null, null, null, source, List.of(), List.of());
+                null, null, null, source, List.of(), List.of(), Map.of());
     }
 
     /** The entity the query is rooted at, or the source model a query over a source is rooted at. */
@@ -634,6 +646,7 @@ public final class ModelQuery<E, K, M> {
      *     provider's renderer joins no CTE
      */
     private Walk joinSources(CriteriaQuery<Tuple> query, JoinContext joins, From<?, ?> outer, Root<?> statementRoot) {
+        joins.joinFilters(joinFilters);
         if (joinedSources.isEmpty()) {
             return Walk.NONE;
         }
@@ -695,16 +708,18 @@ public final class ModelQuery<E, K, M> {
     /** The predicate is built once by the engine; the provider applies it with one on call (R-SRC-24). */
     private <T> void joinEntity(EntityJoin<?, T> join, EntityJoinRenderer renderer, From<?, ?> root,
             JoinContext joins) {
-        From<?, T> joined = renderer.join(root, join.entity(), join.kind(), entity -> {
-            join.checkIds(entityType(join, entity, joins));
+        renderer.join(root, join.entity(), join.kind(), entity -> {
+            EntityType<?> type = entityType(join, entity, joins);
+            join.checkIds(type);
             var equal = new ArrayList<Predicate>();
             for (EntityJoin.On<?> pair : join.on()) {
                 equal.add(joins.cb().equal(entityId(entity, pair.idAttribute()), pair.anchor().path(joins)));
             }
+            joins.joinEntity(join.root().key(), entity, root,
+                    entityId(entity, EntityJoin.idAttributes(type).keySet().iterator().next()));
+            equal.addAll(joins.joinFilter(join.root().key()));
             return joins.cb().and(equal.toArray(Predicate[]::new));
         });
-        joins.joinEntity(join.root().key(), joined, root,
-                entityId(joined, EntityJoin.idAttributes(entityType(join, joined, joins)).keySet().iterator().next()));
     }
 
     private static EntityType<?> entityType(EntityJoin<?, ?> join, From<?, ?> from, JoinContext joins) {
@@ -802,6 +817,7 @@ public final class ModelQuery<E, K, M> {
      */
     private BuiltQuery<M> assemble(CriteriaQuery<Tuple> query, JoinContext joins, Phase phase,
             Expression<?> parentKey, List<Predicate> guards, Walk walk) {
+        joins.joinFilters(joinFilters);
         List<Selection<?>> checks = walk.checks();
         CriteriaBuilder cb = joins.cb();
         joins.customized(customizer != null); // before any count is built (R-AGG-19)
@@ -856,6 +872,7 @@ public final class ModelQuery<E, K, M> {
         if (!predicates.get(1).isEmpty()) {
             query.having(predicates.get(1).toArray(Predicate[]::new));
         }
+        joins.checkJoinFilters();
         return built(query, joins, selection, parentKey, walk);
     }
 
@@ -920,12 +937,14 @@ public final class ModelQuery<E, K, M> {
         Root<E> inner = sub.from(root.rootEntity());
         JoinContext innerJoins = JoinContext.readOf(inner, cb, sub, joins.renderOptions());
         innerJoins.adoptJoinedSources(joins);
+        innerJoins.joinFilters(joinFilters); // a non-correlated root keeps each filtered join's ON (R-COL-39)
         var restrictions = new ArrayList<Predicate>();
         // Entity equality, not key columns: a read need not declare a primary key, and an embedded id compares whole.
         restrictions.add(cb.equal(inner, joins.root()));
         restrictions.addAll(ConditionGroup.toPredicates(terms, innerJoins));
         sub.select(cb.literal(1)).where(restrictions.toArray(Predicate[]::new));
         joins.adoptForeignKeyReads(innerJoins);
+        joins.adoptJoinFilters(innerJoins);
         joins.addSubqueryBinds(innerJoins);
         return cb.exists(sub);
     }
@@ -972,6 +991,10 @@ public final class ModelQuery<E, K, M> {
     public BuiltQuery<M> buildRootIdCount(CriteriaBuilder cb, RenderOptions options) {
         Objects.requireNonNull(cb, "cb");
         Objects.requireNonNull(options, "options");
+        if (!joinFilters.isEmpty()) {
+            // The optimized count may omit a LEFT join that content reads; validate against content's joins (D-194).
+            assemble(cb, Phase.MODEL, options);
+        }
         if (grouped || source != null) {
             throw new IllegalStateException(modelName() + ": a root-id count needs an ungrouped entity-rooted query");
         }
@@ -1216,6 +1239,9 @@ public final class ModelQuery<E, K, M> {
         }
         if (!entityJoins.isEmpty()) {
             clauses.add("joinEntity(...)");
+        }
+        if (!joinFilters.isEmpty()) {
+            clauses.add("joinFilter(...)");
         }
         if (!clauses.isEmpty()) {
             throw new ModelQueryDefinitionException(MqCode.MQ1809, modelName() + ": persist returning a model takes "
@@ -1462,13 +1488,15 @@ public final class ModelQuery<E, K, M> {
         /** The sources the query joins, in binding order (R-SRC-21). */
         private final List<JoinedSource> joinedSources;
         private final List<EntityJoin<M, ?>> entityJoins;
+        private final Map<TableField<?, ?>, JoinFilterChecks.Binding> joinFilters;
 
         private Builder(TableField<E, E> root, RowMapper<M> mapper, SelectSet<M> columns,
                 PrimaryKey<M, K> primaryKey, List<OrderField<M, ?>> orderBy, boolean keyset,
                 PrimaryKeyFirst primaryKeyFirst, BiConsumer<M, Row> afterMap, UnaryOperator<M> finisher,
                 QueryCustomizer customizer, List<Filter> where, List<ScalarField<M, ?>> groupBy,
                 HavingGroup.Clause having, FetchPlan<M> fetch, RowLock lock, SourceQuery<E> source,
-                List<JoinedSource> joinedSources, List<EntityJoin<M, ?>> entityJoins) {
+                List<JoinedSource> joinedSources, List<EntityJoin<M, ?>> entityJoins,
+                Map<TableField<?, ?>, JoinFilterChecks.Binding> joinFilters) {
             this.root = root;
             this.mapper = mapper;
             this.columns = columns;
@@ -1487,6 +1515,7 @@ public final class ModelQuery<E, K, M> {
             this.source = source;
             this.joinedSources = joinedSources;
             this.entityJoins = entityJoins;
+            this.joinFilters = joinFilters;
         }
 
         /**
@@ -1503,7 +1532,7 @@ public final class ModelQuery<E, K, M> {
             bound.add(new JoinedSource(Objects.requireNonNull(join, "join"), Objects.requireNonNull(source, "source")));
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
                     finisher, customizer, where, groupBy, having, fetch, lock, this.source, List.copyOf(bound),
-                    entityJoins);
+                    entityJoins, joinFilters);
         }
 
         /**
@@ -1518,7 +1547,36 @@ public final class ModelQuery<E, K, M> {
             bound.add(Objects.requireNonNull(join, "join"));
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
                     finisher, customizer, where, groupBy, having, fetch, lock, source, joinedSources,
-                    List.copyOf(bound));
+                    List.copyOf(bound), joinFilters);
+        }
+
+        /**
+         * Binds a request filter to this LEFT entity join's ON, replacing its previous filter (R-COL-39).
+         * The operator runs once here; only its recorded terms are kept.
+         */
+        @Incubating
+        public Builder<E, K, M> joinFilter(EntityJoin<M, ?> join, UnaryOperator<Filters<M>> on) {
+            Objects.requireNonNull(join, "join");
+            return joinFilter(join.root(), on, join.kind());
+        }
+
+        /**
+         * Binds a request filter to this LEFT to-one join's ON, replacing its previous filter (R-COL-39).
+         * This does not create the join; the operator runs once here and a null value raises MQ1301.
+         */
+        @Incubating
+        public Builder<E, K, M> joinFilter(TableField<?, ?> table, UnaryOperator<Filters<M>> on) {
+            return joinFilter(table, on, null);
+        }
+
+        private Builder<E, K, M> joinFilter(TableField<?, ?> table, UnaryOperator<Filters<M>> on, JoinKind kind) {
+            Objects.requireNonNull(table, "table");
+            List<Filter> terms = FilterGroup.collect(root.rootEntity(), Objects.requireNonNull(on, "on"));
+            var bound = new LinkedHashMap<>(joinFilters);
+            bound.put(table, new JoinFilterChecks.Binding(terms, kind));
+            return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
+                    finisher, customizer, where, groupBy, having, fetch, lock, source, joinedSources, entityJoins,
+                    Collections.unmodifiableMap(bound));
         }
 
         /**
@@ -1533,7 +1591,8 @@ public final class ModelQuery<E, K, M> {
                         + "its FetchPlan.of(...)", modelName(fetch.select(), root.rootEntity()));
             }
             return new Builder<>(root, mapper, select, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
-                    finisher, customizer, where, groupBy, having, null, lock, source, joinedSources, entityJoins);
+                    finisher, customizer, where, groupBy, having, null, lock, source, joinedSources, entityJoins,
+                    joinFilters);
         }
 
         /**
@@ -1544,7 +1603,7 @@ public final class ModelQuery<E, K, M> {
         public Builder<E, K, M> fetch(FetchPlan<M> plan) {
             return new Builder<>(root, mapper, null, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
                     finisher, customizer, where, groupBy, having, Objects.requireNonNull(plan, "plan"), lock,
-                    source, joinedSources, entityJoins);
+                    source, joinedSources, entityJoins, joinFilters);
         }
 
         /**
@@ -1554,14 +1613,15 @@ public final class ModelQuery<E, K, M> {
          */
         Builder<E, K, M> forChildren(FetchPlan<M> plan, List<Filter> where, List<OrderField<M, ?>> orderBy) {
             return new Builder<>(root, mapper, null, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
-                    finisher, customizer, where, groupBy, having, plan, null, source, joinedSources, entityJoins);
+                    finisher, customizer, where, groupBy, having, plan, null, source, joinedSources, entityJoins,
+                    joinFilters);
         }
 
         /** The primary key; required for {@link #keyset()} and {@link #primaryKeyFirst}. */
         public <K2> Builder<E, K2, M> primaryKey(PrimaryKey<M, K2> primaryKey) {
             return new Builder<>(root, mapper, columns, Objects.requireNonNull(primaryKey, "primaryKey"), orderBy,
                     keyset, primaryKeyFirst, afterMap, finisher, customizer, where, groupBy, having, fetch, lock,
-                    source, joinedSources, entityJoins);
+                    source, joinedSources, entityJoins, joinFilters);
         }
 
         /** The ordering keys, replacing any set before. */
@@ -1573,7 +1633,7 @@ public final class ModelQuery<E, K, M> {
             }
             return new Builder<>(root, mapper, columns, primaryKey, List.copyOf(copy), keyset, primaryKeyFirst,
                     afterMap, finisher, customizer, where, groupBy, having, fetch, lock, source, joinedSources,
-                    entityJoins);
+                    entityJoins, joinFilters);
         }
 
         /**
@@ -1582,7 +1642,8 @@ public final class ModelQuery<E, K, M> {
          */
         public Builder<E, K, M> keyset() {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, true, primaryKeyFirst, afterMap,
-                    finisher, customizer, where, groupBy, having, fetch, lock, source, joinedSources, entityJoins);
+                    finisher, customizer, where, groupBy, having, fetch, lock, source, joinedSources, entityJoins,
+                    joinFilters);
         }
 
         /**
@@ -1592,7 +1653,7 @@ public final class ModelQuery<E, K, M> {
         public Builder<E, K, M> primaryKeyFirst(PrimaryKeyFirst primaryKeyFirst) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset,
                     Objects.requireNonNull(primaryKeyFirst, "primaryKeyFirst"), afterMap, finisher, customizer,
-                    where, groupBy, having, fetch, lock, source, joinedSources, entityJoins);
+                    where, groupBy, having, fetch, lock, source, joinedSources, entityJoins, joinFilters);
         }
 
         /**
@@ -1603,21 +1664,21 @@ public final class ModelQuery<E, K, M> {
         public Builder<E, K, M> afterMap(BiConsumer<M, Row> afterMap) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst,
                     Objects.requireNonNull(afterMap, "afterMap"), finisher, customizer, where, groupBy, having, fetch,
-                    lock, source, joinedSources, entityJoins);
+                    lock, source, joinedSources, entityJoins, joinFilters);
         }
 
         /** Replaces each mapped model with {@code finisher}'s result, after {@code afterMap}; for records. */
         public Builder<E, K, M> finisher(UnaryOperator<M> finisher) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
                     Objects.requireNonNull(finisher, "finisher"), customizer, where, groupBy, having, fetch, lock,
-                    source, joinedSources, entityJoins);
+                    source, joinedSources, entityJoins, joinFilters);
         }
 
         /** Raw Criteria access for each phase; see {@link QueryCustomizer}. Replaces any customizer set before. */
         public Builder<E, K, M> customize(QueryCustomizer customizer) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
                     finisher, Objects.requireNonNull(customizer, "customizer"), where, groupBy, having, fetch, lock,
-                    source, joinedSources, entityJoins);
+                    source, joinedSources, entityJoins, joinFilters);
         }
 
         /** The row lock every read of this query takes, replacing any set before (R-QRY-17). */
@@ -1625,7 +1686,7 @@ public final class ModelQuery<E, K, M> {
         public Builder<E, K, M> lock(RowLock lock) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
                     finisher, customizer, where, groupBy, having, fetch, Objects.requireNonNull(lock, "lock"),
-                    source, joinedSources, entityJoins);
+                    source, joinedSources, entityJoins, joinFilters);
         }
 
         /**
@@ -1637,7 +1698,7 @@ public final class ModelQuery<E, K, M> {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
                     finisher, customizer,
                     FilterGroup.collect(root.rootEntity(), Objects.requireNonNull(filters, "filters")), groupBy,
-                    having, fetch, lock, source, joinedSources, entityJoins);
+                    having, fetch, lock, source, joinedSources, entityJoins, joinFilters);
         }
 
         /**
@@ -1682,7 +1743,7 @@ public final class ModelQuery<E, K, M> {
         private Builder<E, K, M> groupBy(List<ScalarField<M, ?>> keys) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
                     finisher, customizer, where, List.copyOf(new LinkedHashSet<>(keys)), having, fetch, lock,
-                    source, joinedSources, entityJoins);
+                    source, joinedSources, entityJoins, joinFilters);
         }
 
         /**
@@ -1695,7 +1756,7 @@ public final class ModelQuery<E, K, M> {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
                     finisher, customizer, where, groupBy,
                     HavingGroup.collect(Objects.requireNonNull(filters, "filters")), fetch, lock,
-                    source, joinedSources, entityJoins);
+                    source, joinedSources, entityJoins, joinFilters);
         }
 
         /**
@@ -1737,7 +1798,8 @@ public final class ModelQuery<E, K, M> {
         /** This builder with {@code orderBy}, an immutable list, as its ordering keys. */
         private Builder<E, K, M> ordered(List<OrderField<M, ?>> orderBy) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
-                    finisher, customizer, where, groupBy, having, fetch, lock, source, joinedSources, entityJoins);
+                    finisher, customizer, where, groupBy, having, fetch, lock, source, joinedSources, entityJoins,
+                    joinFilters);
         }
 
         /** Checks and builds; {@code definition} is the query this one is a re-ordered copy of, or null. */
@@ -1764,6 +1826,20 @@ public final class ModelQuery<E, K, M> {
             String model = modelName(selection, root.rootEntity());
             checkJoinedSources(model);
             checkEntityJoins(model);
+            if (!joinFilters.isEmpty()) {
+                var checks = new JoinFilterChecks(joinFilters, entityJoins);
+                selection.fields().forEach(checks::field);
+                needed.forEach(checks::field);
+                orderBy.forEach(order -> checks.field(order.column()));
+                groupBy.forEach(checks::field);
+                if (primaryKey != null) {
+                    primaryKey.columns().forEach(checks::field);
+                }
+                ConditionGroup.conditions(where).forEach(checks::condition);
+                if (having != null) {
+                    ConditionGroup.conditions(having.filters()).forEach(checks::condition);
+                }
+            }
             boolean grouped = isGrouped(selection);
             if (!grouped && having != null) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1407, model + ": having(...) needs a grouped query; "

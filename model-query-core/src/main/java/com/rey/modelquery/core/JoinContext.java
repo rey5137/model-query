@@ -137,6 +137,11 @@ public final class JoinContext {
      */
     private final JoinContext outer;
     private boolean readsToOneLeft;
+    private Map<JoinKey, List<Filter>> joinFilters = Map.of();
+    /** The filtered keys whose ON this statement (or a semi-join sub-query of it) built (R-COL-39, D-194). */
+    private final Set<JoinKey> appliedFilters = new HashSet<>();
+    /** A join filter's terms are being rendered: a join created now hangs below the filtered join. */
+    private boolean buildingFilter;
     /** The statement runs a {@code QueryCustomizer}, which could add a RIGHT or FULL join (R-AGG-19). */
     private boolean customized;
     /** For a {@link #rootedAt} context, the context its root was joined in; {@code null} everywhere else. */
@@ -251,6 +256,49 @@ public final class JoinContext {
 
     boolean readsToOneLeft() {
         return readsToOneLeft;
+    }
+
+    /** Request-bound ON terms, kept on the statement rather than its shared definitions (R-COL-39). */
+    void joinFilters(Map<TableField<?, ?>, List<Filter>> filters) {
+        var bound = new HashMap<JoinKey, List<Filter>>();
+        filters.forEach((table, terms) -> bound.put(table.key(), terms));
+        joinFilters = Map.copyOf(bound);
+    }
+
+    List<Predicate> joinFilter(JoinKey key) {
+        List<Filter> terms = joinFilters.get(key);
+        if (terms == null) {
+            return List.of();
+        }
+        appliedFilters.add(key);
+        boolean previous = buildingFilter;
+        buildingFilter = true;
+        try {
+            return ConditionGroup.toPredicates(terms, this);
+        } finally {
+            buildingFilter = previous;
+        }
+    }
+
+    /** The filters {@code inner}, a semi-join sub-query of this statement, applied count for this statement. */
+    void adoptJoinFilters(JoinContext inner) {
+        appliedFilters.addAll(inner.appliedFilters);
+    }
+
+    /** Content must actually apply every filtered join key, including its type and alias (R-COL-39, D-194). */
+    void checkJoinFilters() {
+        for (JoinKey key : joinFilters.keySet()) {
+            if (!appliedFilters.contains(key)) {
+                throw JoinFilterChecks.refused("joinFilter(...): the content statement never creates join " + key);
+            }
+        }
+    }
+
+    void checkJoinFilterId(ColumnField<?, ?, ?> column, JoinKey key) {
+        if (joinFilters.containsKey(key)) {
+            throw JoinFilterChecks.refused(column + ": an id-form column reads this joinFilter(...) join; "
+                    + "map the foreign key as a basic column instead");
+        }
     }
 
     /** Records that the statement this context renders runs a {@code QueryCustomizer} (R-AGG-19). */
@@ -952,6 +1000,11 @@ public final class JoinContext {
         JoinKey parentKey = keys.getOrDefault(parent, key.parent());
         JoinType resolvedType = resolvedType(key, parentKey, type);
         JoinKey cacheKey = new JoinKey(parentKey, attribute, resolvedType, key.alias());
+        if (!key.equals(cacheKey) && joinFilters.containsKey(cacheKey)) {
+            // Another join key resolves to the filtered join: it would read it, or cache it before the filter (D-194).
+            throw JoinFilterChecks.refused(description + ": resolves to the join of a joinFilter(...) as "
+                    + resolvedType + " " + cacheKey + "; the filtered join is read only through its own key");
+        }
         Resolved cached = joins.get(cacheKey);
         if (cached != null) {
             // Lambdas cannot be compared, so an equal key must carry the very same condition instance (R-COL-04).
@@ -962,6 +1015,10 @@ public final class JoinContext {
             touch(cached.from());
             return cached.from();
         }
+        if (buildingFilter) {
+            throw JoinFilterChecks.refused(description + ": a joinFilter(...) column reads a path below the filtered "
+                    + "join, which its ON cannot reach");
+        }
         Join<?, ?> join;
         try {
             join = parent.join(attribute, resolvedType);
@@ -969,8 +1026,16 @@ public final class JoinContext {
             throw new ModelQueryDefinitionException(MqCode.MQ1002, description + ": "
                     + parent.getJavaType().getSimpleName() + " has no attribute '" + attribute + "'", e);
         }
+        // The filter's own columns must resolve this join while its ON is being built (R-COL-39).
+        joins.put(cacheKey, new Resolved(join, condition));
+        keys.put(join, cacheKey);
+        var predicates = new ArrayList<Predicate>();
         if (condition != null) {
-            Predicate on = (Predicate) ((BiFunction) condition).apply(join, cb);
+            predicates.add((Predicate) ((BiFunction) condition).apply(join, cb));
+        }
+        predicates.addAll(joinFilter(key));
+        if (!predicates.isEmpty()) {
+            Predicate on = predicates.size() == 1 ? predicates.get(0) : cb.and(predicates.toArray(Predicate[]::new));
             if (required.contains(key)) {
                 // Hibernate 6 renders the join off a correlated root as the sub-query's FROM and drops its ON.
                 // For an INNER join the condition means the same in WHERE, where every provider keeps it.
@@ -979,8 +1044,6 @@ public final class JoinContext {
                 join.on(on);
             }
         }
-        joins.put(cacheKey, new Resolved(join, condition));
-        keys.put(join, cacheKey);
         if (join.getAttribute() instanceof PluralAttribute<?, ?, ?>) {
             toManyJoins.add(join);
         }

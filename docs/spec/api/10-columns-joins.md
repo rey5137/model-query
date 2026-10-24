@@ -48,7 +48,7 @@ tell a LEFT-join miss from a match whose other columns are `NULL` (`processor/31
   (`ITEMS.as("b") → product` is not `ITEMS → product`).
 - A treated root still rejects `as`, `on` and `presentBy` with `MQ1104` (R-COL-34).
 - `on(...)` adds its condition through JPA's `Join#on`, which preserves LEFT-join semantics that a `WHERE` predicate
-  would break.
+  would break. Request-bound conditions use `joinFilter(...)` (R-COL-39), ANDed into the same single `on(...)` call.
 
 **R-COL-34** *(D-154)* **A treated table.** The `@Incubating TableField#treat(Class<S>)` returns a
 `TableField<T, S>` over an entity root, to-one join or to-many join. Its join key is its parent key and subtype;
@@ -154,6 +154,30 @@ is an `ExpressionField<M, BigDecimal>` rendering the standard `CriteriaBuilder#r
 Hibernate lines), so it needs no provider. It rounds half away from zero on every Tier-1 vendor and takes a
 `BigDecimal` only; a `scale` below 0 or over 30 is `MQ1411` when it is called (`api/13` R-AGG-18). A column with a
 `ColumnConverter` is `MQ1501`. Covered by `api/13` AC-AGG-25.
+
+**R-COL-39** *(D-193, D-194, `@Incubating`)* **Request-bound join filters.**
+`ModelQuery.Builder.joinFilter(EntityJoin<M, ?>, UnaryOperator<Filters<M>>)` and
+`joinFilter(TableField<?, ?>, UnaryOperator<Filters<M>>)` record a filter for one LEFT join. The lambda runs once at
+the call; only recorded terms are retained on the query, never on the shared join definition (INV-9). A second call
+on the same join key replaces the first. Skipped terms add nothing; an all-skipped filter adds no `ON` predicate, is
+not in force, and so is left out of inspection and of `QueryConditions` equality, and it replaces (removes) an earlier
+filter on the same join.
+The filter is ANDed with the entity key predicate or the association's static `on(...)` in exactly one provider
+`on(...)` call, in every statement that renders the join, including count, both primary-key-first steps, keyset and
+export, and in the `EXISTS` over a second root that a to-many `where` term moves the joining terms into (R-EXE-16),
+whose root is not correlated, so the provider keeps the `ON`. It never creates an association join by itself.
+Inspection reports each filter in force.
+
+The filter may read only that join's own columns, values and constants. `MQ1912` is raised at build for another
+table, any path below the filtered join regardless of cardinality, `exists`, an aggregate, window or correlated
+value, a sub-query term crossing the filtered join, or a filter on an INNER join or a root. At first resolution,
+before any statement, `MQ1912` refuses a join read by an id-form column (R-COL-29; map the foreign key as a basic
+column instead), a join key whose filter the content statement never applies, including a different join type or
+alias, a different join key that resolves to the filtered join (an `INNER` key of the same path inside `or(...)` or
+`not(...)`, which reads the `LEFT` join, whichever reads it first), and any join the filter's own columns create below
+the filtered join while its `ON` is built (an id-form or whole-entity to-one column of the filtered table). A sub-query
+reading the filtered join's value through `outer.column(...)` (R-FLT-27) reuses the outer join and crosses nothing.
+The timing split follows D-194. A null value is `MQ1301` at the `joinFilter` call.
 
 **R-COL-30** *(D-143)* **A `TableField` may be a source's root.** `TableField.source(model)` is the root of a query
 over a `@SourceModel` (`api/17` R-SRC-10): its `rootEntity()` is the source model, and the query reads the CTE's
@@ -683,6 +707,10 @@ the planner must see as a literal (a partial index's predicate, a selective enum
 | AC-COL-51 | Per line, a treated column on a `SINGLE_TABLE` column a sibling maps, same-named and differently named, reads NULL on the sibling's rows in the select list, an order and a predicate that matches only the sibling's value; a shared-column site the table lacks is `MQ4016` before any statement (R-COL-35, D-154). |
 | AC-COL-52 | Per strategy, `page()`'s total and `count(q)` with a select-only or order-only treat and with `isNull`, `ne`, `notIn` and `not(isNotNull)` equal the content's rows, rendered as `count(root.id)` with no selection or order (SQL snapshot); a grouped `@Subtype` total counts groups; a keyless model's content and a source body select the root id last as `mq_0id`, absent from `fields()`, the default sets, the mapper and `Rows`; a `distinct()` query or a `union`/`intersect`/`except` that would need it is `MQ4016`, and runs when the model selects the root id; the grouped `@Subtype` and source-body cases land with M28.5 and M28.8 (R-COL-35, D-154). |
 | AC-COL-53 | An eligible flat read returns the same models, keys and keyset cursors as the general path for class and record models over converted columns, an ineligible read (one with a fetch plan, and only that) takes the general path, and the result list is presized from the materialized result, never from `Limit.of(Integer.MAX_VALUE)` (R-COL-11, D-184). |
+| AC-COL-54 | A join filter on a LEFT entity join and on a LEFT to-one join blanks the joined columns and keeps the row, on every vendor and line, in content, count, both primary-key-first steps, keyset and export (R-COL-39, D-193). Tests: TCK `JoinFilterExecutionTest#ac_col_54_entity_join_filter_blanks_the_joined_columns_and_keeps_every_row`, `#ac_col_54_to_one_join_filter_blanks_the_joined_columns_and_keeps_every_row`; core `JoinFilterTest#ac_col_54_*`. |
+| AC-COL-55 | A join filter ANDs with a static `TableField.on` in one `ON`, passed to the provider's `on` once; a skipped filter adds nothing; a `where` filter on a blanked column drops the row (R-COL-39). Tests: TCK `JoinFilterExecutionTest#ac_col_55_filter_ands_with_the_static_on_in_one_join`, `#ac_col_55_skipped_filters_add_nothing`, `#ac_col_55_where_filter_on_a_blanked_column_drops_the_row`, `#ac_col_55_semi_joined_where_reads_the_filtered_join_like_the_outer_statement`; core `JoinFilterTest#ac_col_55_*`. |
+| AC-COL-56 | `MQ1912`: another table, a to-one or to-many path, `exists`, an aggregate, an `INNER` join, a root, a join an id-form column reads, a sub-query term crossing the filtered join, a filter on a join key the content statement never applies, another join key resolving to the filtered join, a column of the filter reading a path below the filtered join; a `null` value is `MQ1301` at the `joinFilter` call (R-COL-39, D-194). Tests: core `JoinFilterValidationTest#ac_col_56_*` (build-time cases and first-resolution cases against a stub criteria builder), `JoinFilterTest#ac_col_56_null_values_fail_with_mq1301_at_the_join_filter_call`; TCK `JoinFilterExecutionTest#ac_col_56_id_form_column_reading_the_filtered_join_is_refused_before_any_statement`, `#ac_col_56_ac_col_57_filter_on_a_join_the_content_never_creates_is_refused_and_creates_none`, `#ac_col_56_inner_key_resolving_to_the_filtered_join_inside_or_is_refused`; core `JoinFilterTest#ac_col_56_another_key_resolving_to_the_filtered_join_is_refused_in_either_order`, `JoinFilterValidationTest#ac_col_56_column_below_the_filtered_join_in_its_own_filter_is_refused_at_first_resolution`, `#ac_col_56_filtered_join_below_a_retyped_parent_is_applied_not_refused`, `#ac_col_56_correlated_value_reading_the_filtered_join_through_the_outer_column_is_valid`. |
+| AC-COL-57 | A `joinFilter` alone creates no association join; the static constants are unchanged after a filtered build (INV-9) (R-COL-39). Tests: TCK `JoinFilterExecutionTest#ac_col_56_ac_col_57_filter_on_a_join_the_content_never_creates_is_refused_and_creates_none`, `#ac_col_57_static_constants_are_unchanged_after_a_filtered_build`; core `JoinFilterTest#ac_col_57_*`. |
 
 AC-COL-36..39, 41 and 42 run on every Tier-1 vendor and both Hibernate lines. Each scalar terminal selects,
 filters and orders. AC-COL-41 covers all R-COL-33 refusals, including generated annotations and

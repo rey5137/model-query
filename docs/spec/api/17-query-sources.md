@@ -653,7 +653,7 @@ pairs; `Builder#joinEntity` registers it. Its `root()` is a joined-entity `Table
 share as a `static final` definition (INV-9). Columns read its basic attributes or to-one paths. A LEFT join keeps
 an outer row when the source or entity is unmatched and yields null joined values; INNER drops either unmatched
 row. Separate names joining the same entity remain separate. Inspection includes each entity join and its kind,
-anchor and id pairs.
+anchor and id pairs, and each join filter in force (R-COL-39).
 
 The pairs cover every basic id attribute exactly once, including all attributes of an `@IdClass` or the flattened
 basic attributes of an `@EmbeddedId`. A pair's unconverted source attribute type equals the id attribute's type

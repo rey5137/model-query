@@ -387,6 +387,10 @@ public enum MqCode {
     @Incubating
     MQ1911("An entity join must bind one joined source to its full entity id, once"),
 
+    /** A request-bound join filter has an unsafe target or value, or a query could bypass its ON (R-COL-39, D-194). */
+    @Incubating
+    MQ1912("A join filter must read only its LEFT join's own columns, values and constants"),
+
     /** A page size or {@code maxPerParent} that is not positive, or a limit that is negative (R-EXE-06, R-FCH-11). */
     MQ2001("A page or chunk size and maxPerParent must be positive, and a limit must not be negative"),
 
