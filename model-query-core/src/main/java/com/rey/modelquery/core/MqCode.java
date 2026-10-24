@@ -380,6 +380,13 @@ public enum MqCode {
     @Incubating
     MQ1910("A joined source must be unique and joined on its full key, once"),
 
+    /**
+     * An entity join is bound twice, has an invalid source anchor, or does not pair that source with every basic
+     * entity id attribute exactly once using the same boxed Java types (R-SRC-23, R-SRC-24).
+     */
+    @Incubating
+    MQ1911("An entity join must bind one joined source to its full entity id, once"),
+
     /** A page size or {@code maxPerParent} that is not positive, or a limit that is negative (R-EXE-06, R-FCH-11). */
     MQ2001("A page or chunk size and maxPerParent must be positive, and a limit must not be negative"),
 
@@ -566,10 +573,10 @@ public enum MqCode {
     /**
      * The persistence provider lacks a source, ordered sub-query or source-feature renderer, including a tree's
      * duplicate-key check, or can't render an operator feature; raised at build time, before any statement (R-SRC-11,
-     * R-SRC-14, R-COL-32, R-VND-25, R-VND-23, R-AGG-16, R-AGG-18, R-VND-30).
+     * R-SRC-14, R-COL-32, R-VND-25, R-VND-23, R-AGG-16, R-AGG-18, R-VND-30, R-VND-32).
      */
     MQ4014("The persistence provider lacks a renderer for a source, ordered sub-query, source feature, "
-            + "treated path, operator feature, exact average or first-by aggregate"),
+            + "entity join, treated path, operator feature, exact average or first-by aggregate"),
 
     /**
      * The target's vendor lacks a source, operator or aggregate feature the query uses, {@code VendorProfile#sources},

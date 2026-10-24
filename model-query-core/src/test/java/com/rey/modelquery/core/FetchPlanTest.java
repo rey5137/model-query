@@ -137,6 +137,33 @@ class FetchPlanTest {
     // ---- AC-FCH-05: re-rooting
 
     @Test
+    void ac_fch_05_a_join_plan_cannot_reroot_named_entity_or_source_joins() {
+        var manager = TableField.<CustomerEntity>joinedEntity("manager", CustomerEntity.class);
+        var country = TableField.<CustomerEntity, CountryEntity>join(manager, "country", LEFT);
+        var totals = TableField.joinedSource("totals", CustomerView.class);
+        List<ColumnField<CustomerView, ?, String>> columns = List.of(
+                ColumnField.of(CustomerView.class, manager, "name", String.class),
+                ColumnField.of(CustomerView.class, country, "name", String.class),
+                ColumnField.over(CustomerView.class, totals, CUSTOMER_NAME));
+
+        for (var column : columns) {
+            var selected = FetchPlan.of(SelectSet.of(column));
+            var needed = FetchPlan.of(SelectSet.of(CUSTOMER_ID))
+                    .enrich(Enricher.of(UnaryOperator.identity(), column));
+            for (var nested : List.of(selected, needed)) {
+                var plan = FetchPlan.of(SelectSet.of(ID)).join(CUSTOMER_JOIN, nested);
+                assertThatThrownBy(() -> invoices().fetch(plan).build())
+                        .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                                e -> assertThat(e.code()).isEqualTo(MqCode.MQ1003));
+                var query = invoices().select(SelectSet.of(ID)).build();
+                assertThatThrownBy(() -> query.withFetch(plan))
+                        .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                                e -> assertThat(e.code()).isEqualTo(MqCode.MQ1003));
+            }
+        }
+    }
+
+    @Test
     void ac_fch_05_a_join_plan_re_roots_equal_to_the_generated_join_constants() {
         var plan = FetchPlan.of(SelectSet.of(ID, STATUS)).join(CUSTOMER_JOIN, CUSTOMER).join(BUYER_JOIN, CUSTOMER);
 

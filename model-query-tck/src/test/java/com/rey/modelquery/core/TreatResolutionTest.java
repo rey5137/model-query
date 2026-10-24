@@ -59,6 +59,22 @@ class TreatResolutionTest {
     }
 
     @TckTest
+    void ac_src_56_an_unregistered_treated_entity_join_is_mq1003(TckDatabase db) {
+        assertThat(SqlSnapshots.capture(db, ds -> {
+            try (SessionFactory factory = factory(ds)) {
+                CriteriaBuilder cb = factory.getCriteriaBuilder();
+                var query = cb.createQuery();
+                JoinContext holders = JoinContext.of(query.from(Holder.class), cb);
+                var joined = TableField.joinedEntity("unregistered", Payment.class);
+                assertMq(() -> joined.resolve(holders), MqCode.MQ1003);
+                assertMq(() -> joined.treat(Card.class).resolve(holders), MqCode.MQ1003);
+                assertMq(() -> ColumnField.of(String.class, joined.treat(Card.class), "number", String.class)
+                        .expression(holders), MqCode.MQ1003);
+            }
+        })).isEmpty();
+    }
+
+    @TckTest
     void ac_col_48_treats_resolve_over_the_reached_entity_and_cache_only_in_the_context(TckDatabase db) {
         assertThat(SqlSnapshots.capture(db, ds -> {
             try (SessionFactory factory = factory(ds)) {
@@ -88,6 +104,8 @@ class TreatResolutionTest {
                 var premium = premiumQuery.from(Premium.class);
                 assertThat(CARD.resolve(JoinContext.of(premium, cb, premiumQuery, options))).isSameAs(premium);
                 assertThat(renderer.calls).isEqualTo(calls);
+                assertThat(TableField.root(Card.class).treat(Premium.class).resolve(payments).getJavaType())
+                        .isEqualTo(Premium.class);
                 ModelQuery.builder(ROOT, row -> row.get(NUMBER)).select(SelectSet.of(ID, NUMBER))
                         .primaryKey(PrimaryKey.of(ID)).customize((spec, joins, statement, builder, phase) -> {})
                         .build().buildQuery(cb, Phase.MODEL, options);

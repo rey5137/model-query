@@ -3003,8 +3003,11 @@ Rejected: aggregates inside the source, chaining `@JoinSource` off a joined sour
 off an outer entity's plain column (a read-only association covers it), a join filter held on a `TableField`, entity
 joins nested in `@JoinSource`, a separate `@EntityColumn`, a `joinEntity` method on `SourceRenderer`, and the CTE join
 as anchor.
-→ `rfc/0021`, `rfc/0021-spike-results.md`, `api/17` R-SRC-22, `api/10` R-COL-03, `api/13` R-AGG-19, `vendor/40`,
-D-185, D-191, D-192.
+Part A's assigned ids are R-SRC-23, R-SRC-24, R-VND-32, MQ1911 and AC-SRC-53 through AC-SRC-58. The processor's
+MQ3046 cases in AC-SRC-56 belong to M33.2; R-COL-39 and the join-filter ids remain Part B (M33.3).
+
+→ `rfc/0021`, `rfc/0021-spike-results.md`, `api/17` R-SRC-23, R-SRC-24, AC-SRC-53–58, `api/10` R-COL-03,
+`api/13` R-AGG-19, `vendor/40` R-VND-32, `reference/90` MQ1911, MQ4014, D-185, D-191, D-192.
 
 ## 2. Open questions
 

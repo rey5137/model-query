@@ -3,6 +3,7 @@ package com.rey.modelquery.jpa.spi;
 import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.AggregateRenderer;
 import com.rey.modelquery.core.ConstantRenderer;
+import com.rey.modelquery.core.EntityJoinRenderer;
 import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.NullPrecedenceRenderer;
 import com.rey.modelquery.core.NullSafeEqualityRenderer;
@@ -178,6 +179,12 @@ public interface ProviderSupport {
      * {@link #inserts()} (R-SRC-11, D-143).
      */
     default Optional<SourceRenderer> sources() {
+        return Optional.empty();
+    }
+
+    /** Root-anchored entity joins off a joined source (R-VND-32, R-SRC-24). */
+    @Incubating
+    default Optional<EntityJoinRenderer> entityJoins() {
         return Optional.empty();
     }
 

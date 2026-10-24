@@ -255,7 +255,7 @@ class JoinSourceModelTest {
     }
 
     @Test
-    void ac_src_46_a_child_whose_child_model_joins_a_source_is_mq3039() {
+    void ac_src_46_ac_src_57_a_child_whose_child_model_joins_a_source_is_mq3039() {
         Compilation compilation = compile(DAY_ENTITY, SALE_ENTITY, DAY_SALES, day("""
                 @QueryModel(root = DayEntity.class)
                 @JoinSource(name = "sales", source = DaySales.class,

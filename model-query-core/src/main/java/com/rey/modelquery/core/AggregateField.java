@@ -277,6 +277,9 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
             return (Expression<C>) firstBy(ctx);
         }
         Expression<?> value = argument.apply(ctx, cb);
+        if (kind == Kind.COUNT) {
+            value = RowCounts.identity(ctx, value);
+        }
         AggregateRenderer renderer = ctx.renderOptions().aggregateRenderer().orElse(AggregateRenderer.DEFAULT);
         if (kind == Kind.AVG_EXACT) {
             // A filter goes on the argument, before the sum and the count, so the quotient stays exact.
@@ -289,7 +292,7 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
             return (Expression<C>) (kind == Kind.COUNT ? RowCounts.count(ctx, value) : over(cb, kind, value));
         }
         // A row count counts a constant under the filter; any other count counts what its unfiltered form does, so a
-        // LEFT-joined table's unmatched group counts 0 (R-AGG-19). A composite id is refused either way (MQ1412).
+        // LEFT-joined table's unmatched group counts 0 (R-AGG-19). Other composite ids are refused (MQ1412).
         Expression<?> counted = value;
         if (kind == Kind.COUNT) {
             counted = identifying(value);

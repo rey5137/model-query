@@ -460,7 +460,7 @@ public final class JoinContext {
      * which a count of the joined table counts (R-SRC-21, R-AGG-19).
      */
     void joinSource(JoinKey key, From<?, ?> join, From<?, ?> outer, boolean inner, String firstKey) {
-        joinedSources.put(key, new JoinedSource(join, outer, inner, join.get(firstKey)));
+        joinedSources.put(key, new JoinedSource(join, outer, inner, join.get(firstKey), false));
     }
 
     /**
@@ -496,6 +496,26 @@ public final class JoinContext {
         return null;
     }
 
+    /** Registers an entity join and its first id path; it always ends the row-count walk (R-AGG-19). */
+    void joinEntity(JoinKey key, From<?, ?> join, From<?, ?> outer, Path<?> firstId) {
+        joinedSources.put(key, new JoinedSource(join, outer, false, firstId, true));
+    }
+
+    /** Resolves a registered entity join, never falling back to the statement root (R-SRC-23). */
+    From<?, ?> joinedEntity(JoinKey key, String owner) {
+        JoinedSource joined = joinedSources.get(key);
+        if (joined == null) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1003, owner + ": the query binds no entity joined as '"
+                    + key.alias() + "'; bind it with joinEntity(...)");
+        }
+        return joined.join();
+    }
+
+    /** Whether this statement registered the node as an entity join (R-AGG-19). */
+    boolean isJoinedEntity(From<?, ?> node) {
+        return joinedSources.values().stream().anyMatch(joined -> joined.entity() && joined.join() == node);
+    }
+
     private JoinedSource bound(JoinKey key, String owner) {
         JoinedSource joined = joinedSources.get(key);
         if (joined == null) {
@@ -506,10 +526,10 @@ public final class JoinContext {
     }
 
     /**
-     * A statement's join to a joined source's CTE, the {@code From} it joins from, whether it is an INNER join, and the
-     * CTE column of the source's first key field.
+     * A bound source or entity join, its anchor and count identity. Entity joins always stop the row-count walk;
+     * source joins may continue through an INNER anchor (R-AGG-19).
      */
-    record JoinedSource(From<?, ?> join, From<?, ?> outer, boolean inner, Path<?> key) {}
+    record JoinedSource(From<?, ?> join, From<?, ?> outer, boolean inner, Path<?> key, boolean entity) {}
 
     /**
      * Makes the joined sources of {@code statement} readable here, a context of its own over a second root of the same

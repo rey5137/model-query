@@ -36,11 +36,36 @@ public final class RowCounts {
      */
     @EngineFacing
     public static Expression<Long> count(JoinContext ctx, Expression<?> counted) {
+        counted = identity(ctx, counted);
         CriteriaBuilder cb = ctx.cb();
         if (!eligible(ctx, counted)) {
             return cb.count(counted);
         }
         return ctx.renderOptions().aggregateRenderer().orElse(AggregateRenderer.DEFAULT).rowCount(cb, counted);
+    }
+
+    /** Entity joins and all their descendants count a basic id, including for composite identities (R-AGG-19). */
+    @Incubating
+    static Expression<?> identity(JoinContext ctx, Expression<?> counted) {
+        if (!(counted instanceof From<?, ?> from)) {
+            return counted;
+        }
+        From<?, ?> node = from;
+        while (!ctx.isJoinedEntity(node)) {
+            if (!(node instanceof Join<?, ?> join)) {
+                return counted;
+            }
+            node = join.getParent();
+        }
+        EntityType<?> entity = entityOf(from);
+        if (entity == null) {
+            return counted;
+        }
+        Path<?> id = from;
+        for (String part : EntityJoin.idAttributes(entity).keySet().iterator().next().split("\\.")) {
+            id = id.get(part);
+        }
+        return id;
     }
 
     /**
@@ -50,7 +75,8 @@ public final class RowCounts {
      * a foreign-key read is neither. The walk follows {@code Join#getParent()}, not the context's root, which in a
      * {@code rootedAt} context is a join. A joined source's table is counted by its first key column
      * ({@link JoinContext#joinedSourceKey}), classified by its join kind: an INNER join is a hop of the chain, from the
-     * {@code From} it joins, and a LEFT join keeps the column's count, 0 where no source row matched (R-AGG-19).
+     * {@code From} it joins, and a LEFT join keeps the column's count, 0 where no source row matched. An entity join
+     * always stops the walk, including when reached from a join below it (R-AGG-19).
      */
     static boolean eligible(JoinContext ctx, Expression<?> counted) {
         if (ctx.customized()) {
@@ -63,7 +89,7 @@ public final class RowCounts {
         }
         From<?, ?> node = joined != null ? joined.outer() : identified(counted);
         while (node != null) {
-            if (ctx.treatedNode(node)) {
+            if (ctx.treatedNode(node) || ctx.isJoinedEntity(node)) {
                 return false;
             }
             if (node instanceof Root<?>) {

@@ -6,7 +6,11 @@ import jakarta.persistence.criteria.JoinType;
  * Identity of a join: parent key, attribute, join type and alias (R-COL-02). Never object identity (CC-IMM-04). A root
  * has no parent and no type; its attribute is the entity class name.
  */
-record JoinKey(JoinKey parent, String attribute, JoinType type, String alias) {
+record JoinKey(JoinKey parent, String attribute, JoinType type, String alias, boolean entity) {
+
+    JoinKey(JoinKey parent, String attribute, JoinType type, String alias) {
+        this(parent, attribute, type, alias, false);
+    }
 
     static JoinKey root(Class<?> entity) {
         return new JoinKey(null, entity.getName(), null, "");
@@ -17,8 +21,13 @@ record JoinKey(JoinKey parent, String attribute, JoinType type, String alias) {
         return new JoinKey(null, model.getName(), null, name);
     }
 
+    /** An entity join cannot share a key with a root, source join or association join (R-SRC-23). */
+    static JoinKey joinedEntity(Class<?> entity, String name) {
+        return new JoinKey(null, entity.getName(), null, name, true);
+    }
+
     /** This key with its root replaced by {@code newRoot}, as {@code TableField.withParent} re-roots a path. */
     JoinKey reroot(JoinKey newRoot) {
-        return parent == null ? newRoot : new JoinKey(parent.reroot(newRoot), attribute, type, alias);
+        return parent == null ? newRoot : new JoinKey(parent.reroot(newRoot), attribute, type, alias, entity);
     }
 }

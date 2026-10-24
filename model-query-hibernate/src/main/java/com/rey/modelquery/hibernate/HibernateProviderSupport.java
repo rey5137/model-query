@@ -1,11 +1,12 @@
 package com.rey.modelquery.hibernate;
 
 import com.rey.modelquery.annotations.Incubating;
-import com.rey.modelquery.core.ConstantRenderer;
-import com.rey.modelquery.core.ModelQueryConfigurationException;
-import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.AggregateField;
 import com.rey.modelquery.core.AggregateRenderer;
+import com.rey.modelquery.core.ConstantRenderer;
+import com.rey.modelquery.core.EntityJoinRenderer;
+import com.rey.modelquery.core.ModelQueryConfigurationException;
+import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.NullPrecedenceRenderer;
 import com.rey.modelquery.core.NullSafeEqualityRenderer;
@@ -260,8 +261,8 @@ public final class HibernateProviderSupport implements ProviderSupport {
     }
 
     /**
-     * {@link ForeignKeyColumn#LOCAL_COLUMN} when {@code toOne} of {@code entity} is a to-one whose foreign key is on the
-     * entity's own table, in columns and not a formula, references its target's primary key and has no not-found
+     * {@link ForeignKeyColumn#LOCAL_COLUMN} when {@code toOne} of {@code entity} is a to-one whose foreign key is on
+     * the entity's own table, in columns and not a formula, references its target's primary key and has no not-found
      * action, from Hibernate's mapping: then {@code toOne.id} in a bulk statement renders that column with no join,
      * where a {@code referencedColumnName} of another column, a join table, a secondary table, a formula or a
      * not-found action renders a join (the M22.1 spike). {@code UNKNOWN} for a type that is not an entity in
@@ -546,6 +547,12 @@ public final class HibernateProviderSupport implements ProviderSupport {
     @Override
     public Optional<SourceRenderer> sources() {
         return Optional.of(HibernateSourceRenderer.INSTANCE);
+    }
+
+    @Override
+    @Incubating
+    public Optional<EntityJoinRenderer> entityJoins() {
+        return Optional.of(HibernateEntityJoinRenderer.INSTANCE);
     }
 
     /** Ordered scalar sub-queries through the same Criteria methods on both Hibernate lines (R-VND-25). */
