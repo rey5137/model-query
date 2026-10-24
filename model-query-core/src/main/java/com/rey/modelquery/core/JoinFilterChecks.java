@@ -21,9 +21,16 @@ final class JoinFilterChecks {
         filtered = null;
         filters.forEach((table, binding) -> {
             JoinKey key = table.key();
-            boolean left = key.entity() ? entities.stream()
-                    .filter(join -> join.root().key().equals(key)).allMatch(join -> join.kind() == JoinKind.LEFT)
-                    : key.parent() != null && key.type() == JoinType.LEFT;
+            boolean left;
+            if (key.entity()) {
+                var bound = entities.stream().filter(join -> join.root().key().equals(key)).toList();
+                if (bound.isEmpty()) {
+                    throw refused(table.describe() + ": joinFilter(...) names an entity join the query does not bind");
+                }
+                left = bound.stream().allMatch(join -> join.kind() == JoinKind.LEFT);
+            } else {
+                left = key.parent() != null && key.type() == JoinType.LEFT;
+            }
             if (!left || binding.kind() == JoinKind.INNER) {
                 throw refused(table.describe() + ": joinFilter(...) requires a LEFT join, not a root or INNER join");
             }

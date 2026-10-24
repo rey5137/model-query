@@ -641,6 +641,11 @@ provider unable to attach to the root refuses with `MQ4014` before SQL, after ve
 not a new `VendorProfile` fact. The SPI preserves INV-7: core sees Jakarta Persistence and the JDK only, and jpa
 has no Hibernate imports.
 
+After `EntityJoinRenderer#join` returns, the engine requires that `on` was called exactly once, that the returned
+join is the same instance the renderer passed to `on` (a wrapper or proxy is refused), and that it has an `ON`
+(`getOn()` non-null, read through `Join#getOn` or a public `getOn()` declared on a public type the returned object
+implements; unverified if there is none). Otherwise, or if `getOn` throws or cannot be invoked, it is `MQ4014`, naming the renderer class (D-196, AC-VND-22).
+
 ## 2. Detection
 
 **R-VND-04** Resolution order:
@@ -726,6 +731,7 @@ explicitly (`likeIgnoreCase`, `nullsFirst`), and the library renders it the same
 | AC-VND-19 | Every admitted cell a definition reaches runs as a TCK case per strategy on every Tier-1 vendor and both lines, asserting ids, values, the row count and the total, on each mapping variant as well; each admitted `COUNT` cell as `count(root.id)`; probing the renderer with synthesized sites, per strategy, shape, anchoring, shared column and variant, admits exactly the use sets the cases run, so a set no definition reaches is refused (D-156) (R-VND-26, D-154). |
 | AC-VND-20 | A treated `ModelUpdate`/`ModelDelete` `where` and a treated returning model (`updateReturning`, `deleteReturning`, `persist`) are `MQ4016` before any statement, on every strategy, vendor and path, key-first included (R-VND-26, D-154). |
 | AC-VND-21 | On both lines and every strategy, the preflight of an unanchored `count(root)` over `isNull` is `MQ4016` and of its anchored form empty, with no JDBC statement; each later keyset page shape, over every combination of NULL cursor values, is preflighted before page 1, a keyset
+| AC-VND-22 | An `EntityJoinRenderer` that never calls `on`, calls it twice, returns a join other than the one it passed to `on` (a wrapper or proxy), or returns a join with no `ON`, or one whose `getOn` throws or cannot be invoked (no `getOn` on a public type: unverified), is `MQ4014` naming the renderer class, before any statement (R-VND-32). Tests: `ac_vnd_22_*`. |
 `export`'s too, and `byKeys` with no keys and its first chunk built again; a `TABLE_PER_CLASS`, `JOINED` or formula
 discriminator restriction leaving out a subtype is refused; an unrecognised AST shape and a narrowing it can't attribute are `MQ4016`; a declared path `exists` root, `not` and `or` forms included, is admitted and a wider, narrower, sibling, missing, left-over or two-subtype declaration refused; an `or` reading the treated root in some branches only declares nothing; a nested `TABLE_PER_CLASS` union keeping its root's table is admitted under a null id or an exact `clazz_` restriction and refused under a `CASE`-guarded inherited column; a correlated count over its own treated root passes with no declaration; a `TABLE_PER_CLASS` treated `INNER` target
 retaining a concrete base or sibling branch with a real join key and no effective subtype restriction is `MQ4016`

@@ -21,8 +21,8 @@ class GeneratedEntityJoinExecutionTest {
     @TckTest
     void ac_src_53_ac_proc_48_generated_left_entity_joins_match_native_sql(TckDatabase db) throws SQLException {
         assertThat(QEntityJoinDetail.fields().resolve(List.of("viaOrder")).unknown()).isEmpty();
-        assertThat(QEntityJoinDetail.MANAGER_VIP.identityPath()).isEqualTo("manager.vip");
-        assertThat(QEntityJoinDetail.CUSTOMER_VIP.identityPath()).isEqualTo("customer.vip");
+        assertThat(QEntityJoinDetail.MANAGER_VIP.identityPath()).isEqualTo("entity(manager).vip");
+        assertThat(QEntityJoinDetail.CUSTOMER_VIP.identityPath()).isEqualTo("entity(customer).vip");
         var keys = QEntityJoinKeys.source()
                 .where(f -> f.gte(QEntityJoinKeys.ID, 990L).lte(QEntityJoinKeys.ID, 1020L)).build();
         var query = QEntityJoinDetail.query(keys).select(QEntityJoinDetail.ALL)

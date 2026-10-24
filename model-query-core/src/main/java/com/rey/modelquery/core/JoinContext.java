@@ -1005,6 +1005,16 @@ public final class JoinContext {
             throw JoinFilterChecks.refused(description + ": resolves to the join of a joinFilter(...) as "
                     + resolvedType + " " + cacheKey + "; the filtered join is read only through its own key");
         }
+        if (resolvedType == JoinType.INNER) {
+            // A filter only blanks columns, so an INNER join below it, as rendered, would drop the row (D-195).
+            for (JoinKey above = parentKey; above != null; above = above.parent()) {
+                if (joinFilters.containsKey(above)) {
+                    throw JoinFilterChecks.refused(description + ": renders INNER below the joinFilter(...) join '"
+                            + (above.parent() == null ? above.alias() : above.attribute()) + "'; declare it LEFT, "
+                            + "since a join filter only blanks columns and never removes rows");
+                }
+            }
+        }
         Resolved cached = joins.get(cacheKey);
         if (cached != null) {
             // Lambdas cannot be compared, so an equal key must carry the very same condition instance (R-COL-04).

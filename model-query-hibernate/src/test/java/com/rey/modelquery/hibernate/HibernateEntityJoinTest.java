@@ -478,8 +478,16 @@ class HibernateEntityJoinTest {
                 @Override
                 public <E> From<?, E> join(From<?, ?> root, Class<E> entity, JoinKind kind,
                         Function<From<?, E>, Predicate> on) {
-                    return withoutEntityModel(HibernateEntityJoinRenderer.INSTANCE.join(root, entity, kind,
-                            joined -> on.apply(withoutEntityModel(joined))));
+                    // The engine requires the join it handed to on back (R-VND-32), so the wrapper is returned itself.
+                    From<?, ?>[] wrapped = new From<?, ?>[1];
+                    HibernateEntityJoinRenderer.INSTANCE.join(root, entity, kind, joined -> {
+                        From<?, E> hidden = withoutEntityModel(joined);
+                        wrapped[0] = hidden;
+                        return on.apply(hidden);
+                    });
+                    @SuppressWarnings("unchecked")
+                    From<?, E> result = (From<?, E>) wrapped[0];
+                    return result;
                 }
             };
             var options = RenderOptions.portable().withSourceRenderer(HibernateSourceRenderer.INSTANCE)

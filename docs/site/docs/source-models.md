@@ -488,7 +488,7 @@ joins of one source model (a high band and a low band, say) stay apart by name.
 ### Joining an entity off a joined source
 
 A joined source can supply the full id of an entity that the outer model also needs to read. The incubating
-`@JoinEntity` declares that join; `@Column(join = ...)` and `@FilterColumn(join = ...)` read its entity rather than
+`@JoinEntity` declares that join; `@Column(entityJoin = ...)` and `@FilterColumn(entityJoin = ...)` read its entity rather than
 the root. This generated form is adapted from `JoinEntityModelTest` and `GeneratedEntityJoinExecutionTest`:
 
 ```java
@@ -499,19 +499,19 @@ public record EntityJoinKeys(
 @QueryModel(root = OrderEntity.class)
 @JoinSource(name = "keys", source = EntityJoinKeys.class,
         on = @JoinSource.On(column = "id", key = "id"))
-@JoinEntity(name = "manager", entity = CustomerEntity.class,
-        on = @JoinEntity.On(join = "keys", field = "id"))
-@JoinEntity(name = "customer", entity = CustomerEntity.class,
-        on = @JoinEntity.On(join = "keys", field = "customerId"))
-@JoinEntity(name = "copy", entity = OrderEntity.class,
-        on = @JoinEntity.On(join = "keys", field = "id"))
-@FilterColumn(name = "MANAGER_VIP", join = "manager", path = "vip")
-@FilterColumn(name = "CUSTOMER_VIP", join = "customer", path = "vip")
+@JoinEntity(name = "manager", entity = CustomerEntity.class, source = "keys",
+        on = @JoinEntity.On(field = "id"))
+@JoinEntity(name = "customer", entity = CustomerEntity.class, source = "keys",
+        on = @JoinEntity.On(field = "customerId"))
+@JoinEntity(name = "copy", entity = OrderEntity.class, source = "keys",
+        on = @JoinEntity.On(field = "id"))
+@FilterColumn(name = "MANAGER_VIP", entityJoin = "manager", path = "vip")
+@FilterColumn(name = "CUSTOMER_VIP", entityJoin = "customer", path = "vip")
 public record EntityJoinDetail(
         @PrimaryKey Long id,
-        @Column(join = "manager", attribute = "name") String managerName,
-        @Column(join = "customer", attribute = "name") String customerName,
-        @Column(join = "copy", attribute = "customer.name") String viaOrder) {}
+        @Column(entityJoin = "manager", attribute = "name") String managerName,
+        @Column(entityJoin = "customer", attribute = "name") String customerName,
+        @Column(entityJoin = "copy", attribute = "customer.name") String viaOrder) {}
 ```
 
 The generated factory still takes one completed `SourceQuery` per source join; it registers the entity joins itself.
@@ -566,18 +566,19 @@ var query = ModelQuery.builder(ORDERS,
 - **LEFT by default.** `@JoinEntity.type` defaults to `JoinKind.LEFT`; the hand-written form above supplies it
   explicitly. An unmatched source or entity leaves the outer row with null joined values. `JoinKind.INNER` drops
   either kind of unmatched row. Separate names joining the same entity remain independent.
-- **Every id attribute, once.** Each `@JoinEntity.On` pairs a field of the same joined source with an entity id
+- **Every id attribute, once.** Each `@JoinEntity.On` pairs a field of the joined source named by `@JoinEntity#source` with an entity id
   attribute. Its `id` defaults to the sole basic id; composite ids need explicit pairs for every attribute, including
   flattened embedded paths such as `id = "key.part"`. Hand-written `EntityJoin.on(anchor, "id")` names the id
   explicitly.
   Converted anchors, partial or extra ids, association ids and differing boxed types are refused. `int` and `Integer`
   agree. Names must be unique across source and entity joins.
 - **Basic columns and to-one paths.** Joined columns can follow to-one paths, as `customer.name` does above, with
-  their declared join kind. A to-one column below an entity join resolves by its model field name (`viaOrder` here).
+  their declared join kind (`@FilterColumn#joinType` applies to the associations on the path; the entity join's own kind is `@JoinEntity#type`). A to-one column below an entity join resolves by its model field name (`viaOrder` here).
   To-many paths, nested `@Join`, a joined-column `@PrimaryKey`, `@JoinEntity` on `@SourceModel`, and `treat` combined
-  with `join` are refused. Generated declarations fail with [`MQ3046`](diagnostics.md); invalid hand-written
-  definitions fail with [`MQ1911`](diagnostics.md), at build or first resolution before SQL. An unregistered
-  entity-join column is `MQ1003`.
+  with `entityJoin` are refused. Generated declarations fail with [`MQ3046`](diagnostics.md); invalid hand-written
+  definitions fail with [`MQ1911`](diagnostics.md), at build or first resolution before SQL; an entity class the render
+  options' metamodel rejects as unmapped is `MQ1911` too (without a metamodel, the provider decides). A column over an entity join the query does not bind is `MQ1003`.
+  A cursor over an entity-join column carries the join in its identity path, so it cannot collide with a root attribute.
 - **Root-anchored in every statement.** The engine creates each entity join immediately after its source join,
   attached to the statement's root. This includes unused joins, content and count, both primary-key-first steps,
   keyset pages, `byKeys`, both `one` calls, export pages, streams, fetch-parent reads and through-child loads.

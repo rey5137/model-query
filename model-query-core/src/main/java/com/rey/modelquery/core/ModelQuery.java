@@ -18,6 +18,8 @@ import jakarta.persistence.criteria.Selection;
 import jakarta.persistence.criteria.Subquery;
 import jakarta.persistence.metamodel.EntityType;
 import jakarta.persistence.metamodel.PluralAttribute;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
@@ -705,21 +707,78 @@ public final class ModelQuery<E, K, M> {
         return walk;
     }
 
-    /** The predicate is built once by the engine; the provider applies it with one on call (R-SRC-24). */
+    /**
+     * The predicate is built once by the engine; the provider applies it with one on call (R-SRC-24). A renderer that
+     * never calls {@code on}, calls it twice, returns another join than the one it called {@code on} with, or leaves
+     * the join without an ON would multiply rows on every statement, so it is refused (R-VND-32, INV-5).
+     */
     private <T> void joinEntity(EntityJoin<?, T> join, EntityJoinRenderer renderer, From<?, ?> root,
             JoinContext joins) {
-        renderer.join(root, join.entity(), join.kind(), entity -> {
+        int[] calls = {0};
+        From<?, ?>[] called = {null};
+        From<?, T> joined = renderer.join(root, join.entity(), join.kind(), entity -> {
+            calls[0]++;
+            called[0] = entity;
             EntityType<?> type = entityType(join, entity, joins);
             join.checkIds(type);
             var equal = new ArrayList<Predicate>();
             for (EntityJoin.On<?> pair : join.on()) {
                 equal.add(joins.cb().equal(entityId(entity, pair.idAttribute()), pair.anchor().path(joins)));
             }
+            // Registered here, not after the renderer returns: filter columns need it while the ON is built.
             joins.joinEntity(join.root().key(), entity, root,
                     entityId(entity, EntityJoin.idAttributes(type).keySet().iterator().next()));
             equal.addAll(joins.joinFilter(join.root().key()));
             return joins.cb().and(equal.toArray(Predicate[]::new));
         });
+        if (calls[0] != 1 || joined != called[0] || !hasOn(join, renderer, joined)) {
+            throw new ModelQueryConfigurationException(MqCode.MQ4014, join + ": "
+                    + renderer.getClass().getName() + " must call on exactly once and apply its predicate as the "
+                    + "ON of the join it returns (R-VND-32); it called on " + calls[0] + " time(s)");
+        }
+    }
+
+    /**
+     * Whether {@code joined} carries an ON. A {@link Join} answers {@code getOn()}; a provider's entity join that is no
+     * {@code Join} (Hibernate's) answers a {@code getOn()} of a public type it implements, read reflectively. One
+     * that answers none cannot be checked, so it passes: its call count and identity were still checked. A read that
+     * fails is MQ4014.
+     */
+    private static boolean hasOn(EntityJoin<?, ?> join, EntityJoinRenderer renderer, From<?, ?> joined) {
+        if (joined instanceof Join<?, ?> j) {
+            return j.getOn() != null;
+        }
+        Method getOn = publicGetOn(joined.getClass());
+        if (getOn == null) {
+            return true;
+        }
+        try {
+            return getOn.invoke(joined) != null;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            throw new ModelQueryConfigurationException(MqCode.MQ4014, join + ": "
+                    + renderer.getClass().getName() + " returned a join whose getOn() could not be read", e);
+        }
+    }
+
+    /** {@code getOn()} declared by a public class or interface in {@code type}'s hierarchy, else null. */
+    private static Method publicGetOn(Class<?> type) {
+        if (type == null) {
+            return null;
+        }
+        if (Modifier.isPublic(type.getModifiers())) {
+            try {
+                return type.getMethod("getOn");
+            } catch (NoSuchMethodException e) {
+                // try the supertypes
+            }
+        }
+        for (Class<?> parent : type.getInterfaces()) {
+            Method found = publicGetOn(parent);
+            if (found != null) {
+                return found;
+            }
+        }
+        return publicGetOn(type.getSuperclass());
     }
 
     private static EntityType<?> entityType(EntityJoin<?, ?> join, From<?, ?> from, JoinContext joins) {
@@ -732,12 +791,11 @@ public final class ModelQuery<E, K, M> {
                     .orElseThrow(() -> new ModelQueryConfigurationException(MqCode.MQ4014,
                             join + ": the provider exposes no entity metamodel for the joined entity"));
         } catch (IllegalArgumentException e) {
-            throw new ModelQueryConfigurationException(MqCode.MQ4014,
-                    join + ": the provider exposes no entity metamodel for the joined entity", e);
+            throw new ModelQueryDefinitionException(MqCode.MQ1911, join + ": target must be a mapped entity", e);
         }
     }
 
-    private static Path<?> entityId(From<?, ?> entity, String attribute) {
+    static Path<?> entityId(From<?, ?> entity, String attribute) {
         Path<?> path = entity;
         for (String part : attribute.split("\\.")) {
             path = path.get(part);
@@ -1109,7 +1167,12 @@ public final class ModelQuery<E, K, M> {
      */
     @EngineFacing
     public void checkPhases(CriteriaBuilder cb, RenderOptions options) {
-        checkPhasesOn(cb, PHASE_SCRATCH_BASE.withRenderersOf(Objects.requireNonNull(options, "options")));
+        RenderOptions scratch = PHASE_SCRATCH_BASE.withRenderersOf(Objects.requireNonNull(options, "options"));
+        if (!joinFilters.isEmpty()) {
+            // First resolution of D-194: content's joins decide, since an optimized count may omit a LEFT join.
+            assemble(Objects.requireNonNull(cb, "cb"), Phase.MODEL, scratch);
+        }
+        checkPhasesOn(cb, scratch);
     }
 
     private void checkPhasesOn(CriteriaBuilder cb, RenderOptions scratchOptions) {

@@ -70,16 +70,16 @@ class JoinEntityModelTest {
                 @QueryModel(root = Node.class, generateChanges = true, generateInserts = true)
                 @JoinSource(name = "edge", source = ManagerEdge.class,
                         on = @JoinSource.On(column = "id", key = "nodeId"))
-                @JoinEntity(name = "manager", entity = Profile.class,
-                        on = @JoinEntity.On(join = "edge", field = "managerId"))
-                @FilterColumn(name = "MANAGER_DELETED", join = "manager", path = "deleted")
-                @FilterColumn(name = "MANAGER_TYPE_NAME", join = "manager", path = "type.name")
-                @FilterColumn(name = "MANAGER_REQUIRED_TYPE", join = "manager", path = "type.id",
+                @JoinEntity(name = "manager", source = "edge", entity = Profile.class,
+                        on = @JoinEntity.On(field = "managerId"))
+                @FilterColumn(name = "MANAGER_DELETED", entityJoin = "manager", path = "deleted")
+                @FilterColumn(name = "MANAGER_TYPE_NAME", entityJoin = "manager", path = "type.name")
+                @FilterColumn(name = "MANAGER_REQUIRED_TYPE", entityJoin = "manager", path = "type.id",
                         alias = "requiredType", joinType = JoinKind.INNER)
                 public record NodeDetail(@PrimaryKey Long id, String name,
                         @SourceColumn(join = "edge", field = "managerId") Long managerId,
-                        @Column(join = "manager", attribute = "firstName") String managerFirstName,
-                        @Column(join = "manager", attribute = "type.name") String managerType) {}
+                        @Column(entityJoin = "manager", attribute = "firstName") String managerFirstName,
+                        @Column(entityJoin = "manager", attribute = "type.name") String managerType) {}
                 """);
         assertThat(compilation).succeededWithoutWarnings();
         var index = (FieldIndex<?>) classes(compilation).loadClass("shop.QNodeDetail")
@@ -111,17 +111,17 @@ class JoinEntityModelTest {
                 @QueryModel(root = Node.class)
                 @JoinSource(name = "edge", source = ManagerEdge.class,
                         on = @JoinSource.On(column = "id", key = "nodeId"))
-                @JoinEntity(name = "manager", entity = Profile.class,
-                        on = @JoinEntity.On(join = "edge", field = "managerId", id = "id"))
-                @JoinEntity(name = "other", entity = Profile.class, type = JoinKind.INNER,
-                        on = @JoinEntity.On(join = "edge", field = "nodeId"))
-                @FilterColumn(name = "MANAGER_DELETED", join = "manager", path = "deleted")
-                @FilterColumn(name = "OTHER_DELETED", join = "other", path = "deleted")
+                @JoinEntity(name = "manager", source = "edge", entity = Profile.class,
+                        on = @JoinEntity.On(field = "managerId", id = "id"))
+                @JoinEntity(name = "other", source = "edge", entity = Profile.class, type = JoinKind.INNER,
+                        on = @JoinEntity.On(field = "nodeId"))
+                @FilterColumn(name = "MANAGER_DELETED", entityJoin = "manager", path = "deleted")
+                @FilterColumn(name = "OTHER_DELETED", entityJoin = "other", path = "deleted")
                 public record NodeDetail(@PrimaryKey Long id,
-                        @Column(join = "manager", attribute = "firstName") String managerName,
-                        @Column(join = "other", attribute = "firstName") String otherName,
-                        @Column(join = "manager", attribute = "type.name") String managerType,
-                        @Column(join = "other", attribute = "type.name") String otherType) {}
+                        @Column(entityJoin = "manager", attribute = "firstName") String managerName,
+                        @Column(entityJoin = "other", attribute = "firstName") String otherName,
+                        @Column(entityJoin = "manager", attribute = "type.name") String managerType,
+                        @Column(entityJoin = "other", attribute = "type.name") String otherType) {}
                 """);
         assertThat(compilation).succeededWithoutWarnings();
         var index = (FieldIndex<?>) classes(compilation).loadClass("shop.QNodeDetail")

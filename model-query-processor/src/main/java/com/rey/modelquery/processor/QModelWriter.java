@@ -728,13 +728,13 @@ final class QModelWriter {
     private FieldSpec entityJoin(
             ClassName modelName, ModelDefinition model, ModelDefinition.EntityJoinDefinition join) {
         var pairs = new ArrayList<CodeBlock>();
+        JoinSourceDefinition source = model.joinSources().stream()
+                .filter(each -> each.name().equals(join.source())).findFirst().orElseThrow();
         for (ModelDefinition.EntityJoinOn pair : join.on()) {
-            JoinSourceDefinition source = model.joinSources().stream()
-                    .filter(each -> each.name().equals(pair.join())).findFirst().orElseThrow();
             ModelField field = source.sourceModel().readable().stream()
                     .filter(each -> each.name().equals(pair.field())).findFirst().orElseThrow();
             ModelField exposed = model.columns().stream().filter(each -> each.sourceColumn() != null
-                    && each.sourceColumn().join().equals(pair.join())
+                    && each.sourceColumn().join().equals(join.source())
                     && each.sourceColumn().field().equals(pair.field())).findFirst().orElse(null);
             CodeBlock anchor = exposed == null
                     ? CodeBlock.of("$T.over($T.class, $L.root(), $T.$L)", COLUMN_FIELD, modelName,

@@ -162,17 +162,16 @@ class JoinFilterValidationTest {
         var builder = base().joinFilter(entity, f -> f.eq(column, "value"));
         refused(builder::build);
         var left = EntityJoin.of("entity", Customer.class, JoinKind.LEFT, entity.on());
-        assertThatCode(() -> builder.joinFilter(left, f -> f.eq(column, "replacement")).build())
-                .doesNotThrowAnyException();
+        assertThatCode(() -> base().joinSource(SOURCE_JOIN, SOURCE).joinEntity(left)
+                .joinFilter(left, f -> f.eq(column, "replacement")).build()).doesNotThrowAnyException();
     }
 
     @Test
-    void ac_col_56_unregistered_left_entity_join_waits_until_first_resolution() {
+    void ac_col_56_unregistered_left_entity_join_is_refused_at_build() {
         var entity = EntityJoin.of("entity", Customer.class, JoinKind.LEFT,
                 List.of(EntityJoin.on(ColumnField.over(View.class, SOURCE_JOIN.root(), SOURCE_ID), "id")));
         var column = ColumnField.of(View.class, entity.root(), "name", String.class);
-        var query = base().joinFilter(entity, f -> f.eq(column, "value")).build();
-        refused(() -> query.buildQuery(new Criteria().builder(), Phase.MODEL, RenderOptions.portable()));
+        refused(() -> base().joinFilter(entity, f -> f.eq(column, "value")).build());
     }
 
     @Test
@@ -369,6 +368,59 @@ class JoinFilterValidationTest {
                 (f, outer) -> f.compare(status, Op.EQ, outer.column(NAME)));
         var builder = base().joinFilter(CUSTOMER, f -> f.eq(NAME, "value")).select(SelectSet.of(ID, NAME, crossing));
         refused(builder::build);
+    }
+
+    private static void innerBelowRefused(ModelQuery.Builder<Order, Long, View> builder) {
+        var query = builder.build();
+        assertThatThrownBy(() -> query.buildQuery(new Criteria().builder(), Phase.MODEL, RenderOptions.portable()))
+                .isInstanceOf(ModelQueryDefinitionException.class)
+                .hasMessageContaining("MQ1912").hasMessageContaining("declare it LEFT");
+    }
+
+    @Test
+    void ac_col_58_declared_inner_to_one_below_a_filtered_join_is_refused() {
+        var address = TableField.<Customer, Customer>join(CUSTOMER, "address", JoinType.INNER);
+        var column = ColumnField.of(View.class, address, "name", String.class);
+        innerBelowRefused(base().select(SelectSet.of(ID, NAME, column))
+                .joinFilter(CUSTOMER, f -> f.eq(NAME, "value")));
+    }
+
+    @Test
+    void ac_col_58_declared_inner_deeper_under_a_left_child_of_a_filtered_join_is_refused() {
+        var address = TableField.<Customer, Customer>join(CUSTOMER, "address", JoinType.LEFT);
+        var country = TableField.<Customer, Customer>join(address, "country", JoinType.INNER);
+        var column = ColumnField.of(View.class, country, "name", String.class);
+        innerBelowRefused(base().select(SelectSet.of(ID, NAME, column))
+                .joinFilter(CUSTOMER, f -> f.eq(NAME, "value")));
+    }
+
+    @Test
+    void ac_col_58_inner_forced_by_exists_below_a_filtered_join_is_refused() {
+        var address = TableField.<Customer, Customer>join(CUSTOMER, "address", JoinType.LEFT);
+        // The exists path crosses the filtered join, which build() already refuses before the INNER rule is reached.
+        var builder = base().joinFilter(CUSTOMER, f -> f.eq(NAME, "value")).where(f -> f.exists(address));
+        refused(() -> builder.build().buildQuery(new Criteria().builder(), Phase.MODEL, RenderOptions.portable()));
+    }
+
+    @Test
+    void ac_col_58_inner_rendered_left_inside_or_below_a_filtered_join_is_allowed() {
+        var address = TableField.<Customer, Customer>join(CUSTOMER, "address", JoinType.INNER);
+        var column = ColumnField.of(View.class, address, "name", String.class);
+        var query = base().select(SelectSet.of(ID, NAME))
+                .joinFilter(CUSTOMER, f -> f.eq(NAME, "value"))
+                .where(f -> f.or(g -> g.eq(column, "a"), g -> g.eq(ID, 1L))).build();
+        assertThatCode(() -> query.buildQuery(new Criteria().builder(), Phase.MODEL, RenderOptions.portable()))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void ac_col_58_inner_not_below_a_filtered_join_is_unaffected() {
+        var other = TableField.<Order, Customer>join(ROOT, "billingCustomer", JoinType.INNER);
+        var column = ColumnField.of(View.class, other, "name", String.class);
+        var query = base().select(SelectSet.of(ID, NAME, column))
+                .joinFilter(CUSTOMER, f -> f.eq(NAME, "value")).build();
+        assertThatCode(() -> query.buildQuery(new Criteria().builder(), Phase.MODEL, RenderOptions.portable()))
+                .doesNotThrowAnyException();
     }
 
     private static final class Criteria {

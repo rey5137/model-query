@@ -2971,7 +2971,8 @@ from M33 to M34 and stays last. Every new type, member and annotation member is 
 
 **Part A (R-SRC-23, R-SRC-24).** A model that joins a source joins an entity on that entity's full id, equal to fields
 of one joined source: `@JoinEntity(name, entity, type, on = @JoinEntity.On(join, field, id))` with columns through
-`@Column#join` and `@FilterColumn#join`, or `EntityJoin` and `joinEntity` by hand; `LEFT` by default or `INNER`. The
+`@Column#join` and `@FilterColumn#join` (reshaped at the M33 gate, D-196: `@JoinEntity(name, entity, source, type,
+on = @JoinEntity.On(field, id))` and `entityJoin`), or `EntityJoin` and `joinEntity` by hand; `LEFT` by default or `INNER`. The
 join renders through a new provider hook, `core.EntityJoinRenderer` behind `ProviderSupport#entityJoins()` (R-VND-32),
 empty by default (`MQ4014`, no portable default until `core` moves to Jakarta Persistence 3.2), taking
 `annotations.JoinKind`. The Hibernate renderer calls `JpaFrom#join(Class, SqmJoinType)`, which links on both lines,
@@ -3017,7 +3018,40 @@ A different join key resolving to the filtered join, and a join created below th
 built, are checked there too; a lifted outer column (`outer.column(...)`) crosses nothing. A semi-join's `EXISTS`
 (R-EXE-16) carries the filters over its non-correlated root, and an all-skipped filter is not in force.
 
-→ `api/10` R-COL-39, `reference/90` MQ1912, D-193.
+
+*Amended at the M33 gate:* a `joinFilter` on an entity join the query does not bind is `MQ1912` at `build()`, not at
+first resolution. The first-resolution checks run in the executor's first-run check, so a count-only first call is refused, on count
+paths too (a count adds no content statement), and again on every treated root-id count (`buildRootIdCount`), so an
+`orderedBy` copy of the definition is checked too. D-195 adds the INNER refusal.
+
+→ `api/10` R-COL-39, `reference/90` MQ1912, D-193, D-195.
+
+**D-195 — A join below a filtered join must render LEFT (M33 gate, 2026-10-24, user decision).** A join filter only
+blanks columns, never removes rows (R-COL-39). A join that resolves to `INNER` at render, declared `INNER` and not
+turned `LEFT` by `or(...)`, `not` or an aggregate filter, with any ancestor (root or entity join) a `joinFilter` join,
+would drop the row whenever the filter blanks its parent, so it is `MQ1912`. An `INNER` forced by `required` is not a
+separate case: an `exists` path crossing a filtered join is already `MQ1912` at `build()` (the sub-query crossing check). The refusal is at statement build, on the first statement that resolves the join in any
+phase, and not at `build()`: a declared `INNER` that `or(...)`, `not` or an aggregate filter renders `LEFT` is allowed,
+and only the statement knows. Declare such a join `LEFT`. → `api/10` R-COL-39, AC-COL-58, `reference/90` MQ1912.
+
+**D-196 — A cursor identity path never collides with a root attribute path (M33 gate, 2026-10-24, user decision).** A
+parentless entity-join column's identity path is `entity(<join>).<attr...>`; to-one and treat segments below it
+inherit the prefix (`entity(manager).type.parent.name`). A joined-source column's is `source(<name>).<field>`. A root
+column stays unprefixed, since a root cannot be aliased. So a joined column named like a root attribute cannot share
+its cursor identity, sort key or filter-only index key (which use the same form). Fingerprints of cursors over
+entity-join and joined-source columns change; M32 and M33 are unreleased, so there is no shim. This replaces the
+M33.2 note that a column's `identityPath` is prefixed by its join name (R-PROC-46, D-193). The same gate reshaped the
+annotations (all `@Incubating`): `@JoinEntity(name, entity, source = "<joined source>", type, on = @JoinEntity.On(field,
+id))` with `source` required at top level and `id()` defaulting to `""`; `@Column(entityJoin = ...)` and
+`@FilterColumn(entityJoin = ...)` replace `join`; `@FilterColumn#joinType` applies to associations on the path, not
+to the named entity join, whose kind is `@JoinEntity#type`; `@SourceColumn(join)` is unchanged. `EntityJoin.on` is
+`on(ColumnField<M, ?, ?> anchor, String idAttribute)`: the unused `K` is dropped and the id attribute stays a
+`String`. `MQ3046` no longer has "pairs naming different source joins"; "anchor must name a `@JoinSource`" is now
+"source '<x>' must name a `@JoinSource`", once per join; "`treat` combined with `join`" is "combined with
+`entityJoin`". An unmapped entity class is `MQ1911` when the render options' metamodel rejects the class; without one, the
+renderer or provider decides (Hibernate may throw its own `IllegalArgumentException`, and a joined `From` whose model is
+no `EntityType` is `MQ4014`). The renderer contract is R-VND-32's, now with `MQ4014` for a bad `EntityJoinRenderer`. → `api/10`
+R-COL-39, `api/17` R-SRC-23, R-SRC-24, `engine/21` R-PAG-19, AC-PAG-33, `processor/30`, `vendor/40` R-VND-32, AC-VND-22.
 
 ## 2. Open questions
 

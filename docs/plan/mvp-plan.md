@@ -890,8 +890,8 @@ surface, paging correctness of an `INNER` entity join and of a filtered `ON` in 
 |---|---|---|
 | M33.0 | RFC review and acceptance spike (`rfc/0021-spike-results.md`) | Done: D-193 |
 | M33.1 | Part A, engine and provider: `EntityJoin`, `joinEntity`, the joined-entity table-field kind, `EntityJoinRenderer`, `ProviderSupport#entityJoins()`, the Hibernate renderer, `MQ1911`, `MQ4014` widened, R-AGG-19's walk stopping at a joined entity, inspection | AC-SRC-53 to AC-SRC-55, AC-SRC-56's `MQ1911` and `MQ1003` cases, AC-SRC-57, AC-SRC-58 green on both lines and Tier 1; SQL snapshots unchanged |
-| M33.2 | Processor: `@JoinEntity`, `@JoinEntity.On`, `@Column#join`, `@FilterColumn#join` (R-PROC-46, `MQ3046`) | AC-SRC-56's `MQ3046` cases green; a generated model runs AC-SRC-53's query |
-| M33.3 | Part B: `joinFilter`, R-COL-39, `MQ1912`, the filter in every phase's `ON` | AC-COL-54 to AC-COL-57 green on both lines and Tier 1; SQL snapshots unchanged |
+| M33.2 | Processor: `@JoinEntity`, `@JoinEntity.On`, `@Column#entityJoin`, `@FilterColumn#entityJoin`, with `@JoinEntity#source` (R-PROC-46, `MQ3046`; reshaped at the gate, D-196) | AC-SRC-56's `MQ3046` cases green; a generated model runs AC-SRC-53's query |
+| M33.3 | Part B: `joinFilter`, R-COL-39, `MQ1912`, the filter in every phase's `ON` | AC-COL-54 to AC-COL-57 green on both lines and Tier 1; SQL snapshots unchanged. Gate additions: AC-COL-58 (D-195), AC-PAG-33 (D-196), AC-VND-22 |
 | M33.4 | Docs: the sources page (an entity joined off a joined source, its cost per vendor), the joins page (join filters), both tabs (CC-DOC-01), `CHANGELOG.md` 0.11.0 section extended | `mkdocs build --strict` green |
 
 **M33.1 — Entity joins.** The engine builds the key predicate over standard Criteria and passes the root as the
@@ -903,7 +903,7 @@ resolution (D-193, Resolution 8).
 
 **M33.3 — Join filters.** One filter per join per query; a second replaces the first. The filter is ANDed into the
 join's one `on` call with the entity join's key predicate or a static `TableField.on`. A join key the content
-statement never creates is `MQ1912` at first resolution; every other refusal is at build.
+statement never creates is `MQ1912` at first resolution, as is an `INNER` join below a filtered join at its first statement (D-195); a filter on an entity join the query does not bind and every other refusal is at build.
 
 **Exit:** the M33 rows' criteria green on Tier 1 and both lines.
 

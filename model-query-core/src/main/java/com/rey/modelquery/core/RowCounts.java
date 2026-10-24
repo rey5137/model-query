@@ -61,11 +61,7 @@ public final class RowCounts {
         if (entity == null) {
             return counted;
         }
-        Path<?> id = from;
-        for (String part : EntityJoin.idAttributes(entity).keySet().iterator().next().split("\\.")) {
-            id = id.get(part);
-        }
-        return id;
+        return ModelQuery.entityId(from, EntityJoin.idAttributes(entity).keySet().iterator().next());
     }
 
     /**

@@ -123,13 +123,16 @@ throws when it affects no rows (see [Bulk writes](bulk-writes.md)).
 
 `MQ1911` rejects a converted anchor, pairs spanning sources, an unbound source or a duplicate name at build.
 At first resolution before SQL it rejects partial, extra, repeated, non-id or association-id pairs, boxed-type
-mismatches and to-many paths. An unregistered entity-join column is `MQ1003`. See
+mismatches, to-many paths and an entity class the render options' metamodel rejects as unmapped (without a metamodel, the
+provider decides: Hibernate may throw its own exception). A
+column over an entity join the query does not bind is `MQ1003`. See
 [Entity joins](source-models.md#joining-an-entity-off-a-joined-source).
 
-`MQ1912` rejects a root or INNER join, another table or descendant path, `exists`, an aggregate, window or
+`MQ1912` rejects a root or INNER join, a filter on an entity join the query does not bind, another table or descendant path, `exists`, an aggregate, window or
 correlated value, or a sub-query crossing the join at build. At first resolution before SQL it rejects id-form
 access, a join key whose filter is never applied, another key resolving to the same join, or filter columns
-creating a descendant join.
+creating a descendant join. It also rejects a join that renders `INNER` (declared, and not turned `LEFT`) below a
+filtered join, at the first statement that resolves it; declare it `LEFT`.
 
 For `MQ1313`, the message names the operator and column; a thrown `RuntimeException` is the cause. Preparation fails
 when adding the filter, rendering when building the statement. A `ModelQueryException` keeps its own code.
@@ -268,9 +271,9 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | `MQ3506` | `@ExcludeFromInserts` on a model without `generateInserts`, on an update or insert model, or on a field `generateInserts` already leaves out. |
 
 `MQ3046` rejects an invalid entity or name, constant collision, partial, extra, repeated, non-id or association-id
-pairs, converted anchor, boxed-type mismatch, unknown source join or field, anchor outside this model's source
-joins, pairs spanning sources, duplicate join name, unknown `@Column.join` or `@FilterColumn.join`, to-many path,
-nested `@Join`, joined-column `@PrimaryKey`, declaration on `@SourceModel`, or `treat` combined with `join`.
+pairs, converted anchor, boxed-type mismatch, unknown source field, a `source` that names no `@JoinSource` of this model, duplicate join name, unknown
+`@Column.entityJoin` or `@FilterColumn.entityJoin`, to-many path,
+nested `@Join`, joined-column `@PrimaryKey`, declaration on `@SourceModel`, or `treat` combined with `entityJoin`.
 
 See [Models and QModels](models.md).
 
@@ -295,7 +298,7 @@ See [Models and QModels](models.md).
 
 For `MQ4014`, `ProviderSupport#sources()` is empty, there is no `ProviderSupport`, or the provider's `SourceRenderer`
 returned no duplicate-key check for `tree(...)`. An operator requiring a feature also needs an operator gate and a
-provider that serves that feature (`ProviderSupport#operators`), after the vendor check passes. A query that joins a source whose `SourceRenderer` has no `join` hook, an `Agg.avgExact` with no `AggregateRenderer#exactAverage`, and an `Agg.firstBy` with no `AggregateRenderer#firstBy` (or no native `FILTER` form when filtered) are also `MQ4014`. All are refused before
+provider that serves that feature (`ProviderSupport#operators`), after the vendor check passes. A query that joins a source whose `SourceRenderer` has no `join` hook, an `Agg.avgExact` with no `AggregateRenderer#exactAverage`, and an `Agg.firstBy` with no `AggregateRenderer#firstBy` (or no native `FILTER` form when filtered) are also `MQ4014`, as is an entity-join renderer that does not call `on` exactly once, returns another join than the one it passed to `on` or returns one with no `ON` (the message names the renderer class). All are refused before
 any statement; the [portability check](portability.md) reports them per declared target with no database attached.
 
 For `MQ4015`, `VendorProfile#operators` refuses an operator's required feature before the provider check (`MQ4014`), and `VendorProfile#aggregates` does the same for an `Agg.firstBy`: false on MySQL and `OTHER`. A joined source needs the same source features as a source root, so it is `MQ4015` where `CTE` is false (`OTHER`).

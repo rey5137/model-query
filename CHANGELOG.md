@@ -15,15 +15,18 @@ entity joins off joined sources and request-bound join filters. Every API additi
 ### Added (incubating)
 
 - Entity joins off joined sources (RFC 0021, D-193, R-SRC-23, R-SRC-24, R-PROC-46, R-VND-32): `EntityJoin` and
-  `ModelQuery.Builder#joinEntity`, plus `@JoinEntity`, `@Column(join = ...)` and `@FilterColumn(join = ...)`,
-  join an entity's full id to one joined source, LEFT or INNER, root-anchored in every read statement
+  `ModelQuery.Builder#joinEntity`, plus `@JoinEntity(name, entity, source, type, on = @JoinEntity.On(field, id))`,
+  `@Column(entityJoin = ...)` and `@FilterColumn(entityJoin = ...)`, join an entity's full id to one joined source, LEFT or INNER, root-anchored in every read statement
   (AC-SRC-53 to AC-SRC-58, AC-PROC-48). Invalid definitions are `MQ1911` or processor `MQ3046`.
-  `ProviderSupport#entityJoins()` serves Hibernate 6.6 and 7.4; `MQ4014` now also refuses a missing hook or a
-  provider unable to attach the entity join to the root, before SQL.
-- Request-bound join filters (R-COL-39, D-194, AC-COL-54 to AC-COL-57): `ModelQuery.Builder#joinFilter` ANDs
+  `ProviderSupport#entityJoins()` serves Hibernate 6.6 and 7.4; `MQ4014` now also refuses a missing hook, a
+  provider unable to attach the entity join to the root, or a renderer that breaks the one-`on` contract, before SQL.
+  An entity class the render options' metamodel rejects as unmapped is `MQ1911`; without a metamodel the provider
+  decides.
+- Request-bound join filters (R-COL-39, D-194, AC-COL-54 to AC-COL-58): `ModelQuery.Builder#joinFilter` ANDs
   a filter into one LEFT join's ON alongside its key predicate or static `TableField.on`, in one provider call.
   A second filter replaces the first; all-skipped terms remove it. Invalid filters are `MQ1912`, at build or
-  first resolution as D-194 specifies.
+  first resolution as D-194 specifies (also on every treated root-id count); so is an `INNER` join below a filtered join, at its first statement (D-195,
+  declare it `LEFT`).
 
 - Joined sources (RFC 0020 Part A, D-185, D-187, R-SRC-21, R-SRC-22, R-PROC-44): `SourceJoin` and
   `ModelQuery.Builder#joinSource` join a unique `SourceQuery` on its full key, `LEFT` or `INNER`, in every statement
@@ -63,8 +66,9 @@ entity joins off joined sources and request-bound join filters. Every API additi
 
 ### Changed
 
-- Entity-join columns now prefix `identityPath` with their join name, changing cursor fingerprints for those
-  columns only. A to-one column below an entity join resolves by its model field name. A `JoinPlan` (fetch plan)
+- Entity-join and joined-source columns now carry their join in `identityPath` (`entity(<join>).<attr...>`,
+  `source(<name>).<field>`; roots stay unprefixed), so a joined column never shares a root attribute's cursor
+  identity (AC-PAG-33, D-196). This changes cursor fingerprints for those columns only. A to-one column below an entity join resolves by its model field name. A `JoinPlan` (fetch plan)
   over a named source or entity-join column is refused with `MQ1003` (AC-FCH-05).
 
 - A count of a table's identity renders `count(*)` where no row the statement reads can leave the identity null

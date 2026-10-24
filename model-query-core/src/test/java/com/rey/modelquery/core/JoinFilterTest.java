@@ -12,8 +12,10 @@ import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.metamodel.EntityType;
+import jakarta.persistence.metamodel.Metamodel;
 import jakarta.persistence.metamodel.SingularAttribute;
 import jakarta.persistence.metamodel.Type;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -217,7 +219,7 @@ class JoinFilterTest {
             public <E> From<?, E> join(From<?, ?> root, Class<E> entity, JoinKind kind,
                     Function<From<?, E>, Predicate> on) {
                 rendererCalls.incrementAndGet();
-                From<?, E> joined = recording.from(From.class, "entity", Customer.class);
+                From<?, E> joined = recording.from(Join.class, "entity", Customer.class);
                 recording.on.add(on.apply(joined).toString());
                 return joined;
             }
@@ -229,6 +231,172 @@ class JoinFilterTest {
         assertThat(rendererCalls).hasValue(1);
         assertThat(recording.on).containsExactly("and(equal(entity.id,source.mq_id),equal(entity.name,Ann))");
         assertThat(ENTITY_NAME.path(ctx).toString()).isEqualTo("entity.name");
+    }
+
+    private static void renderEntity(EntityJoinRenderer renderer, Recording recording, RenderOptions options)
+            throws ReflectiveOperationException {
+        JoinContext ctx = recording.context(options);
+        ctx.joinSource(SOURCE_JOIN.root().key(), recording.from(From.class, "source", Source.class),
+                ctx.root(), false, "id");
+        var query = base().joinSource(SOURCE_JOIN, SOURCE).joinEntity(ENTITY).build();
+        var method = ModelQuery.class.getDeclaredMethod("joinEntity", EntityJoin.class, EntityJoinRenderer.class,
+                From.class, JoinContext.class);
+        method.setAccessible(true);
+        try {
+            method.invoke(query, ENTITY, renderer, ctx.root(), ctx);
+        } catch (InvocationTargetException e) {
+            if (e.getCause() instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            throw e;
+        }
+    }
+
+    private static void refusedRenderer(Recording recording, EntityJoinRenderer renderer) {
+        assertThatThrownBy(() -> renderEntity(renderer, recording, RenderOptions.portable()))
+                .isInstanceOfSatisfying(ModelQueryConfigurationException.class, e -> assertThat(e.code())
+                        .isEqualTo(MqCode.MQ4014))
+                .hasMessageContaining(renderer.getClass().getName());
+    }
+
+    @Test
+    void ac_vnd_22_a_renderer_that_never_calls_on_is_mq4014() {
+        var recording = new Recording();
+        refusedRenderer(recording, new EntityJoinRenderer() {
+            @Override
+            public <E> From<?, E> join(From<?, ?> root, Class<E> entity, JoinKind kind,
+                    Function<From<?, E>, Predicate> on) {
+                return recording.from(Join.class, "entity", Customer.class);
+            }
+        });
+    }
+
+    @Test
+    void ac_vnd_22_a_renderer_that_calls_on_twice_is_mq4014() {
+        var recording = new Recording();
+        refusedRenderer(recording, new EntityJoinRenderer() {
+            @Override
+            public <E> From<?, E> join(From<?, ?> root, Class<E> entity, JoinKind kind,
+                    Function<From<?, E>, Predicate> on) {
+                From<?, E> joined = recording.from(Join.class, "entity", Customer.class);
+                recording.on.add(on.apply(joined).toString());
+                recording.on.add(on.apply(joined).toString());
+                return joined;
+            }
+        });
+    }
+
+    @Test
+    void ac_vnd_22_a_renderer_that_returns_another_join_than_it_called_on_with_is_mq4014() {
+        var recording = new Recording();
+        refusedRenderer(recording, new EntityJoinRenderer() {
+            @Override
+            public <E> From<?, E> join(From<?, ?> root, Class<E> entity, JoinKind kind,
+                    Function<From<?, E>, Predicate> on) {
+                recording.on.add(on.apply(recording.from(Join.class, "entity", Customer.class)).toString());
+                return recording.from(Join.class, "other", Customer.class);
+            }
+        });
+    }
+
+    @Test
+    void ac_vnd_22_a_renderer_that_returns_a_join_without_an_on_is_mq4014() {
+        var recording = new Recording();
+        refusedRenderer(recording, new EntityJoinRenderer() {
+            @Override
+            public <E> From<?, E> join(From<?, ?> root, Class<E> entity, JoinKind kind,
+                    Function<From<?, E>, Predicate> on) {
+                From<?, E> joined = recording.from(Join.class, "entity", Customer.class);
+                on.apply(joined); // the predicate is built but never applied, so getOn() stays null
+                return joined;
+            }
+        });
+    }
+
+    /** A public type, as a provider's entity join exposes {@code getOn()}. */
+    public interface HasOn {
+        Object getOn();
+    }
+
+    /** A non-{@code Join} {@code From}; with {@code withGetOn} it also implements {@link HasOn}. */
+    @SuppressWarnings("unchecked")
+    private static <E> From<?, E> nonJoin(Recording recording, boolean withGetOn, RuntimeException getOnFailure) {
+        From<?, E> delegate = recording.from(From.class, "entity", Customer.class);
+        Class<?>[] api = withGetOn ? new Class<?>[] {From.class, HasOn.class} : new Class<?>[] {From.class};
+        return (From<?, E>) Proxy.newProxyInstance(From.class.getClassLoader(), api, (proxy, method, args) -> {
+            return switch (method.getName()) {
+                case "equals" -> proxy == args[0];
+                case "hashCode" -> System.identityHashCode(proxy);
+                case "getOn" -> throw getOnFailure;
+                default -> {
+                    try {
+                        yield method.invoke(delegate, args);
+                    } catch (InvocationTargetException e) {
+                        throw e.getCause();
+                    }
+                }
+            };
+        });
+    }
+
+    @Test
+    void ac_vnd_22_a_non_join_whose_public_get_on_throws_is_mq4014_with_the_cause() {
+        var recording = new Recording();
+        var failure = new IllegalStateException("no on");
+        EntityJoinRenderer renderer = new EntityJoinRenderer() {
+            @Override
+            public <E> From<?, E> join(From<?, ?> root, Class<E> entity, JoinKind kind,
+                    Function<From<?, E>, Predicate> on) {
+                From<?, E> joined = nonJoin(recording, true, failure);
+                on.apply(joined);
+                return joined;
+            }
+        };
+        assertThatThrownBy(() -> renderEntity(renderer, recording, RenderOptions.portable()))
+                .isInstanceOfSatisfying(ModelQueryConfigurationException.class, e -> {
+                    assertThat(e.code()).isEqualTo(MqCode.MQ4014);
+                    assertThat(e.getCause()).isNotNull();
+                })
+                .hasMessageContaining(renderer.getClass().getName());
+    }
+
+    @Test
+    void ac_vnd_22_a_non_join_without_a_get_on_passes_unverified() throws ReflectiveOperationException {
+        var recording = new Recording();
+        EntityJoinRenderer renderer = new EntityJoinRenderer() {
+            @Override
+            public <E> From<?, E> join(From<?, ?> root, Class<E> entity, JoinKind kind,
+                    Function<From<?, E>, Predicate> on) {
+                From<?, E> joined = nonJoin(recording, false, null);
+                on.apply(joined);
+                return joined;
+            }
+        };
+        renderEntity(renderer, recording, RenderOptions.portable());
+    }
+
+    @Test
+    void ac_src_56_an_unmapped_entity_class_in_the_metamodel_is_mq1911_not_mq4014() {
+        var recording = new Recording();
+        Metamodel metamodel = (Metamodel) Proxy.newProxyInstance(Metamodel.class.getClassLoader(),
+                new Class<?>[] {Metamodel.class}, (proxy, method, args) -> {
+                    if (method.getName().equals("entity")) {
+                        throw new IllegalArgumentException("not an entity: " + args[0]);
+                    }
+                    throw new AssertionError(method.getName());
+                });
+        EntityJoinRenderer renderer = new EntityJoinRenderer() {
+            @Override
+            public <E> From<?, E> join(From<?, ?> root, Class<E> entity, JoinKind kind,
+                    Function<From<?, E>, Predicate> on) {
+                From<?, E> joined = recording.from(Join.class, "entity", Order.class); // no model of its own
+                on.apply(joined);
+                return joined;
+            }
+        };
+        assertThatThrownBy(() -> renderEntity(renderer, recording, RenderOptions.portable().withMetamodel(metamodel)))
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1911));
     }
 
     private static void assertMq1912(org.assertj.core.api.ThrowableAssert.ThrowingCallable action) {
@@ -248,6 +416,11 @@ class JoinFilterTest {
         JoinContext context() {
             CriteriaBuilder cb = node(CriteriaBuilder.class, "", Object.class);
             return JoinContext.of(from(Root.class, "root", Order.class), cb);
+        }
+
+        JoinContext context(RenderOptions options) {
+            CriteriaBuilder cb = node(CriteriaBuilder.class, "", Object.class);
+            return JoinContext.of(from(Root.class, "root", Order.class), cb, null, options);
         }
 
         <T> T from(Class<?> api, String text, Class<?> javaType) {
@@ -274,6 +447,7 @@ class JoinFilterTest {
                         on.add(render(args));
                         yield proxy;
                     }
+                    case "getOn" -> on.isEmpty() ? null : node(Predicate.class, on.get(0), Boolean.class);
                     case "equal", "and", "conjunction" ->
                             node(Predicate.class, method.getName() + "(" + render(args) + ")", Boolean.class);
                     default -> throw new AssertionError(method.getName());

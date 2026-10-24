@@ -141,6 +141,11 @@ entity class names along the path, root to column), `attributeType` name, direct
 resolved null precedence (FIRST, LAST or refusing). It excludes the filter, the model class and the selection: under
 another filter the cursor gives a different window, never wrong rows, so the same order under another filter is
 accepted. An untreated key's canonical form is unchanged, so existing cursors remain valid.
+A key's attribute path never collides with a root attribute's (D-196): a parentless entity-join column's path is
+`entity(<join>).<attr...>`, with to-one and treat segments below it inheriting the prefix
+(`entity(manager).type.parent.name`); a joined-source column's is `source(<name>).<field>`; a root column's stays
+unprefixed, since a root cannot be aliased. Filter-only index keys use the same form. This changes the fingerprint of a
+cursor over an entity-join or joined-source column; those features are unreleased, so there is no shim.
 A mismatch — another sort, treat, direction, precedence, entity or deployment — throws `MQ2209` before any query
 runs. The fingerprint catches another order and the CRC32C catches truncation and typos; a deliberately rebuilt
 cursor is accepted and only moves within rows the query allows, and nothing is signed.
@@ -311,6 +316,7 @@ that could overlap pages, and R-PAG-11 makes it unreachable.
 | AC-PAG-30 | Treated offset paging and full export, as detailed below. |
 | AC-PAG-31 | Duplicate row identities are refused by key-identified reads, as detailed below (R-PAG-26). |
 | AC-PAG-32 | A treated offset page contradicting its total logs once and returns its rows (R-PAG-27). |
+| AC-PAG-33 | A joined column whose attribute name equals a root attribute's has its own cursor identity: an entity-join column's path is `entity(<join>).<attr...>` (to-one and treat segments inherit it), a joined-source column's is `source(<name>).<field>`, a root column's is unprefixed; a cursor from the root column is `MQ2209` on the joined one, and the filter-only index key uses the same form, as AC-PAG-20 requires of any other order (R-PAG-19, D-196). Tests: `ac_pag_33_*`. |
 
 **AC-PAG-29.** Per strategy, keyset pages both ways ordered by a treated key under explicit precedence, NULLs at page
 edges and a page resuming after a NULL cursor value, visit every id once and the count equals the rows; a cursor of

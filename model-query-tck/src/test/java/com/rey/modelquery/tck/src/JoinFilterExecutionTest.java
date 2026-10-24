@@ -288,8 +288,8 @@ class JoinFilterExecutionTest {
                 idsOnly.joinFilter(CUSTOMER, f -> f.lt(CUSTOMER_NAME, TO_ONE_LIMIT)).build(),
                 toOne().joinFilter(alias, f -> f.lt(aliasName, TO_ONE_LIMIT)).build(),
                 toOne().select(SelectSet.of(ID, innerName))
-                        .joinFilter(CUSTOMER, f -> f.lt(CUSTOMER_NAME, TO_ONE_LIMIT)).build(),
-                entity().joinFilter(unregistered, f -> f.lt(unregisteredName, ENTITY_LIMIT)).build());
+                        .joinFilter(CUSTOMER, f -> f.lt(CUSTOMER_NAME, TO_ONE_LIMIT)).build());
+        mq1912(() -> entity().joinFilter(unregistered, f -> f.lt(unregisteredName, ENTITY_LIMIT)).build());
         var sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, x -> {
             for (var query : refused) {
                 mq1912(() -> x.list(query, Limit.unlimited()));
@@ -297,6 +297,157 @@ class JoinFilterExecutionTest {
             }
         }));
         assertThat(sql).isEmpty();
+    }
+
+    @TckTest
+    void ac_col_56_a_count_only_first_call_still_gets_the_first_resolution_refusal(TckDatabase db) {
+        var idsOnly = ModelQuery.builder(ORDERS, row -> new Detail(row.get(ID), null)).select(SelectSet.of(ID))
+                .primaryKey(PrimaryKey.of(ID)).where(f -> f.gte(ID, 990L).lte(ID, 1030L)).orderBy(ID.asc());
+        var idForm = ModelQuery.builder(ORDERS, row -> new Detail(row.get(ID), row.get(CUSTOMER_NAME)))
+                .select(SelectSet.of(ID, CUSTOMER_NAME, CUSTOMER_FK)).primaryKey(PrimaryKey.of(ID))
+                .where(f -> f.gte(ID, 990L).lte(ID, 1030L)).orderBy(ID.asc());
+        var unused = idsOnly.joinFilter(CUSTOMER, f -> f.lt(CUSTOMER_NAME, TO_ONE_LIMIT)).build();
+        var read = idForm.joinFilter(CUSTOMER, f -> f.lt(CUSTOMER_NAME, TO_ONE_LIMIT)).build();
+        var sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, x -> {
+            // The first call of each definition is a count, with no content call before it (D-194).
+            mq1912(() -> x.count(unused));
+            mq1912(() -> x.count(read));
+        }));
+        assertThat(sql).isEmpty();
+    }
+
+    record ItemRow(Long id, String orderStatus) {}
+
+    @TckTest
+    void ac_col_58_an_inner_declared_join_rendered_left_inside_or_below_a_filtered_join_keeps_the_row(
+            TckDatabase db) throws SQLException {
+        var root = TableField.root(OrderItemEntity.class);
+        var id = ColumnField.of(ItemRow.class, root, "id", Long.class).named("id");
+        var order = TableField.<OrderItemEntity, OrderEntity>join(root, "order", JoinType.LEFT);
+        var status = ColumnField.of(ItemRow.class, order, "status", String.class).named("status");
+        var customer = TableField.<OrderEntity, CustomerEntity>join(order, "customer", JoinType.INNER);
+        var customerName = ColumnField.of(ItemRow.class, customer, "name", String.class);
+        var query = ModelQuery.builder(root, row -> new ItemRow(row.get(id), row.get(status)))
+                .select(SelectSet.of(id, status)).primaryKey(PrimaryKey.of(id))
+                .where(f -> f.gte(id, 1L).lte(id, 40L)
+                        .or(g -> g.eq(customerName, "Customer 0001"), g -> g.gte(id, 0L)))
+                .orderBy(id.asc()).joinFilter(order, f -> f.eq(status, "PAID")).build();
+        var expected = SourceJoinExecutionTest.rows(db, """
+                select i.id, o.status from order_items i
+                left join orders o on o.id = i.order_id and o.status = 'PAID'
+                left join customers c on c.id = o.customer_id
+                where i.id between 1 and 40 and (c.name = 'Customer 0001' or i.id >= 0) order by i.id""");
+        assertThat(expected).hasSize(40).anyMatch(row -> row.endsWith("|null"))
+                .anyMatch(row -> row.endsWith("|PAID"));
+        List<ItemRow> rows = new ArrayList<>();
+        try (var sessions = JoinTestSupport.sessionFactory(JoinTestSupport.dataSource(db))) {
+            sessions.inSession(em -> rows.addAll(ModelQueryExecutor.create(em, OrderItemEntity.class,
+                    ModelQueryConfig.defaults()).list(query, Limit.unlimited())));
+        }
+        assertThat(rows.stream().map(r -> SourceJoinExecutionTest.text(r.id(), r.orderStatus())))
+                .containsExactlyElementsOf(expected);
+    }
+
+    private static final EntityJoin<Detail, OrderEntity> COPY = EntityJoin.of("copy", OrderEntity.class,
+            JoinKind.LEFT, List.of(EntityJoin.on(ColumnField.over(Detail.class, SOURCE.root(), S_ID), "id")));
+    private static final ColumnField<Detail, OrderEntity, String> COPY_STATUS =
+            ColumnField.of(Detail.class, COPY.root(), "status", String.class).named("copyStatus");
+
+    private static ModelQuery.Builder<OrderEntity, Long, Detail> belowCopy(JoinType type) {
+        var customer = TableField.<OrderEntity, CustomerEntity>join(COPY.root(), "customer", type);
+        var name = ColumnField.of(Detail.class, customer, "name", String.class).named("copyCustomer");
+        return ModelQuery.builder(ORDERS, row -> new Detail(row.get(ID), row.get(name)))
+                .joinSource(SOURCE, KEYS).joinEntity(COPY).select(SelectSet.of(ID, COPY_STATUS, name))
+                .primaryKey(PrimaryKey.of(ID)).where(f -> f.gte(ID, 990L).lte(ID, 1030L)).orderBy(ID.asc())
+                .joinFilter(COPY, f -> f.eq(COPY_STATUS, "PAID"));
+    }
+
+    @TckTest
+    void ac_col_58_an_inner_to_one_below_a_filtered_entity_join_is_refused_and_a_left_one_keeps_the_row(
+            TckDatabase db) throws SQLException {
+        var inner = belowCopy(JoinType.INNER).build();
+        var refused = SqlSnapshots.capture(db, ds -> withExecutor(ds, x -> assertThatThrownBy(
+                () -> x.list(inner, Limit.unlimited())).isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> {
+                            assertThat(e.code()).isEqualTo(MqCode.MQ1912);
+                            assertThat(e.getMessage()).contains("declare it LEFT");
+                        })));
+        assertThat(refused).isEmpty();
+        var expected = SourceJoinExecutionTest.rows(db, """
+                select o.id, c.name from orders o
+                left join (select id from orders where id between 990 and 1020) k on k.id = o.id
+                left join orders cp on cp.id = k.id and cp.status = 'PAID'
+                left join customers c on c.id = cp.customer_id
+                where o.id between 990 and 1030 order by o.id""");
+        assertThat(expected).hasSize(41).anyMatch(row -> row.endsWith("|null"))
+                .anyMatch(row -> !row.endsWith("|null"));
+        var left = belowCopy(JoinType.LEFT).build();
+        List<Detail> rows = new ArrayList<>();
+        try (var sessions = JoinTestSupport.sessionFactory(JoinTestSupport.dataSource(db))) {
+            sessions.inSession(em -> rows.addAll(ModelQueryExecutor.create(em, OrderEntity.class,
+                    ModelQueryConfig.defaults()).list(left, Limit.unlimited())));
+        }
+        assertThat(texts(rows)).containsExactlyElementsOf(expected);
+    }
+
+    record PresentRow(Long id, boolean present, String name) {}
+
+    private static final TableField<CustomerEntity, CustomerEntity> NESTED_ROOT =
+            TableField.root(CustomerEntity.class);
+    private static final ColumnField<PresentRow, CustomerEntity, Long> NESTED_ID =
+            ColumnField.of(PresentRow.class, NESTED_ROOT, "id", Long.class);
+    private static final ColumnField<PresentRow, CustomerEntity, String> NESTED_NAME =
+            ColumnField.of(PresentRow.class, NESTED_ROOT, "name", String.class);
+    private static final TableField<OrderEntity, CustomerEntity> NESTED =
+            TableField.<OrderEntity, CustomerEntity>join(ORDERS, "customer", JoinType.LEFT)
+                    .presentBy(PrimaryKey.of(NESTED_ID));
+    private static final ColumnField<PresentRow, OrderEntity, Long> PRESENT_ID =
+            ColumnField.of(PresentRow.class, ORDERS, "id", Long.class).named("id");
+    private static final ColumnField<PresentRow, CustomerEntity, String> PRESENT_NAME =
+            NESTED_NAME.withTable(PresentRow.class, NESTED);
+
+    private static ModelQuery.Builder<OrderEntity, Long, PresentRow> nested() {
+        return ModelQuery.builder(ORDERS, row -> {
+            var customer = row.scoped(NESTED);
+            return new PresentRow(row.get(PRESENT_ID), customer.get(NESTED_ID) != null, customer.get(NESTED_NAME));
+        }).select(SelectSet.of(PRESENT_ID, PRESENT_NAME)).primaryKey(PrimaryKey.of(PRESENT_ID))
+                .where(f -> f.gte(PRESENT_ID, 990L).lte(PRESENT_ID, 1030L)).orderBy(PRESENT_ID.asc());
+    }
+
+    @TckTest
+    void ac_col_54_a_present_by_model_over_a_filtered_join_is_absent_when_the_filter_fails(TckDatabase db)
+            throws SQLException {
+        String failing = "Customer 0500";
+        var failed = nested().joinFilter(NESTED, f -> f.lt(PRESENT_NAME, failing)).build();
+        var passed = nested().joinFilter(NESTED, f -> f.lt(PRESENT_NAME, "Customer 9999")).build();
+        List<PresentRow> failedRows = new ArrayList<>();
+        List<PresentRow> passedRows = new ArrayList<>();
+        SqlSnapshots.capture(db, ds -> withExecutor(ds, x -> {
+            failedRows.addAll(x.list(failed, Limit.unlimited()));
+            passedRows.addAll(x.list(passed, Limit.unlimited()));
+        }));
+        var expectedFailed = SourceJoinExecutionTest.rows(db, """
+                select o.id, case when c.id is null then 'absent' else 'present' end, c.name from orders o
+                left join customers c on c.id = o.customer_id and c.name < '%s'
+                where %s order by o.id""".formatted(failing, WINDOW));
+        var expectedPassed = SourceJoinExecutionTest.rows(db, """
+                select o.id, case when c.id is null then 'absent' else 'present' end, c.name from orders o
+                left join customers c on c.id = o.customer_id and c.name < 'Customer 9999'
+                where %s order by o.id""".formatted(WINDOW));
+        assertThat(failedRows).hasSize(41);
+        assertThat(failedRows).filteredOn(row -> !row.present()).isNotEmpty()
+                .allSatisfy(row -> assertThat(row.name()).isNull());
+        assertThat(failedRows).filteredOn(PresentRow::present).isNotEmpty()
+                .allSatisfy(row -> assertThat(row.name()).isNotNull());
+        assertThat(passedRows).filteredOn(PresentRow::present).hasSizeGreaterThan(
+                (int) failedRows.stream().filter(PresentRow::present).count());
+        assertThat(describe(failedRows)).containsExactlyElementsOf(expectedFailed);
+        assertThat(describe(passedRows)).containsExactlyElementsOf(expectedPassed);
+    }
+
+    private static List<String> describe(List<PresentRow> rows) {
+        return rows.stream().map(r -> SourceJoinExecutionTest.text(r.id(), r.present() ? "present" : "absent",
+                r.name())).toList();
     }
 
     @TckTest

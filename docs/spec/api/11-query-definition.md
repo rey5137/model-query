@@ -144,7 +144,8 @@ one of the query's selected columns, expressions or aggregates, never an attribu
 the column's property path, the model field names from the root model (`customer.name` for field `name` of the nested
 model under the `@Join` field `customer`), then by its attribute path from the root; an aggregate matches by its
 `named` property first, then by its name (D-121), an expression by its `named` property. A bare
-attribute name never matches a joined column. A column without a property (hand-written, not given one with
+attribute name never matches a joined column. A to-one column below an entity join (`api/17` R-SRC-23) matches by its
+model field name, as a root's does. A column without a property (hand-written, not given one with
 `named(String)`) matches by attribute path only (D-55). Matching is exact and case-sensitive, and every tier is
 tried: a property matching no column, or different columns on one tier or on different tiers, throws `MQ2301` naming it
 and every candidate with the tier it matched (INV-5); one column matched on two tiers is not ambiguous. The engine

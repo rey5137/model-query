@@ -142,13 +142,16 @@ Only the filtered join's own columns, values and constants are allowed. The refu
 `JoinFilterTest`, `JoinFilterValidationTest` and `JoinFilterExecutionTest`:
 
 - At build, [`MQ1912`](diagnostics.md) rejects a root or INNER join, another table (including the root or a sibling),
-  any descendant path (to-one or to-many), `exists`, an aggregate, window or correlated value, or a sub-query term
-  crossing the filtered join. A sub-query reading the value through `outer.column(...)` reuses the outer join
+  any descendant path (to-one or to-many), `exists`, an aggregate, window or correlated value, a sub-query term
+  crossing the filtered join, or a filter on an entity join the query does not bind. A sub-query reading the value through `outer.column(...)` reuses the outer join
   and is allowed.
 - At first resolution, before SQL, `MQ1912` rejects id-form access to the filtered join, a join key the content
   statement never applies (including a different type or alias), another join key resolving to that join, or a
   filter column creating a descendant join, including an id-form or whole-entity to-one column. For id-form
   access, map the foreign key as a basic column instead.
+- A join that renders `INNER` (declared, and not turned `LEFT` by `or(...)`, `not` or an aggregate filter) below a
+  filtered join, root or entity join, is `MQ1912` at the first statement that resolves it, since a join filter only blanks columns and never removes rows. Declare such a join
+  `LEFT`. A declared `INNER` that `or(...)`, `not` or an aggregate filter renders `LEFT` is allowed.
 - A filter alone creates no association join: select, filter or order on that join elsewhere in the query.
   A null value is `MQ1301` at the `joinFilter` call.
 
