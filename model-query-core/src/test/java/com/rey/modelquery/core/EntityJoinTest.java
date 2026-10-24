@@ -127,11 +127,12 @@ class EntityJoinTest {
     void ac_src_56_unbound_or_non_source_anchors_are_mq1911() {
         mq1911(() -> ModelQuery.builder(DAY, row -> new View()).select(SelectSet.of(V_ID))
                 .joinEntity(MANAGER).build(), "not bound");
-        mq1911(() -> base().joinEntity(entity("manager", V_ID)).build(), "must read a joined source");
+        mq1911(() -> base().joinEntity(EntityJoin.of("manager", Profile.class, JoinKind.LEFT,
+                List.of(EntityJoin.on(MANAGER_ID, "id"), EntityJoin.on(V_ID, "tenant")))).build(), "mix");
         var missing = ColumnField.over(View.class, source("missing").root(), S_MANAGER);
         mq1911(() -> base().joinEntity(entity("manager", missing)).build(), "not bound");
         var otherEntity = ColumnField.of(View.class, MANAGER.root(), "id", Long.class);
-        mq1911(() -> base().joinEntity(entity("other", otherEntity)).build(), "must read a joined source");
+        mq1911(() -> base().joinEntity(entity("other", otherEntity)).build(), "reads the entity join");
     }
 
     @Test

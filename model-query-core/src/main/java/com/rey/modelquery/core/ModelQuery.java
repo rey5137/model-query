@@ -649,10 +649,9 @@ public final class ModelQuery<E, K, M> {
      */
     private Walk joinSources(CriteriaQuery<Tuple> query, JoinContext joins, From<?, ?> outer, Root<?> statementRoot) {
         joins.joinFilters(joinFilters);
-        if (joinedSources.isEmpty()) {
+        if (joinedSources.isEmpty() && entityJoins.isEmpty()) {
             return Walk.NONE;
         }
-        CriteriaBuilder cb = joins.cb();
         RenderOptions options = joins.renderOptions();
         options.metamodel().ifPresent(metamodel -> entityJoins.forEach(join -> {
             try {
@@ -662,6 +661,24 @@ public final class ModelQuery<E, K, M> {
                         join + ": target must be a mapped entity", e);
             }
         }));
+        Walk walk = Walk.NONE;
+        if (!joinedSources.isEmpty()) {
+            walk = joinedSources(query, joins, outer, statementRoot);
+        }
+        // Column-anchored joins come after the joined sources, in registration order; each anchor's to-one joins are
+        // made first, so the ON reads only tables before it (R-SRC-25, D-197).
+        for (EntityJoin<M, ?> entityJoin : entityJoins) {
+            if (!entityJoin.anchoredOnSource()) {
+                joinEntity(entityJoin, entityJoinRenderer(options), statementRoot, joins);
+            }
+        }
+        return walk;
+    }
+
+    private Walk joinedSources(CriteriaQuery<Tuple> query, JoinContext joins, From<?, ?> outer,
+            Root<?> statementRoot) {
+        CriteriaBuilder cb = joins.cb();
+        RenderOptions options = joins.renderOptions();
         SourceRenderer renderer = options.sourceRenderer()
                 .orElseThrow(() -> new ModelQueryConfigurationException(MqCode.MQ4014, modelName()
                         + ": this query joins a source, and the factory's persistence provider has no "
@@ -694,12 +711,7 @@ public final class ModelQuery<E, K, M> {
                     source.keyColumns().get(0));
             for (EntityJoin<M, ?> entityJoin : entityJoins) {
                 if (entityJoin.on().get(0).anchor().table().key().equals(join.root().key())) {
-                    EntityJoinRenderer entityRenderer = options.entityJoinRenderer()
-                            .orElseThrow(() -> new ModelQueryConfigurationException(MqCode.MQ4014, modelName()
-                                    + ": this query joins an entity, and the factory's persistence provider has no "
-                                    + "EntityJoinRenderer (ProviderSupport#entityJoins()); "
-                                    + "model-query-hibernate serves Hibernate"));
-                    joinEntity(entityJoin, entityRenderer, statementRoot, joins);
+                    joinEntity(entityJoin, entityJoinRenderer(options), statementRoot, joins);
                 }
             }
             bodies.forEach(joins::addBodyParameters);
@@ -707,13 +719,45 @@ public final class ModelQuery<E, K, M> {
         return walk;
     }
 
+    private EntityJoinRenderer entityJoinRenderer(RenderOptions options) {
+        return options.entityJoinRenderer()
+                .orElseThrow(() -> new ModelQueryConfigurationException(MqCode.MQ4014, modelName()
+                        + ": this query joins an entity, and the factory's persistence provider has no "
+                        + "EntityJoinRenderer (ProviderSupport#entityJoins()); "
+                        + "model-query-hibernate serves Hibernate"));
+    }
+
     /**
      * The predicate is built once by the engine; the provider applies it with one on call (R-SRC-24). A renderer that
      * never calls {@code on}, calls it twice, returns another join than the one it called {@code on} with, or leaves
      * the join without an ON would multiply rows on every statement, so it is refused (R-VND-32, INV-5).
+     *
+     * <p>The anchors and the {@code when} column resolve before the renderer joins, so a to-one join they make
+     * precedes the entity join (R-SRC-25). An {@code INNER} join reading through a {@code joinFilter(...)} join is
+     * {@code MQ1912}: a blanked anchor would drop the row (D-195, D-197). A column anchor through a to-many segment,
+     * or one reading a to-one by its id, is {@code MQ1911}.
      */
-    private <T> void joinEntity(EntityJoin<?, T> join, EntityJoinRenderer renderer, From<?, ?> root,
+    private <T> void joinEntity(EntityJoin<M, T> join, EntityJoinRenderer renderer, From<?, ?> root,
             JoinContext joins) {
+        var anchors = new ArrayList<ColumnField<M, ?, ?>>();
+        join.on().forEach(pair -> anchors.add(pair.anchor()));
+        join.when().ifPresent(when -> anchors.add(when.column()));
+        var paths = new ArrayList<Path<?>>();
+        for (ColumnField<M, ?, ?> anchor : anchors) {
+            if (join.kind() == JoinKind.INNER) {
+                JoinKey filtered = joins.filteredAtOrAbove(anchor.table().key());
+                if (filtered != null) {
+                    throw JoinFilterChecks.refused(join + ": INNER, but its anchor " + anchor.name() + " reads "
+                            + "through the joinFilter(...) join " + filtered + ", whose filter would blank it and "
+                            + "drop the row; declare the entity join LEFT");
+                }
+            }
+            Path<?> path = anchor.path(joins);
+            if (!anchor.table().isJoinedSource()) {
+                checkAnchorPath(join, anchor, path, joins);
+            }
+            paths.add(path);
+        }
         int[] calls = {0};
         From<?, ?>[] called = {null};
         From<?, T> joined = renderer.join(root, join.entity(), join.kind(), entity -> {
@@ -721,21 +765,59 @@ public final class ModelQuery<E, K, M> {
             called[0] = entity;
             EntityType<?> type = entityType(join, entity, joins);
             join.checkIds(type);
+            CriteriaBuilder cb = joins.cb();
             var equal = new ArrayList<Predicate>();
-            for (EntityJoin.On<?> pair : join.on()) {
-                equal.add(joins.cb().equal(entityId(entity, pair.idAttribute()), pair.anchor().path(joins)));
+            for (int i = 0; i < join.on().size(); i++) {
+                equal.add(cb.equal(entityId(entity, join.on().get(i).idAttribute()), paths.get(i)));
             }
+            join.when().ifPresent(when -> equal.add(whenTerm(join, when, paths.get(paths.size() - 1), joins)));
             // Registered here, not after the renderer returns: filter columns need it while the ON is built.
             joins.joinEntity(join.root().key(), entity, root,
                     entityId(entity, EntityJoin.idAttributes(type).keySet().iterator().next()));
             equal.addAll(joins.joinFilter(join.root().key()));
-            return joins.cb().and(equal.toArray(Predicate[]::new));
+            return cb.and(equal.toArray(Predicate[]::new));
         });
         if (calls[0] != 1 || joined != called[0] || !hasOn(join, renderer, joined)) {
             throw new ModelQueryConfigurationException(MqCode.MQ4014, join + ": "
                     + renderer.getClass().getName() + " must call on exactly once and apply its predicate as the "
                     + "ON of the join it returns (R-VND-32); it called on " + calls[0] + " time(s)");
         }
+    }
+
+    /**
+     * {@code MQ1911} for a column anchor through a to-many segment or one reading a to-one's id (R-SRC-25). The walk
+     * stops at the context's root, which in a {@code through} child load is the path's last join (R-FCH-14).
+     */
+    private static void checkAnchorPath(EntityJoin<?, ?> join, ColumnField<?, ?, ?> anchor, Path<?> path,
+            JoinContext joins) {
+        for (Path<?> node = path; node != null && node != joins.root(); ) {
+            if (node instanceof Join<?, ?> step) {
+                if (step.getAttribute() instanceof PluralAttribute<?, ?, ?>) {
+                    throw new ModelQueryDefinitionException(MqCode.MQ1911, join + ": anchor " + anchor.name()
+                            + " reads through the to-many " + step.getAttribute().getName() + "; an anchor reads "
+                            + "the root or a to-one path from it, so the join adds at most one row per outer row");
+                }
+                node = step.getParent();
+            } else {
+                node = node.getParentPath();
+            }
+        }
+        if (anchor.readsToOneId(joins)) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1911, join + ": anchor " + anchor.name() + " reads a "
+                    + "to-one association by its id (R-COL-29); anchor on the foreign key's basic column instead");
+        }
+    }
+
+    /** The static {@code when} term, a statement parameter, typed by the column under inline value handling. */
+    private static Predicate whenTerm(EntityJoin<?, ?> join, EntityJoin.When<?> when, Path<?> path,
+            JoinContext joins) {
+        CriteriaBuilder cb = joins.cb();
+        if (!joins.renderOptions().inlinesValues()) {
+            return cb.equal(path, when.value());
+        }
+        return cb.equal(path, ValueOperands.valueOperand(joins.renderOptions(), cb, path,
+                ColumnField.boxed(when.column().attributeType()), when.value(),
+                join + ": when(" + when.column().name() + ", ...) under inline value handling", joins.sink()));
     }
 
     /**
@@ -1993,7 +2075,7 @@ public final class ModelQuery<E, K, M> {
                     throw new ModelQueryDefinitionException(MqCode.MQ1911, model + ": entity join '" + join.name()
                             + "' is bound twice or shares a source join's name");
                 }
-                EntityJoin.check(model, join, sources);
+                EntityJoin.check(model, join, sources, root);
             }
         }
 

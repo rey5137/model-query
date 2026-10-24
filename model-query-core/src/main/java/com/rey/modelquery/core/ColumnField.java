@@ -372,6 +372,14 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
     }
 
     /**
+     * Whether this column reads a to-one association by its id (R-COL-29) rather than a basic attribute, resolving its
+     * table through {@code ctx}.
+     */
+    boolean readsToOneId(JoinContext ctx) {
+        return !table.isSource() && attribute.indexOf('.') < 0 && toOne(table.resolve(ctx, this), ctx) != null;
+    }
+
+    /**
      * The attribute when it is a singular association of {@code from}'s type, whose path would join it inner. A
      * treated join's attribute names its declared target, which lacks the subtype's own attributes: one of those is
      * read as {@code from.get(...)} resolves it on the subtype. A subtype's to-one there is {@code MQ1001}, whatever

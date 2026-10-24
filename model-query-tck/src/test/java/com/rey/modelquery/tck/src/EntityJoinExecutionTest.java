@@ -297,7 +297,8 @@ class EntityJoinExecutionTest {
                     JoinKind.LEFT, List.of(EntityJoin.on(ANCHOR, "id"), EntityJoin.on(otherKey, "id")))).build());
             mq1911(() -> details().joinEntity(customer("converted", JoinKind.LEFT,
                     ColumnField.over(Detail.class, SOURCE.root(), converted))).build());
-            mq1911(() -> details().joinEntity(customer("root", JoinKind.LEFT, ID)).build());
+            mq1911(() -> details().joinEntity(EntityJoin.of("mixedKinds", CustomerEntity.class, JoinKind.LEFT,
+                    List.of(EntityJoin.on(ANCHOR, "id"), EntityJoin.on(ID, "id")))).build());
         });
         assertThat(sql).isEmpty();
     }
