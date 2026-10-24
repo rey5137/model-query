@@ -423,6 +423,48 @@ class JoinSourceModelTest {
     }
 
     @Test
+    void ac_src_45_a_nested_join_model_with_an_entity_join_is_mq3044() {
+        Compilation compilation = compile(DAY_ENTITY, source("shop.NoteEntity", """
+                package shop;
+
+                import jakarta.persistence.Entity;
+                import jakarta.persistence.Id;
+                import jakarta.persistence.ManyToOne;
+
+                @Entity
+                public class NoteEntity {
+                    @Id
+                    Long id;
+                    @ManyToOne
+                    DayEntity day;
+                }
+                """), source("shop.UnreconciledDay", """
+                package shop;
+
+                import com.rey.modelquery.annotations.JoinEntity;
+                import com.rey.modelquery.annotations.PrimaryKey;
+                import com.rey.modelquery.annotations.QueryModel;
+
+                @QueryModel(root = DayEntity.class)
+                @JoinEntity(name = "twin", entity = DayEntity.class, on = @JoinEntity.On(column = "id"))
+                public record UnreconciledDay(@PrimaryKey Long id) {}
+                """), source("shop.Note", """
+                package shop;
+
+                import com.rey.modelquery.annotations.Join;
+                import com.rey.modelquery.annotations.PrimaryKey;
+                import com.rey.modelquery.annotations.QueryModel;
+                import java.util.Optional;
+
+                @QueryModel(root = NoteEntity.class)
+                public record Note(@PrimaryKey Long id, @Join(attribute = "day") Optional<UnreconciledDay> day) {}
+                """));
+
+        assertThat(errors(compilation)).containsExactly(message("Note.day: UnreconciledDay has an entity join; "
+                + "a @Join model reads entity columns only"));
+    }
+
+    @Test
     void ac_src_45_a_join_named_like_a_field_or_root_clashes_in_the_generated_constants() {
         Compilation compilation = compileDay("""
                 @QueryModel(root = DayEntity.class)

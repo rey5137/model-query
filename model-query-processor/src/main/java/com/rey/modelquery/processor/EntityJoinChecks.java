@@ -72,16 +72,48 @@ final class EntityJoinChecks {
             return;
         }
         TypeElement entity = (TypeElement) declared.asElement();
-        var id = metamodel.id(entity);
-        Set<String> required = id.components().isEmpty() ? id.attributes() : id.components();
-        var paired = new HashSet<String>();
-        var sourceJoin = model.joinSources().stream().filter(source -> source.name().equals(join.source()))
-                .findFirst().orElse(null);
+        // Each pair names exactly one of field and column, and all pairs name the same one (R-SRC-25).
+        boolean fields = false;
+        boolean columns = false;
+        boolean shapeOk = true;
+        for (var pair : join.on()) {
+            boolean field = !pair.field().isEmpty();
+            boolean column = !pair.column().isEmpty();
+            if (field == column) {
+                error(model, join.name(), "each on(...) pair names exactly one of field and column", diagnostics);
+                shapeOk = false;
+            }
+            fields |= field;
+            columns |= column;
+        }
+        if (fields && columns) {
+            error(model, join.name(), "on(...) pairs mix a joined source's fields with the root's columns",
+                    diagnostics);
+            shapeOk = false;
+        }
+        var sourceJoin = join.source().isEmpty() ? null
+                : model.joinSources().stream().filter(source -> source.name().equals(join.source()))
+                        .findFirst().orElse(null);
         // A @JoinSource whose model failed to resolve is reported by that model's own error.
-        if (sourceJoin == null) {
+        if (!join.source().isEmpty() && sourceJoin == null) {
             error(model, join.name(), "source '" + join.source() + "' must name a @JoinSource of this model",
                     diagnostics);
         }
+        if (columns && !join.source().isEmpty()) {
+            error(model, join.name(), "a column anchor takes no source; name source only with field pairs",
+                    diagnostics);
+            shapeOk = false;
+        }
+        if (fields && join.source().isEmpty()) {
+            error(model, join.name(), "a field anchor needs a source naming a @JoinSource", diagnostics);
+            shapeOk = false;
+        }
+        if (!shapeOk) {
+            return;
+        }
+        var id = metamodel.id(entity);
+        Set<String> required = id.components().isEmpty() ? id.attributes() : id.components();
+        var paired = new HashSet<String>();
         for (var pair : join.on()) {
             String path = pair.id();
             if (path.isEmpty() && id.components().isEmpty() && required.size() == 1) {
@@ -97,14 +129,17 @@ final class EntityJoinChecks {
             if (!paired.add(path)) {
                 error(model, join.name(), "pairs id attribute '" + path + "' more than once", diagnostics);
             }
-            if (sourceJoin != null && sourceJoin.sourceModel() != null) {
-                checkAnchor(join, pair, sourceJoin.sourceModel(), basic
-                        ? walk.steps().get(walk.steps().size() - 1).attribute() : null, model, diagnostics);
+            var anchorId = basic ? walk.steps().get(walk.steps().size() - 1).attribute() : null;
+            if (fields && sourceJoin != null && sourceJoin.sourceModel() != null) {
+                checkAnchor(join, pair, sourceJoin.sourceModel(), anchorId, model, diagnostics);
+            } else if (columns) {
+                checkColumnAnchor(join, pair, anchorId, model, diagnostics);
             }
         }
         if (required.isEmpty() || !paired.equals(required)) {
             error(model, join.name(), "id pairs must cover every basic id attribute exactly once", diagnostics);
         }
+        checkWhen(model, join, diagnostics);
     }
 
     private void checkAnchor(EntityJoinDefinition join, EntityJoinOn pair, ModelDefinition source,
@@ -123,6 +158,37 @@ final class EntityJoinChecks {
                 ProcessorTypes.boxed(types, id.type()))) {
             error(model, join.name(), "anchor field '" + pair.field() + "' and id have different boxed types",
                     diagnostics);
+        }
+    }
+
+    private void checkColumnAnchor(EntityJoinDefinition join, EntityJoinOn pair, EntityAttribute id,
+            ModelDefinition model, Diagnostics diagnostics) {
+        var resolution = EntityJoinAnchors.resolve(model, metamodel, builtIns, pair.column());
+        if (resolution.anchor() == null) {
+            error(model, join.name(), resolution.problem(), diagnostics);
+            return;
+        }
+        if (id != null && !types.isSameType(ProcessorTypes.boxed(types, resolution.anchor().type()),
+                ProcessorTypes.boxed(types, id.type()))) {
+            error(model, join.name(), "anchor column '" + pair.column() + "' and id have different boxed types",
+                    diagnostics);
+        }
+    }
+
+    private void checkWhen(ModelDefinition model, EntityJoinDefinition join, Diagnostics diagnostics) {
+        if (join.when().size() > 1) {
+            error(model, join.name(), "a join takes one when(...) term", diagnostics);
+        }
+        for (var term : join.when()) {
+            var resolution = EntityJoinAnchors.resolve(model, metamodel, builtIns, term.column());
+            if (resolution.anchor() == null) {
+                error(model, join.name(), "when " + resolution.problem(), diagnostics);
+                continue;
+            }
+            var value = EntityJoinAnchors.whenValue(types, resolution.anchor().type(), term.value());
+            if (value.problem() != null) {
+                error(model, join.name(), "when '" + term.column() + "': " + value.problem(), diagnostics);
+            }
         }
     }
 

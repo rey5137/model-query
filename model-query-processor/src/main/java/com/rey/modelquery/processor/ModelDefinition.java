@@ -349,14 +349,21 @@ record ModelDefinition(
     }
 
     /** An entity join as declared, before its id and anchor checks (R-PROC-46). */
-    record EntityJoinDefinition(String name, String source, TypeMirror entity, String kind, List<EntityJoinOn> on) {
+    record EntityJoinDefinition(
+            String name, String source, TypeMirror entity, String kind, List<EntityJoinOn> on,
+            List<EntityJoinWhen> when) {
+
         EntityJoinDefinition {
             on = List.copyOf(on);
+            when = List.copyOf(when);
         }
     }
 
-    /** One joined-source field paired with an entity id attribute. */
-    record EntityJoinOn(String field, String id) {}
+    /** One column of the joined source, or of the root, paired with an entity id attribute. */
+    record EntityJoinOn(String field, String column, String id) {}
+
+    /** One static term of an entity join: a column of the root or a to-one path from it, and its value. */
+    record EntityJoinWhen(String column, String value) {}
 
     /**
      * One {@code @JoinSource.On} pair.
