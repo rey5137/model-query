@@ -10,15 +10,17 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 
 /**
- * An entity joined on its full id to columns of one joined source (R-SRC-23). Immutable, so a constant (INV-9).
+ * An entity joined on its full id to columns of one joined source (R-SRC-23), or to columns of the root and its to-one
+ * paths (R-SRC-25), with an optional static {@link #when} term. Immutable, so a constant (INV-9).
  *
  * @param <M> the outer model
  * @param <E> the joined entity
- * @implSpec R-SRC-23, R-SRC-24, D-193
+ * @implSpec R-SRC-23, R-SRC-24, R-SRC-25, D-193, D-197
  */
 @Incubating
 public final class EntityJoin<M, E> {
@@ -28,12 +30,14 @@ public final class EntityJoin<M, E> {
     private final JoinKind kind;
     private final List<On<M>> on;
     private final TableField<E, E> root;
+    private final When<M> when;
 
-    private EntityJoin(String name, Class<E> entity, JoinKind kind, List<On<M>> on) {
+    private EntityJoin(String name, Class<E> entity, JoinKind kind, List<On<M>> on, When<M> when) {
         this.name = name;
         this.entity = entity;
         this.kind = kind;
         this.on = on;
+        this.when = when;
         this.root = TableField.joinedEntity(name, entity);
     }
 
@@ -101,10 +105,44 @@ public final class EntityJoin<M, E> {
                     "entity join '" + name + "' needs a name and at least one on(...) pair");
         }
         return new EntityJoin<>(name, Objects.requireNonNull(entity, "entity"), Objects.requireNonNull(kind, "kind"),
-                pairs);
+                pairs, null);
     }
 
-    /** Pairs {@code anchor}, a joined source's column, with an entity id attribute path (R-SRC-23). */
+    /**
+     * This join with the static term {@code column = value} ANDed into its one ON, as a statement parameter: a
+     * polymorphic reference's type column, so an id that collides across tables matches only its own (R-SRC-25,
+     * D-197). The value is a definition constant (INV-9).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1911} for a second term, a converted column, a column off the
+     *     root and its to-one paths, or a value that is not a bindable instance of the column's boxed attribute type
+     */
+    @Incubating
+    public <C> EntityJoin<M, E> when(ColumnField<M, ?, C> column, C value) {
+        Objects.requireNonNull(column, "column");
+        String where = this + ": when(" + column.name() + ", ...)";
+        if (when != null) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1911, where + ": the join already has the term on "
+                    + when.column().name() + "; a join takes one when(...) term");
+        }
+        if (column.isConverted()) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1911, where + ": the column is converted; the term "
+                    + "compares database values");
+        }
+        Class<?> type = ColumnField.boxed(column.attributeType());
+        if (value == null || !type.isInstance(value)) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1911, where + ": the value must be a non-null "
+                    + type.getSimpleName() + (value == null ? "" : ", not a " + value.getClass().getSimpleName()));
+        }
+        if (Expr.unbindable(value)) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1911, where + ": a " + value.getClass().getSimpleName()
+                    + " value does not bind as one statement parameter (R-COL-18); compare a String, number, "
+                    + "boolean or temporal column");
+        }
+        checkColumnAnchor(where, column);
+        return new EntityJoin<>(name, entity, kind, on, new When<>(column, value));
+    }
+
+    /** Pairs {@code anchor}, a joined source's or the root's column, with an entity id attribute path (R-SRC-23). */
     @Incubating
     public static <M> On<M> on(ColumnField<M, ?, ?> anchor, String idAttribute) {
         return new On<>(anchor, idAttribute);
@@ -134,6 +172,17 @@ public final class EntityJoin<M, E> {
         return on;
     }
 
+    /** The static term {@link #when} added, or empty (R-SRC-25). */
+    @Incubating
+    public Optional<When<M>> when() {
+        return Optional.ofNullable(when);
+    }
+
+    /** Whether the pairs read a joined source, rather than the root and its to-one paths (R-SRC-23, R-SRC-25). */
+    boolean anchoredOnSource() {
+        return on.get(0).anchor.table().isJoinedSource();
+    }
+
     /** The joined entity's table, keyed by its name, for columns and to-one paths (R-SRC-23). */
     @Incubating
     public TableField<E, E> root() {
@@ -146,17 +195,34 @@ public final class EntityJoin<M, E> {
         return "EntityJoin[" + name + ": " + kind + " " + entity.getSimpleName() + "]";
     }
 
-    /** The checks that need no metamodel, run when the query is built (D-193, Resolution 8). */
-    static void check(String model, EntityJoin<?, ?> join, Set<JoinKey> sources) {
+    /**
+     * The checks that need no metamodel, run when the query is built (D-193, D-197, Resolution 8): every pair reads
+     * one bound joined source, or every pair reads the root or a to-one path from it, unconverted.
+     */
+    static void check(String model, EntityJoin<?, ?> join, Set<JoinKey> sources, TableField<?, ?> root) {
+        String where = model + ": entity join '" + join.name + "' of " + join.entity.getSimpleName();
+        if (root.isSource()) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1911, where + ": a query rooted at a source joins no "
+                    + "entity; " + root.describe() + " is a source root");
+        }
+        boolean onSource = join.anchoredOnSource();
         JoinKey anchor = null;
         for (On<?> pair : join.on) {
             TableField<?, ?> table = pair.anchor.table();
-            String where = model + ": entity join '" + join.name + "' of " + join.entity.getSimpleName();
             if (pair.anchor.isConverted()) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1911, where + ": anchor " + pair.anchor.name()
                         + " is converted; the join compares database values");
             }
-            if (!table.isJoinedSource() || !sources.contains(table.key())) {
+            if (table.isJoinedSource() != onSource) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1911, where + ": on(...) pairs mix a joined "
+                        + "source's columns with the root's; all pairs must read one joined source, or the root and "
+                        + "its to-one paths");
+            }
+            if (!onSource) {
+                checkColumnAnchor(where + ": anchor " + pair.anchor.name(), pair.anchor);
+                continue;
+            }
+            if (!sources.contains(table.key())) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1911, where + ": anchor " + pair.anchor.name()
                         + " must read a joined source bound by this query; " + table.describe() + " is not bound");
             }
@@ -169,7 +235,61 @@ public final class EntityJoin<M, E> {
     }
 
     /**
-     * An id attribute path paired with one joined-source column (R-SRC-23).
+     * {@code MQ1911} unless {@code column} reads the root or a to-one path from it: not an outer lift, a source, an
+     * entity join or a path below one (no chains, Resolution 6), nor a treated node (R-COL-35). A to-many segment
+     * and an id-form read (R-COL-29) need the metamodel, and fail at first resolution (R-SRC-25).
+     */
+    private static void checkColumnAnchor(String where, ColumnField<?, ?, ?> column) {
+        if (column.isLifted()) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1911, where + ": an Outer lift reads another statement");
+        }
+        for (TableField<?, ?> node = column.table(); node != null; node = node.parent()) {
+            if (node.isJoinedEntity()) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1911, where + ": reads the entity join "
+                        + node.describe() + "; an anchor reads the root or a to-one path from it, not another join");
+            }
+            if (node.isSource()) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1911, where + ": reads the source "
+                        + node.describe() + "; an anchor reads the root or a to-one path from it");
+            }
+            if (node.treatedType() != null) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1911, where + ": reads the treated "
+                        + node.describe() + ", which reads NULL on other subtypes (R-COL-35)");
+            }
+        }
+    }
+
+    /**
+     * The static term {@code column = value} of a join, ANDed into its ON and bound per statement (R-SRC-25).
+     *
+     * @param <M> the outer model
+     */
+    @Incubating
+    public static final class When<M> {
+
+        private final ColumnField<M, ?, ?> column;
+        private final Object value;
+
+        private When(ColumnField<M, ?, ?> column, Object value) {
+            this.column = column;
+            this.value = value;
+        }
+
+        /** The column of the root, or of a to-one path from it, the term compares (R-SRC-25). */
+        @Incubating
+        public ColumnField<M, ?, ?> column() {
+            return column;
+        }
+
+        /** The constant the column equals, bound as a statement parameter (R-SRC-25). */
+        @Incubating
+        public Object value() {
+            return value;
+        }
+    }
+
+    /**
+     * An id attribute path paired with one joined-source or root column (R-SRC-23, R-SRC-25).
      *
      * @param <M> the outer model
      */
@@ -184,7 +304,7 @@ public final class EntityJoin<M, E> {
             this.idAttribute = Objects.requireNonNull(idAttribute, "idAttribute");
         }
 
-        /** The column of the anchor source (R-SRC-23). */
+        /** The column of the anchor source, or of the root or a to-one path from it (R-SRC-23, R-SRC-25). */
         @Incubating
         public ColumnField<M, ?, ?> anchor() {
             return anchor;

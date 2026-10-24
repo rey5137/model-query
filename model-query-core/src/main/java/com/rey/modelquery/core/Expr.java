@@ -388,14 +388,20 @@ public final class Expr {
             throw new ModelQueryDefinitionException(MqCode.MQ1502, "an expression value is null; a factory binds a "
                     + "non-null value, and Expr.constant is definition text");
         }
-        Class<?> type = value.getClass();
-        if (type.isArray() || value instanceof Optional<?> || value instanceof Collection<?>
-                || value instanceof Map<?, ?> || value instanceof Date || value instanceof Calendar
-                || value instanceof Enum<?> || type.isAnnotationPresent(jakarta.persistence.Entity.class)) {
+        if (unbindable(value)) {
             throw new ModelQueryDefinitionException(MqCode.MQ1502, "an expression cannot bind a value of type "
-                    + type.getSimpleName() + "; bind a String, number, boolean or temporal type, or Expr.constant "
-                    + "for definition text, and an Optional, a Collection or a Map is not a single value");
+                    + value.getClass().getSimpleName() + "; bind a String, number, boolean or temporal type, or "
+                    + "Expr.constant for definition text, and an Optional, a Collection or a Map is not a single "
+                    + "value");
         }
+    }
+
+    /** Whether non-null {@code value} is of a type no factory binds (R-COL-18): it is not a single value. */
+    static boolean unbindable(Object value) {
+        Class<?> type = value.getClass();
+        return type.isArray() || value instanceof Optional<?> || value instanceof Collection<?>
+                || value instanceof Map<?, ?> || value instanceof Date || value instanceof Calendar
+                || value instanceof Enum<?> || type.isAnnotationPresent(jakarta.persistence.Entity.class);
     }
 
     private static void dividedByCheck(ScalarField<?, ?> a, ScalarField<?, ?> b) {

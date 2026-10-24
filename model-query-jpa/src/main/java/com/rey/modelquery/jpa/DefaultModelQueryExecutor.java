@@ -2897,7 +2897,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     private <E2> Optional<String> checkFirstRun(ModelQuery<E2, ?, ?> q, boolean fetchesModels, StatementShape shape,
             boolean laterPages, boolean withCount) {
-        if (!q.entityJoins().isEmpty() && !vendor.profile().sources(SourceFeature.CTE)) {
+        // A column-anchored entity join needs no database fact; only one off a joined source needs CTEs (D-197).
+        if (q.joinsSource() && !q.entityJoins().isEmpty() && !vendor.profile().sources(SourceFeature.CTE)) {
             throw new ModelQueryConfigurationException(MqCode.MQ4015, rootEntity.getSimpleName()
                     + ": this query joins an entity off a source, and " + vendor.detectedVendor()
                     + " has no CTE support (VendorProfile#sources(SourceFeature.CTE))");
@@ -4072,7 +4073,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         // the count; it runs here, so the configured timeout applies (R-EXE-11).
         // A renderer that refuses the count of the groups (GROUPED_COUNT) has them counted client-side too (D-159).
         // So does a query that joins a source: Hibernate's createCountQuery() loses the joined CTE on 6.6 and on 7.4
-        // with H2 (D-192, R-SRC-22).
+        // with H2 (D-192, R-SRC-22). The copy keeps a column-anchored entity join, so that one counts here (D-197).
         Optional<CriteriaQuery<Long>> count = checks.isEmpty() && clientSide.isEmpty() && !q.joinsSource()
                 ? vendor.providerSupport().flatMap(p -> p.countQuery(query))
                 : Optional.empty();

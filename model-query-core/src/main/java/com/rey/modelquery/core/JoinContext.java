@@ -280,6 +280,16 @@ public final class JoinContext {
         }
     }
 
+    /** {@code key}, or the nearest join above it, that a {@code joinFilter(...)} binds; {@code null} for none. */
+    JoinKey filteredAtOrAbove(JoinKey key) {
+        for (JoinKey node = key; node != null; node = node.parent()) {
+            if (joinFilters.containsKey(node)) {
+                return node;
+            }
+        }
+        return null;
+    }
+
     /** The filters {@code inner}, a semi-join sub-query of this statement, applied count for this statement. */
     void adoptJoinFilters(JoinContext inner) {
         appliedFilters.addAll(inner.appliedFilters);
