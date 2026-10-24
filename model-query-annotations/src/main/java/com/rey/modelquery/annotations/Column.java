@@ -15,10 +15,14 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.CLASS)
 public @interface Column {
 
+    /** @return the entity join to read, or empty for the model's root */
+    @Incubating
+    String join() default "";
+
     /**
      * The entity attribute the column reads, when it is not the field's own name. A dotted path is allowed only while
      * it stays inside embedded values ({@code "address.city"}); crossing an association needs {@link Join} or
-     * {@link FilterColumn}.
+     * {@link FilterColumn}. On a named entity {@link #join()}, the path may cross to-one associations.
      *
      * @return the attribute, or {@code ""} for the field's name
      */

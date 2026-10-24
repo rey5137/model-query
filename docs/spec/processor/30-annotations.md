@@ -15,14 +15,16 @@
 | `@UpdateModel(root = X.class, prefix = "Q")` | class or record | The attributes a bulk update may write; generates columns and a change set (§7) |
 | `@InsertModel(root = X.class, prefix = "Q")` | class or record | The attributes an insert writes, one instance per row; generates columns, `INSERT_COLUMNS` and the insert builders (§8) |
 | `@PrimaryKey` | field or record component | Primary-key column(s); composite keys supported |
-| `@Column(attribute = "...", converter = Foo.class, treat = void.class)` | field or component | Rename the attribute or convert the value (`ColumnConverter<C, F>`) |
+| `@Column(attribute = "...", converter = Foo.class, treat = void.class, join = "")` | field or component | Rename the attribute or convert the value (`ColumnConverter<C, F>`); the incubating `join` member selects a named entity join (R-PROC-46) |
 | `@Join(attribute = "...", type = LEFT, prefix = "CUSTOMER", alias = "", treat = void.class)` | `Optional<NestedModel>` field or component | Join the association and reuse the nested model's QModel columns |
 | `@Child(key = {}, foreignKey = {})` | `List<ChildModel>` or `Optional<ChildModel>` field or component | Filled from another model's rows when a fetch plan names it (`api/15`) |
-| `@FilterColumn(name = "...", path = "...", joinType = LEFT, alias = "", converter = Foo.class, treat = void.class)` | model type (repeatable) | A filter-only column: a `ColumnField` constant with no model field, left out of every generated `SelectSet` and of `map(Row)` |
+| `@FilterColumn(name = "...", path = "...", joinType = LEFT, alias = "", converter = Foo.class, treat = void.class, join = "")` | model type (repeatable) | A filter-only column: a `ColumnField` constant with no model field, left out of every generated `SelectSet` and of `map(Row)`; the incubating `join` member selects a named entity join (R-PROC-46) |
 | `@FilterColumns` | model type | The container that makes `@FilterColumn` repeatable; never written by hand |
 | `@Aggregate(fn = SUM, attribute = "...", expression = Def.class, distinct = false, orderBy = {}, filter = Def.class, scale = -1)` | field or component | An `AggregateField` constant, mapped into this field (`api/13`); `expression` aggregates a `@Computed`-style definition instead of an attribute; `orderBy` orders `FIRST_BY`, `filter` names a `FilterDefinition<Model>` and `scale` rounds a `BigDecimal` average (R-PROC-45, D-188) |
 | `@JoinSource(name = "...", source = S.class, type = LEFT, on = @On(column = "...", key = "..."))` | model type (repeatable through `@JoinSources`) | Joins a `@SourceModel` to a `@QueryModel` rooted at an entity; the generated `query(...)` takes the caller's `SourceQuery<S>` for it (R-PROC-44, D-189) |
 | `@SourceColumn(join = "...", field = "...")` | field or component | A column read from a joined source's field, through `ColumnField.over(Model.class, JOIN.root(), QSource.FIELD)` (R-PROC-44) |
+| `@JoinEntity(name = "...", entity = E.class, type = LEFT, on = @JoinEntity.On(join = "...", field = "...", id = ""))` | model type (repeatable) | Incubating entity join anchored to one of the model's joined sources (R-PROC-46) |
+| `@JoinEntities` | model type | Incubating container that makes `@JoinEntity` repeatable |
 | `@Computed(Def.class)` | field or component | An `ExpressionField` constant, mapped into this field (`api/10` §3a); a bound model may leave the class to its binding's `@BindExpression` (R-PROC-29) |
 | `@Window(function = ROW_NUMBER, argument = "", partitionBy = {}, orderBy = {}, frame = NONE)` | field or component of a `@SourceModel` | A `WindowField<S, T>` constant, a window function over the source's rows (`api/17` R-SRC-04, R-PROC-36) |
 | `@Discriminator("REFUND")` | field or component of a `@SourceModel` | The constant a branch fixes its shape's discriminator column to; part of the key (`api/17` R-SRC-06, R-PROC-38) |
@@ -130,6 +132,32 @@ without `FIRST_BY` or `FIRST_BY` without one, an unknown or malformed `orderBy` 
 public `FilterDefinition<Model>` or has neither `INSTANCE` nor a no-arg constructor, `scale` outside 0 to 30 or on a
 field that is not a `BigDecimal`, and an `AVG` field typed `BigDecimal` over an input type `Agg.avgExact` refuses
 (`Double`, `Float`).
+
+**R-PROC-46** *(D-193, `@Incubating`)* `@JoinEntity` (repeatable through `@JoinEntities`, on a model type) declares
+an entity join off a `@JoinSource` of an entity-rooted `@QueryModel` (`api/17` R-SRC-23). Its `name` is a Java
+identifier unique across both kinds of join; `entity` names a JPA entity, `type` defaults to `LEFT`, and each nested
+`@JoinEntity.On(join, field, id = "")` pairs an unconverted field of that joined source with a basic id attribute.
+All pairs name the same source join and cover every id attribute exactly once, including flattened `@EmbeddedId`
+paths such as `key.part`; `id = ""` names the sole basic id of a single-id entity. Source and id types agree after
+boxing (`int` and `Integer` agree, INV-3). The annotation types, nested `On` and their members are incubating.
+
+The incubating `@Column.join` and `@FilterColumn.join` members default to `""`, retaining the root meaning. A
+nonempty value names an entity join and resolves the attribute or path relative to its entity, including to-one
+paths with the declared join kind and alias. Generation emits an `EntityJoin.of(...)` constant with
+`EntityJoin.on(<anchor column>, "<id attribute>")` pairs, columns over that constant's `root()`, and to-one table
+fields below it. An exposed `@SourceColumn` supplies the anchor constant; otherwise generation uses an inline
+`ColumnField.over(...)`. Generated `query(...)` registers each constant with `.joinEntity(NAME)` after binding
+the sources. A LEFT-unmatched entity yields null joined columns. Joined-entity columns are omitted from generated
+changes and inserts, like `@SourceColumn` fields.
+
+`MQ3046` rejects an entity that is not a JPA `@Entity`, a name that is not a Java identifier,
+partial, extra or repeated id pairs, non-id or association-id attributes, converted anchors,
+boxed-type mismatches, unknown source joins or fields, anchors not declared as this model's `@JoinSource`, pairs
+spanning different source joins, duplicate names across either kind of join, entity-join constants colliding with
+reserved or other generated constants, unknown entity-join names in either
+`join` member, to-many paths below the entity, a nested `@Join` or `@PrimaryKey` on a joined-entity column, and
+`@JoinEntity` on a `@SourceModel`. A nonempty `join` combined with `treat` is also `MQ3046`. Existing attribute,
+type, converter and alias checks continue to apply.
 
 ## 4. `@Join` and nested models
 

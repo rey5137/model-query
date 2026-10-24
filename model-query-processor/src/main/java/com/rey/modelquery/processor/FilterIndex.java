@@ -53,7 +53,12 @@ record FilterIndex(List<Column> kept, List<Shadowed> shadowed) {
         var kept = new ArrayList<Column>();
         var shadowed = new ArrayList<Shadowed>();
         for (Column column : filters.columns()) {
-            String key = column.definition().path();
+            if (model.columns().stream().anyMatch(field -> !field.entityJoin().isEmpty()
+                    && field.constant().equals(column.definition().name()))) {
+                continue;
+            }
+            String key = column.definition().entityJoin().isEmpty() ? column.definition().path()
+                    : column.definition().entityJoin() + "." + column.definition().path();
             if (column.definition().treat() != null) {
                 key = "treat(" + column.definition().treat() + ")." + key;
             }

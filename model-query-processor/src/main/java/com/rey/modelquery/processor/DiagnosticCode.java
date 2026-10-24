@@ -161,6 +161,7 @@ enum DiagnosticCode {
     /** An {@code @Aggregate} {@code orderBy}, {@code filter} or {@code scale} that does not fit its function or
      * field, or an {@code AVG} field over an input an exact average refuses (R-PROC-45). */
     MQ3045("Invalid @Aggregate orderBy, filter or scale"),
+    MQ3046("Invalid @JoinEntity or joined-entity column declaration"),
 
     /** An {@code @Aggregate} field is primitive, though an aggregate can be {@code NULL}. */
     MQ3201("@Aggregate field is primitive"),

@@ -52,6 +52,25 @@ class EntityJoinTest {
     }
 
     @Test
+    void ac_src_56_entity_identity_and_to_one_properties_keep_join_and_model_names() {
+        var other = entity("other", MANAGER_ID);
+        assertThat(NAME.identityPath()).isEqualTo("manager.name");
+        assertThat(ColumnField.of(View.class, other.root(), "name", String.class).identityPath())
+                .isEqualTo("other.name");
+        var type = TableField.<Profile, Profile>join(MANAGER.root(), "type", JoinType.LEFT);
+        var nested = TableField.<Profile, Profile>join(type, "parent", JoinType.LEFT);
+        var column = ColumnField.of(View.class, nested, "name", String.class).named("managerType");
+        assertThat(column.identityPath()).isEqualTo("manager.type.parent.name");
+        assertThat(column.propertyPath()).isEqualTo("managerType");
+        assertThat(ColumnField.of(View.class, type.named("kind"), "name", String.class).named("label")
+                .propertyPath()).isEqualTo("kind.label");
+        var root = TableField.root(Profile.class);
+        assertThat(ColumnField.of(View.class, root, "name", String.class).identityPath()).isEqualTo("name");
+        assertThat(TableField.<Profile, Profile>join(root, "type", JoinType.LEFT).propertyPath()).isNull();
+        assertThat(MANAGER_ID.identityPath()).isEqualTo("mq_managerId");
+    }
+
+    @Test
     void ac_src_53_entity_definitions_and_query_bindings_are_immutable() {
         var pairs = new ArrayList<>(List.of(EntityJoin.on(MANAGER_ID, "id")));
         var join = EntityJoin.of("manager", Profile.class, JoinKind.INNER, pairs);

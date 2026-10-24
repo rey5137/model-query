@@ -99,10 +99,15 @@ final class EntityMetamodel {
      * @implSpec R-GEN-03
      */
     Resolution resolve(TypeElement root, String path) {
+        return resolve(root, path, false);
+    }
+
+    /** Resolves a column path, allowing association steps when its layout creates the joins. */
+    Resolution resolve(TypeElement root, String path, boolean joined) {
         Walk walk = walk(root, path);
         // Every step but the path's last is a segment the path goes through: all of them when the walk stopped early.
         int through = walk.problem() == null ? walk.steps().size() - 1 : walk.steps().size();
-        for (Step step : walk.steps().subList(0, through)) {
+        for (Step step : joined ? List.<Step>of() : walk.steps().subList(0, through)) {
             if (step.attribute().kind() == EntityAttribute.Kind.TO_ONE
                     || step.attribute().kind() == EntityAttribute.Kind.COLLECTION) {
                 return new Resolution(null, null, "'" + step.attribute().name() + "' on " + step.owner()

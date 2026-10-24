@@ -67,6 +67,7 @@ final class QModelWriter {
     private static final ClassName ROW = ClassName.get(CORE, "Row");
     private static final ClassName MODEL_QUERY = ClassName.get(CORE, "ModelQuery");
     private static final ClassName SOURCE_QUERY = ClassName.get(CORE, "SourceQuery");
+    private static final ClassName ENTITY_JOIN = ClassName.get(CORE, "EntityJoin");
     private static final ClassName SOURCE_JOIN = ClassName.get(CORE, "SourceJoin");
     private static final ClassName JOIN_KIND = ClassName.get("com.rey.modelquery.annotations", "JoinKind");
     private static final ClassName MODEL_UPDATE = ClassName.get(CORE, "ModelUpdate");
@@ -143,11 +144,13 @@ final class QModelWriter {
         }
         FilterLayout filters = FilterLayout.of(model, joined, metamodel);
         for (FilterLayout.Table table : filters.tables()) {
-            type.addField(filterTable(table));
+            if (!filters.overEntityJoin(table)) {
+                type.addField(filterTable(table));
+            }
         }
         // A column is named after its field, so a sort names it as the model does (D-55).
         for (ModelField field : model.columns()) {
-            if (field.sourceColumn() != null) {
+            if (field.sourceColumn() != null || !field.entityJoin().isEmpty()) {
                 continue;
             }
             type.addField(field.subtype() ? subtype(modelName, field.constant(), "ROOT", field.name(), field)
@@ -164,6 +167,14 @@ final class QModelWriter {
         for (ModelField field : model.columns()) {
             if (field.sourceColumn() != null) {
                 type.addField(joinedColumn(modelName, model, field));
+            }
+        }
+        for (ModelDefinition.EntityJoinDefinition join : model.entityJoins()) {
+            type.addField(entityJoin(modelName, model, join));
+        }
+        for (FilterLayout.Table table : filters.tables()) {
+            if (filters.overEntityJoin(table)) {
+                type.addField(filterTable(table));
             }
         }
         for (JoinedTable table : joined) {
@@ -190,6 +201,14 @@ final class QModelWriter {
         }
         // A filter-only column has no field to map: it is in no SelectSet and not in map(Row) (R-PROC-10).
         for (FilterLayout.Column column : filters.columns()) {
+            ModelField selected = model.columns().stream()
+                    .filter(field -> !field.entityJoin().isEmpty()
+                            && field.constant().equals(column.definition().name())).findFirst().orElse(null);
+            if (selected != null) {
+                type.addField(column(modelName, column.entity(), selected.constant(), column.table(),
+                        column.attribute(), selected.type(), converter(model, selected), selected.name()));
+                continue;
+            }
             type.addField(model.readsSource()
                     ? overColumn(modelName, model, column.definition().name(), column.attribute(), false)
                     : column(modelName, column.entity(), column.definition().name(), column.table(), column.attribute(),
@@ -501,7 +520,9 @@ final class QModelWriter {
         if (field.converter() != null) {
             return field.converter();
         }
-        var attribute = metamodel.resolve(EntityMetamodel.treatedRoot(model.root(), field.treat()), field.attribute())
+        var attribute = metamodel.resolve(
+                EntityMetamodel.treatedRoot(model.entityRoot(field.entityJoin()), field.treat()),
+                field.attribute(), !field.entityJoin().isEmpty())
                 .attribute();
         return attribute == null ? null : builtIns.between(field.type(), attribute.type());
     }
@@ -528,6 +549,9 @@ final class QModelWriter {
                         join.name());
                 joins.append(".joinSource(").append(QueryModelReader.constantName(join.name())).append(", ")
                         .append(join.name()).append(")");
+            }
+            for (ModelDefinition.EntityJoinDefinition join : model.entityJoins()) {
+                joins.append(".joinEntity(").append(QueryModelReader.constantName(join.name())).append(")");
             }
             return method.addStatement("return $T.builder(ROOT, MAPPER)$L$L$L", MODEL_QUERY, key, group, joins)
                     .build();
@@ -701,6 +725,32 @@ final class QModelWriter {
      * The {@code SourceJoin} constant of a {@code @JoinSource}, named after the join: the outer columns are built in
      * place from the attribute paths, as an aggregate's are (R-SRC-21, R-PROC-44).
      */
+    private FieldSpec entityJoin(
+            ClassName modelName, ModelDefinition model, ModelDefinition.EntityJoinDefinition join) {
+        var pairs = new ArrayList<CodeBlock>();
+        for (ModelDefinition.EntityJoinOn pair : join.on()) {
+            JoinSourceDefinition source = model.joinSources().stream()
+                    .filter(each -> each.name().equals(pair.join())).findFirst().orElseThrow();
+            ModelField field = source.sourceModel().readable().stream()
+                    .filter(each -> each.name().equals(pair.field())).findFirst().orElseThrow();
+            ModelField exposed = model.columns().stream().filter(each -> each.sourceColumn() != null
+                    && each.sourceColumn().join().equals(pair.join())
+                    && each.sourceColumn().field().equals(pair.field())).findFirst().orElse(null);
+            CodeBlock anchor = exposed == null
+                    ? CodeBlock.of("$T.over($T.class, $L.root(), $T.$L)", COLUMN_FIELD, modelName,
+                            QueryModelReader.constantName(source.name()), generatedName(source.sourceModel()),
+                            field.constant())
+                    : CodeBlock.of("$L", exposed.constant());
+            String id = pair.id().isEmpty() ? metamodel.id(model.entityRoot(join.name())).attributes().iterator().next()
+                    : pair.id();
+            pairs.add(CodeBlock.of("$T.on($L, $S)", ENTITY_JOIN, anchor, id));
+        }
+        return FieldSpec.builder(ParameterizedTypeName.get(ENTITY_JOIN, modelName, TypeName.get(join.entity())),
+                        QueryModelReader.constantName(join.name()), CONSTANT)
+                .initializer("$T.of($S, $T.class, $T.$L, $L)", ENTITY_JOIN, join.name(), TypeName.get(join.entity()),
+                        JOIN_KIND, join.kind(), listOf(pairs)).build();
+    }
+
     private FieldSpec sourceJoin(ClassName modelName, ModelDefinition model, JoinSourceDefinition join) {
         ModelDefinition source = join.sourceModel();
         var pairs = new ArrayList<CodeBlock>();
