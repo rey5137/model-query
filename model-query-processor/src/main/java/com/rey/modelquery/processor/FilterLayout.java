@@ -23,6 +23,12 @@ record FilterLayout(List<Table> tables, List<Column> columns, List<Problem> prob
 
     private static final String ROOT = "ROOT";
     private static final String LEFT = "LEFT";
+    /** Whether a table must follow its entity-join constant in the generated initializers. */
+    boolean overEntityJoin(Table table) {
+        return table.parent().endsWith(".root()") || tables.stream()
+                .filter(parent -> parent.constant().equals(table.parent())).anyMatch(this::overEntityJoin);
+    }
+
     /** What follows a root collection's name in the alias of the {@code INNER} join a filter column asks of it. */
     private static final String INNER_SUFFIX = "Inner";
 
@@ -94,9 +100,20 @@ record FilterLayout(List<Table> tables, List<Column> columns, List<Problem> prob
         }
         var columns = new ArrayList<Column>();
         var problems = new ArrayList<Problem>();
-        for (FilterColumnDefinition definition : model.filterColumns()) {
+        var definitions = new ArrayList<>(model.filterColumns());
+        for (ModelDefinition.ModelField field : model.columns()) {
+            if (!field.entityJoin().isEmpty()) {
+                definitions.add(new FilterColumnDefinition(field.constant(), field.attribute(), LEFT, false, "",
+                        field.converter(), field.treat(), field.entityJoin(), true));
+            }
+        }
+        for (FilterColumnDefinition definition : definitions) {
             Walk walk = metamodel.walk(
-                    EntityMetamodel.treatedRoot(model.root(), definition.treat()), definition.path());
+                    EntityMetamodel.treatedRoot(model.entityRoot(definition.entityJoin()), definition.treat()),
+                    definition.path());
+            if (walk.problem() != null && definition.synthetic()) {
+                continue;
+            }
             if (walk.problem() != null) {
                 // Only a first segment missing on the subtype is MQ3001 naming it; a later one is a path problem.
                 problems.add(new Problem(
@@ -147,14 +164,16 @@ record FilterLayout(List<Table> tables, List<Column> columns, List<Problem> prob
             Map<List<String>, Table> tables, List<Problem> problems) {
         String where = model.name() + " " + definition.label() + ": ";
         String alias = definition.alias();
-        String root = TreatTables.root(definition.treat());
+        String root = definition.entityJoin().isEmpty() ? TreatTables.root(definition.treat())
+                : QueryModelReader.constantName(definition.entityJoin()) + ".root()";
         String table = root;
-        String prefix = "";
+        String prefix = definition.entityJoin().isEmpty() ? ""
+                : QueryModelReader.constantName(definition.entityJoin());
         String crossed = "";
         // The @Join the path is on so far, until it leaves the declared joins for one generated here.
         JoinedTable under = null;
         boolean generated = false;
-        TypeElement entity = EntityMetamodel.treatedRoot(model.root(), definition.treat());
+        TypeElement entity = EntityMetamodel.treatedRoot(model.entityRoot(definition.entityJoin()), definition.treat());
         var embedded = new ArrayList<String>();
         Step last = walk.steps().get(walk.steps().size() - 1);
         for (Step step : walk.steps().subList(0, walk.steps().size() - 1)) {
@@ -173,7 +192,8 @@ record FilterLayout(List<Table> tables, List<Column> columns, List<Problem> prob
             }
             crossed = crossed.isEmpty() ? attribute.name() : crossed + "." + attribute.name();
             var target = (TypeElement) attribute.target().asElement();
-            JoinedTable declared = generated ? null : declared(joined, under, crossed, alias, root);
+            JoinedTable declared = generated || !definition.entityJoin().isEmpty() ? null
+                    : declared(joined, under, crossed, alias, root);
             if (declared != null) {
                 if (definition.explicitJoinType() && !declared.joinType().equals(definition.joinType())) {
                     problems.add(new Problem(DiagnosticCode.MQ3012, where + "joinType is " + definition.joinType()
@@ -200,7 +220,8 @@ record FilterLayout(List<Table> tables, List<Column> columns, List<Problem> prob
             }
             generated = true;
             // The alias names the first join of its path, and every join below hangs from that one.
-            boolean aliased = !alias.isEmpty() && prefix.isEmpty();
+            boolean aliased = !alias.isEmpty()
+                    && (prefix.isEmpty() || !definition.entityJoin().isEmpty() && table.equals(root));
             String segment = QueryModelReader.constantName(aliased ? alias : attribute.name());
             prefix = prefix.isEmpty() ? segment : prefix + "_" + segment;
             List<String> key = List.of(under == null ? alias : "", crossed, under == null ? root : under.table());

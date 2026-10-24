@@ -367,7 +367,8 @@ public final class TableField<P, T> {
     /**
      * The model field names from the root to this node, dotted: empty for a root, {@code customer.address} for a join
      * named {@code address} below a join named {@code customer}; {@code null} when this node or a join above it has no
-     * property (R-QRY-14, D-55).
+     * property (R-QRY-14, D-55). Unnamed association nodes below an entity join add no property segment, so a
+     * column there resolves by its model field name (R-SRC-23).
      */
     String propertyPath() {
         if (subtype != null) {
@@ -377,6 +378,15 @@ public final class TableField<P, T> {
             return "";
         }
         String above = parent.propertyPath();
+        if (property == null && above != null) {
+            JoinKey root = key;
+            while (root.parent() != null) {
+                root = root.parent();
+            }
+            if (root.entity()) {
+                return above;
+            }
+        }
         if (property == null || above == null) {
             return null;
         }

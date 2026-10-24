@@ -103,6 +103,7 @@ final class ModelValidator {
     private final SourceModelChecks sourceChecks;
     private final TreatChecks treatChecks;
     private final JoinSourceChecks joinSourceChecks;
+    private final EntityJoinChecks entityJoinChecks;
 
     ModelValidator(
             Types types, EntityMetamodel metamodel, NestedModels nestedModels, BuiltInConverters builtIns,
@@ -116,9 +117,13 @@ final class ModelValidator {
         this.sourceChecks = new SourceModelChecks(metamodel, sources);
         this.treatChecks = new TreatChecks(types, metamodel);
         this.joinSourceChecks = new JoinSourceChecks(types, metamodel);
+        this.entityJoinChecks = new EntityJoinChecks(types, metamodel, builtIns);
     }
 
     void validate(ModelDefinition model, Diagnostics diagnostics) {
+        if (!entityJoinChecks.check(model, diagnostics)) {
+            return;
+        }
         // A root that is neither an @Entity nor a @SourceModel, or both, decides no kind of read: every check below
         // would run against the wrong metamodel (MQ3038, R-PROC-39).
         if (model.readModel() && !rootKindOk(model, diagnostics)) {
@@ -306,6 +311,15 @@ final class ModelValidator {
             // Its ChildField constant is named as a column of the field would be (R-FCH-03).
             claim(child, model.name() + "." + child.name() + ": ", reserved, constants, ofJoins, diagnostics);
         }
+        for (var join : model.entityJoins()) {
+            String constant = QueryModelReader.constantName(join.name());
+            String earlier = reserved.contains(constant) ? "the generated class"
+                    : constants.putIfAbsent(constant, "entity join '" + join.name() + "'");
+            if (earlier != null) {
+                diagnostics.error(model.type(), DiagnosticCode.MQ3046, model.name() + " entity join '" + join.name()
+                        + "': constant " + constant + " is also generated for " + earlier);
+            }
+        }
         // An insert model's @FilterColumn is MQ3502, and declares no constant.
         for (FilterColumnDefinition column : model.insertModel() ? List.<FilterColumnDefinition>of()
                 : model.filterColumns()) {
@@ -332,7 +346,8 @@ final class ModelValidator {
             }
         }
         for (FilterLayout.Column column : filters.columns()) {
-            if (column.read() != null && column.definition().converter() != null) {
+            if (!column.definition().synthetic() && column.read() != null
+                    && column.definition().converter() != null) {
                 checkConverter(model, model.type(), column.definition().converter(), null, column.read(),
                         model.name() + " " + column.definition().label() + ": ", diagnostics);
             }
@@ -1580,7 +1595,8 @@ final class ModelValidator {
             return;
         }
         Resolution resolution = metamodel.resolve(
-                EntityMetamodel.treatedRoot(model.root(), field.treat()), field.attribute());
+                EntityMetamodel.treatedRoot(model.entityRoot(field.entityJoin()), field.treat()),
+                field.attribute(), !field.entityJoin().isEmpty());
         if (!model.readModel() && !writeChecks.checkColumn(model, field, resolution, where, diagnostics)) {
             return;
         }

@@ -8,6 +8,7 @@ import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.PackageElement;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
+import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.TypeMirror;
 
 /**
@@ -35,11 +36,12 @@ record ModelDefinition(
         TypeElement type, TypeElement root, String generatedName, boolean selectSets, boolean singleGroup,
         List<ModelField> fields, List<FilterColumnDefinition> filterColumns, Kind kind,
         boolean generateChanges, boolean generateInserts, Element origin, ModelDefinition source,
-        ModelDefinition shape, List<JoinSourceDefinition> joinSources) {
+        ModelDefinition shape, List<JoinSourceDefinition> joinSources, List<EntityJoinDefinition> entityJoins) {
 
     ModelDefinition {
         fields = List.copyOf(fields);
         joinSources = List.copyOf(joinSources);
+        entityJoins = List.copyOf(entityJoins);
         filterColumns = List.copyOf(filterColumns);
     }
 
@@ -148,6 +150,13 @@ record ModelDefinition(
         return all;
     }
 
+    /** The entity whose attributes a named entity join reads. */
+    TypeElement entityRoot(String name) {
+        return entityJoins.stream().filter(join -> join.name().equals(name))
+                .map(join -> (TypeElement) ((DeclaredType) join.entity()).asElement())
+                .findFirst().orElse(root);
+    }
+
     /** Whether a change set is generated: always for an update model, on request for a query model (R-GEN-21). */
     boolean changes() {
         return !readsSource() && (updateModel() || generateChanges);
@@ -173,7 +182,8 @@ record ModelDefinition(
      * since a column's path never crosses an association (R-GEN-19, R-PROC-19).
      */
     List<ModelField> writable() {
-        return fields.stream().filter(field -> field.column() && !field.primaryKey() && field.sourceColumn() == null)
+        return fields.stream().filter(field -> field.column() && !field.primaryKey() && field.sourceColumn() == null
+                && field.entityJoin().isEmpty())
                 .toList();
     }
 
@@ -295,7 +305,7 @@ record ModelDefinition(
             boolean excludedFromDefaults, TypeMirror converter, TypeMirror definition, JoinDefinition join,
             AggregateDefinition aggregate, WindowDefinition window, boolean groupBy, ChildDefinition child,
             boolean selected, String discriminator, boolean depth, TypeMirror treat, boolean subtype,
-            SourceColumnDefinition sourceColumn) {
+            SourceColumnDefinition sourceColumn, String entityJoin) {
 
         String name() {
             return element.getSimpleName().toString();
@@ -337,6 +347,16 @@ record ModelDefinition(
             on = List.copyOf(on);
         }
     }
+
+    /** An entity join as declared, before its id and anchor checks (R-PROC-46). */
+    record EntityJoinDefinition(String name, TypeMirror entity, String kind, List<EntityJoinOn> on) {
+        EntityJoinDefinition {
+            on = List.copyOf(on);
+        }
+    }
+
+    /** One joined-source field paired with an entity id attribute. */
+    record EntityJoinOn(String join, String field, String id) {}
 
     /**
      * One {@code @JoinSource.On} pair.
@@ -480,9 +500,10 @@ record ModelDefinition(
      * @param converter the class named by {@code converter}, or {@code null} for none
      * @param treat the subtype that declares the first path segment, or {@code null} for none (R-PROC-41)
      */
+    // Synthetic definitions place selected entity-join columns; their fields own diagnostics.
     record FilterColumnDefinition(
             String name, String path, String joinType, boolean explicitJoinType, String alias, TypeMirror converter,
-            TypeMirror treat) {
+            TypeMirror treat, String entityJoin, boolean synthetic) {
 
         /** The column as a diagnostic names it, after the model's name: {@code @FilterColumn(CUSTOMER_COUNTRY)}. */
         String label() {

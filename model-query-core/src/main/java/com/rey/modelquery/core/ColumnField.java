@@ -620,7 +620,10 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
         return above.isEmpty() ? attribute : above + "." + attribute;
     }
 
-    /** The attribute path qualified by each treated subtype name, for indexes and cursor fingerprints (R-PAG-19). */
+    /**
+     * The attribute path qualified by the entity-join name and each treated subtype name, for indexes and cursor
+     * fingerprints (R-SRC-23, R-PAG-19).
+     */
     @EngineFacing
     public String identityPath() {
         String above = identityPath(table.key());
@@ -629,7 +632,7 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
 
     private static String identityPath(JoinKey key) {
         if (key.parent() == null) {
-            return "";
+            return key.entity() ? key.alias() : "";
         }
         String above = identityPath(key.parent());
         String segment = key.type() == null ? "treat(" + key.attribute() + ")" : key.attribute();

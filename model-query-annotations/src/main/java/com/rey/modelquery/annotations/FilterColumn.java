@@ -18,6 +18,10 @@ import java.lang.annotation.Target;
 @Repeatable(FilterColumns.class)
 public @interface FilterColumn {
 
+    /** @return the entity join to read, or empty for the model's root */
+    @Incubating
+    String join() default "";
+
     /**
      * Name of the generated constant.
      *
@@ -26,7 +30,8 @@ public @interface FilterColumn {
     String name();
 
     /**
-     * Dotted attribute path from the root entity ({@code "deleted"}, {@code "customer.country"}).
+     * Dotted attribute path from the root entity or named entity {@link #join()}
+     * ({@code "deleted"}, {@code "customer.country"}).
      *
      * @return the attribute path
      */

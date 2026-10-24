@@ -57,6 +57,9 @@ record InsertedColumns(List<Written> written, List<String> leftOut) {
      * says, or {@code null} when it would be written.
      */
     static String alreadyLeftOut(ModelField field, ModelDefinition model, EntityMetamodel metamodel) {
+        if (!field.entityJoin().isEmpty()) {
+            return "a joined entity's column";
+        }
         if (field.sourceColumn() != null) {
             return "{@code @SourceColumn}, a joined source's column";
         }

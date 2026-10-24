@@ -13,6 +13,8 @@ import com.rey.modelquery.annotations.GroupBy;
 import com.rey.modelquery.annotations.InsertModel;
 import com.rey.modelquery.annotations.Join;
 import com.rey.modelquery.annotations.JoinKind;
+import com.rey.modelquery.annotations.JoinEntities;
+import com.rey.modelquery.annotations.JoinEntity;
 import com.rey.modelquery.annotations.JoinSource;
 import com.rey.modelquery.annotations.JoinSources;
 import com.rey.modelquery.annotations.PrimaryKey;
@@ -29,6 +31,8 @@ import com.rey.modelquery.processor.ModelDefinition.JoinOn;
 import com.rey.modelquery.processor.ModelDefinition.JoinSourceDefinition;
 import com.rey.modelquery.processor.ModelDefinition.SourceColumnDefinition;
 import com.rey.modelquery.processor.ModelDefinition.ChildDefinition;
+import com.rey.modelquery.processor.ModelDefinition.EntityJoinDefinition;
+import com.rey.modelquery.processor.ModelDefinition.EntityJoinOn;
 import com.rey.modelquery.processor.ModelDefinition.FilterColumnDefinition;
 import com.rey.modelquery.processor.ModelDefinition.JoinDefinition;
 import com.rey.modelquery.processor.ModelDefinition.Kind;
@@ -182,7 +186,7 @@ final class QueryModelReader {
                     mirror(field, Depth.class) != null,
                     treat(field, Column.class),
                     mirror(field, Subtype.class) != null,
-                    sourceColumn(field)));
+                    sourceColumn(field), column == null ? "" : column.join()));
         }
         // Both kinds of read may be rooted at a source (R-PROC-39, R-PROC-40). Writes still need an entity.
         TypeElement rootElement = (TypeElement) rootType.asElement();
@@ -199,7 +203,7 @@ final class QueryModelReader {
         return new ModelDefinition(
                 type, rootElement, prefix + type.getSimpleName() + suffix, selectSets, singleGroup, fields,
                 filterColumns(type), kind, generateChanges, generateInserts, origin, source, shape,
-                kind == Kind.UPDATE || kind == Kind.INSERT ? List.of() : joinSources(type));
+                kind == Kind.UPDATE || kind == Kind.INSERT ? List.of() : joinSources(type), entityJoins(type));
     }
 
     /** What {@code @SourceColumn} says of {@code field}, or {@code null} when it carries none. */
@@ -208,6 +212,36 @@ final class QueryModelReader {
         return mirror == null ? null : new SourceColumnDefinition(
                 explicit(mirror, "join") instanceof String join ? join : "",
                 explicit(mirror, "field") instanceof String name ? name : "");
+    }
+
+    /** The entity joins declared once or in their repeatable container. */
+    private static List<EntityJoinDefinition> entityJoins(TypeElement type) {
+        var mirrors = new ArrayList<AnnotationMirror>();
+        AnnotationMirror single = mirror(type, JoinEntity.class);
+        if (single != null) {
+            mirrors.add(single);
+        }
+        AnnotationMirror container = mirror(type, JoinEntities.class);
+        if (container != null && explicit(container, "value") instanceof List<?> repeated) {
+            for (Object value : repeated) {
+                mirrors.add((AnnotationMirror) ((AnnotationValue) value).getValue());
+            }
+        }
+        var joins = new ArrayList<EntityJoinDefinition>();
+        for (AnnotationMirror annotation : mirrors) {
+            var on = new ArrayList<EntityJoinOn>();
+            if (explicit(annotation, "on") instanceof List<?> pairs) {
+                for (Object pair : pairs) {
+                    AnnotationMirror each = (AnnotationMirror) ((AnnotationValue) pair).getValue();
+                    on.add(new EntityJoinOn((String) explicit(each, "join"), (String) explicit(each, "field"),
+                            explicit(each, "id") instanceof String id ? id : ""));
+                }
+            }
+            joins.add(new EntityJoinDefinition((String) explicit(annotation, "name"), type(annotation, "entity"),
+                    explicit(annotation, "type") instanceof Element kind ? kind.getSimpleName().toString()
+                            : JoinKind.LEFT.name(), on));
+        }
+        return joins;
     }
 
     /** The {@code @JoinSource}s of {@code type}, written once or repeated inside a {@code @JoinSources}. */
@@ -402,7 +436,8 @@ final class QueryModelReader {
                     joinType instanceof Element constant ? constant.getSimpleName().toString() : JoinKind.LEFT.name(),
                     joinType instanceof Element,
                     explicit(mirror, "alias") instanceof String alias ? alias : "",
-                    converter(mirror), type(mirror, TREAT)));
+                    converter(mirror), type(mirror, TREAT),
+                    explicit(mirror, "join") instanceof String join ? join : "", false));
         }
         return columns;
     }
