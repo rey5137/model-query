@@ -135,9 +135,11 @@ grouped child model, is `MQ3406`. Grouping, dedupe, bounds and rounds are as R-F
 plan's selection and needed columns are re-rooted under the join, as the generated join constants are, and added to the
 parent's selection, so one plan serves on its own and nested. A join plan whose join ends up with no column of the
 query's selection at or below it, at any depth, throws `MQ1701`; one whose nested plan selects an `AggregateField` or an
-`ExpressionField`, which cannot be re-rooted under a join, throws `MQ1705`. Both are checked at `build()` and `withFetch`. The processor
-generates a `JoinField<M, N>` per `@Join`, carrying the join's `TableField` and returning a parent copy with the nested
-model replaced; an empty `Optional` (a LEFT join that found nothing) is skipped. An INNER `@Join` narrows the rows
+`ExpressionField`, which cannot be re-rooted under a join, throws `MQ1705`. A join plan whose nested plan selects
+or enriches a named-source or entity-join column throws `MQ1003`. These checks run at `build()` and `withFetch`.
+The processor generates a `JoinField<M, N>` per `@Join`, carrying the join's `TableField` and returning a parent copy
+with the nested model replaced; an empty `Optional` (a LEFT join that found nothing) is skipped. An INNER `@Join`
+narrows the rows
 exactly as selecting it does.
 
 ## 4. Enrichers
@@ -231,7 +233,7 @@ round's statement logs as any statement does (D-95).
 | AC-FCH-02 | A to-one child by key loads; two distinct rows for one key throw `MQ2601`; repeated child rows from a to-many child filter are deduplicated (R-FCH-03, R-FCH-04). |
 | AC-FCH-03 | Child keys above the vendor's limit split into rounds; a page with no keys runs no child statement; a converted key column matches on its attribute value; a case-insensitive collation's unmatched child row throws `MQ2604`; a child whose one-key round passes the bind limit (`MQ1307`), or whose own filter is refused at build (`MQ1306`), is refused before any statement by `list` (a zero limit included), `first`, `one(query, key)`, `byKeys` with no keys, `page` and `export` over an empty result (R-FCH-05, R-FCH-02, D-138). |
 | AC-FCH-04 | Child filters and order apply, closed by the child's primary key; the default order is the primary key (R-FCH-04). |
-| AC-FCH-05 | One plan fills a model on its own and through a `@Join`, including two aliased joins to one entity and a LEFT join that found nothing; the re-rooted columns equal the generated join constants; a join plan with nothing selected throws `MQ1701`, and one selecting an aggregate throws `MQ1705` (R-FCH-07). |
+| AC-FCH-05 | One plan fills a model on its own and through a `@Join`, including two aliased joins to one entity and a LEFT join that found nothing; the re-rooted columns equal the generated join constants; a join plan with nothing selected throws `MQ1701`, and one selecting an aggregate throws `MQ1705`; a join plan whose nested plan selects or enriches a named-source or entity-join column throws `MQ1003` (R-FCH-07). |
 | AC-FCH-06 | `byKey` and `of` enrichers see their columns selected and run once per page after children, nested first; `of` returning another size or `null` throws `MQ2602` (R-FCH-08). |
 | AC-FCH-07 | `stream` with a plan throws `MQ2605`; a child on a grouped query throws `MQ1704`; a plan column through a to-many join throws `MQ1702` on first execution, except on `count`, which logs a `WARNING`; a duplicate child throws `MQ1703`; `count` and `ONLY_COUNT` run no child query; the probe row's children are never loaded (R-FCH-01, R-FCH-02, R-FCH-09, R-FCH-10). |
 | AC-FCH-08 | `maxPerParent` throws `MQ2603` within one round's cap, and `MQ2001` below 1 (R-FCH-04, R-FCH-11). |

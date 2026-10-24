@@ -118,6 +118,18 @@ throws when it affects no rows (see [Bulk writes](bulk-writes.md)).
 | `MQ1905` | A hand-written `ColumnField.of` or `TableField.join` over a source root, or `joinSource` on a query rooted at a source; a generated outer column is `ColumnField.over(model, root, sourceConstant)`. |
 | `MQ1906` | A source's `where` predicate whose path crosses a to-many join, which no join inside the CTE can express; use `Filters.exists(path, inner)`. |
 | `MQ1910` | A `joinSource` binding refused when the query is built, before any statement: its `SourceJoin` pairs miss a key field of the source, name a field that is not a key field or pair one twice; the source is not unique (a set operation, a plain `recursive(...)` source or an ungrouped source over one; the message names `tree(...)` when it recurses); one join is bound twice, by name; a source of another model is bound through a raw type; the joined chains walk more than one recursive source; or a hand-written `on(...)` pair has a converted source key field or differing attribute types. See [Joining a source](source-models.md#joining-a-source). |
+| `MQ1911` | Invalid hand-written entity join; see the checks below. |
+| `MQ1912` | Invalid request-bound join filter; see the checks below. |
+
+`MQ1911` rejects a converted anchor, pairs spanning sources, an unbound source or a duplicate name at build.
+At first resolution before SQL it rejects partial, extra, repeated, non-id or association-id pairs, boxed-type
+mismatches and to-many paths. An unregistered entity-join column is `MQ1003`. See
+[Entity joins](source-models.md#joining-an-entity-off-a-joined-source).
+
+`MQ1912` rejects a root or INNER join, another table or descendant path, `exists`, an aggregate, window or
+correlated value, or a sub-query crossing the join at build. At first resolution before SQL it rejects id-form
+access, a join key whose filter is never applied, another key resolving to the same join, or filter columns
+creating a descendant join.
 
 For `MQ1313`, the message names the operator and column; a thrown `RuntimeException` is the cause. Preparation fails
 when adding the filter, rendering when building the statement. A `ModelQueryException` keeps its own code.
@@ -227,6 +239,7 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | `MQ3040` | `generateChanges` on a model rooted at a source. A write needs an entity root; read the source through an outer model instead ([Source models](source-models.md)). |
 | `MQ3044` | `@JoinSource` or `@SourceColumn` written wrongly: `on` misses or exceeds the source's key, pairs a key twice or mismatches a type, an unknown root attribute, source field or join, a class that is no `@SourceModel`, a repeated join name, a key field with a converter, a `@SourceColumn` beside `@PrimaryKey` or an annotation that makes the field no column, a model that is not a `@QueryModel` rooted at an entity, or a nested `@Join` model that joins a source. |
 | `MQ3045` | `@Aggregate` with `orderBy` but not `FIRST_BY` (or `FIRST_BY` without one), an unknown or malformed `orderBy` key, a `filter` class that is no public `FilterDefinition` of the model with an `INSTANCE` or no-arg constructor, a `scale` outside 0 to 30 or on a field that is not a `BigDecimal`, or an `AVG` field typed `BigDecimal` over a `Double` or `Float` attribute. |
+| `MQ3046` | Invalid `@JoinEntity` or joined-entity column; see the checks below. |
 | `MQ3201` | Aggregate model: field is primitive. |
 | `MQ3202` | Aggregate model: field type does not match the function's result type. |
 | `MQ3203` | Aggregate model: no `@GroupBy` field and is not `singleGroup`. |
@@ -253,6 +266,11 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | `MQ3503` | A type carries more than one of `@QueryModel`, `@UpdateModel` and `@InsertModel`. To read and create one row shape with one model, use [`@QueryModel(generateInserts = true)`](models.md#one-model-for-reading-and-creating). |
 | `MQ3504` | Warning: the insert model's root shows the processor no id type, so the generated `insert` and `persist` type their keys as `Object`. |
 | `MQ3506` | `@ExcludeFromInserts` on a model without `generateInserts`, on an update or insert model, or on a field `generateInserts` already leaves out. |
+
+`MQ3046` rejects an invalid entity or name, constant collision, partial, extra, repeated, non-id or association-id
+pairs, converted anchor, boxed-type mismatch, unknown source join or field, anchor outside this model's source
+joins, pairs spanning sources, duplicate join name, unknown `@Column.join` or `@FilterColumn.join`, to-many path,
+nested `@Join`, joined-column `@PrimaryKey`, declaration on `@SourceModel`, or `treat` combined with `join`.
 
 See [Models and QModels](models.md).
 
