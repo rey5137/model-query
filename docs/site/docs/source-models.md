@@ -485,6 +485,109 @@ joins of one source model (a high band and a low band, say) stay apart by name.
 - **Same vendor needs as a source root.** A joined source needs `CTE`, which `OTHER` lacks (`MQ4015`), and a provider
   whose `SourceRenderer` has the `join` hook (`MQ4014`). `model-query-hibernate` has it on both lines.
 
+### Joining an entity off a joined source
+
+A joined source can supply the full id of an entity that the outer model also needs to read. The incubating
+`@JoinEntity` declares that join; `@Column(join = ...)` and `@FilterColumn(join = ...)` read its entity rather than
+the root. This generated form is adapted from `JoinEntityModelTest` and `GeneratedEntityJoinExecutionTest`:
+
+```java
+@SourceModel(root = OrderEntity.class)
+public record EntityJoinKeys(
+        @PrimaryKey Long id, @Column(attribute = "customer") Long customerId) {}
+
+@QueryModel(root = OrderEntity.class)
+@JoinSource(name = "keys", source = EntityJoinKeys.class,
+        on = @JoinSource.On(column = "id", key = "id"))
+@JoinEntity(name = "manager", entity = CustomerEntity.class,
+        on = @JoinEntity.On(join = "keys", field = "id"))
+@JoinEntity(name = "customer", entity = CustomerEntity.class,
+        on = @JoinEntity.On(join = "keys", field = "customerId"))
+@JoinEntity(name = "copy", entity = OrderEntity.class,
+        on = @JoinEntity.On(join = "keys", field = "id"))
+@FilterColumn(name = "MANAGER_VIP", join = "manager", path = "vip")
+@FilterColumn(name = "CUSTOMER_VIP", join = "customer", path = "vip")
+public record EntityJoinDetail(
+        @PrimaryKey Long id,
+        @Column(join = "manager", attribute = "name") String managerName,
+        @Column(join = "customer", attribute = "name") String customerName,
+        @Column(join = "copy", attribute = "customer.name") String viaOrder) {}
+```
+
+The generated factory still takes one completed `SourceQuery` per source join; it registers the entity joins itself.
+This read is adapted from `GeneratedEntityJoinExecutionTest`:
+
+```java
+var keys = QEntityJoinKeys.source()
+        .where(f -> f.gte(QEntityJoinKeys.ID, 990L).lte(QEntityJoinKeys.ID, 1020L)).build();
+var query = QEntityJoinDetail.query(keys).select(QEntityJoinDetail.ALL)
+        .where(f -> f.gte(QEntityJoinDetail.ID, 990L).lte(QEntityJoinDetail.ID, 1030L))
+        .orderBy(QEntityJoinDetail.ID.asc()).build();
+```
+
+=== "Plain JPA"
+
+    ```java
+    List<EntityJoinDetail> rows = executor.list(query, Limit.unlimited());
+    ```
+
+=== "Spring repository"
+
+    ```java
+    List<EntityJoinDetail> rows = orders.findAll(query, Limit.unlimited());
+    ```
+
+The hand-written form uses an immutable `EntityJoin` and `ModelQuery.Builder#joinEntity`. With `SOURCE`, `KEYS`,
+`S_ID` and `ID` defined as in `EntityJoinExecutionTest`, this excerpt joins a customer by the source's id:
+
+```java
+ColumnField<Detail, Keys, Long> anchor = ColumnField.over(Detail.class, SOURCE.root(), S_ID);
+EntityJoin<Detail, CustomerEntity> manager = EntityJoin.of("manager", CustomerEntity.class,
+        JoinKind.LEFT, List.of(EntityJoin.on(anchor, "id")));
+var name = ColumnField.of(Detail.class, manager.root(), "name", String.class).named("manager");
+var query = ModelQuery.builder(ORDERS,
+        row -> new Detail(row.get(ID), row.get(name), null, null))
+        .joinSource(SOURCE, KEYS).joinEntity(manager)
+        .select(SelectSet.of(ID, name)).primaryKey(PrimaryKey.of(ID)).orderBy(ID.asc()).build();
+```
+
+=== "Plain JPA"
+
+    ```java
+    List<Detail> rows = executor.list(query, Limit.unlimited());
+    ```
+
+=== "Spring repository"
+
+    ```java
+    List<Detail> rows = orders.findAll(query, Limit.unlimited());
+    ```
+
+- **LEFT by default.** `@JoinEntity.type` defaults to `JoinKind.LEFT`; the hand-written form above supplies it
+  explicitly. An unmatched source or entity leaves the outer row with null joined values. `JoinKind.INNER` drops
+  either kind of unmatched row. Separate names joining the same entity remain independent.
+- **Every id attribute, once.** Each `@JoinEntity.On` pairs a field of the same joined source with an entity id
+  attribute. Its `id` defaults to the sole basic id; composite ids need explicit pairs for every attribute, including
+  flattened embedded paths such as `id = "key.part"`. Hand-written `EntityJoin.on(anchor, "id")` names the id
+  explicitly.
+  Converted anchors, partial or extra ids, association ids and differing boxed types are refused. `int` and `Integer`
+  agree. Names must be unique across source and entity joins.
+- **Basic columns and to-one paths.** Joined columns can follow to-one paths, as `customer.name` does above, with
+  their declared join kind. A to-one column below an entity join resolves by its model field name (`viaOrder` here).
+  To-many paths, nested `@Join`, a joined-column `@PrimaryKey`, `@JoinEntity` on `@SourceModel`, and `treat` combined
+  with `join` are refused. Generated declarations fail with [`MQ3046`](diagnostics.md); invalid hand-written
+  definitions fail with [`MQ1911`](diagnostics.md), at build or first resolution before SQL. An unregistered
+  entity-join column is `MQ1003`.
+- **Root-anchored in every statement.** The engine creates each entity join immediately after its source join,
+  attached to the statement's root. This includes unused joins, content and count, both primary-key-first steps,
+  keyset pages, `byKeys`, both `one` calls, export pages, streams, fetch-parent reads and through-child loads.
+  An INNER entity join therefore drops outer rows from content and count alike. Grouped queries with entity joins
+  count groups client-side. A count of a joined entity or a descendant uses its first basic id attribute, so an
+  unmatched LEFT entity counts as zero, including with composite ids.
+
+Use a [join filter](models.md#join-filters) to blank a LEFT-joined entity's columns for one request while keeping
+its outer row. A `where` on a blanked column can still filter that row out.
+
 ### What a joined source costs
 
 A grouped source aggregates every row its `where` admits, on every statement, including the count behind a page, not
@@ -502,6 +605,23 @@ Join a source for a page, export or report that **filters or sorts on the aggreg
 won every such page, export and count on all three vendors. Keep [`Correlated.*`](subqueries-expressions.md#correlated-columns)
 for **unfiltered** pages of a few rows over an indexed child, where its probe per row is cheap. Either way, narrow the
 source's own `where` to the rows the report needs, so the aggregate does less work.
+
+Attaching an entity join adds a smaller cost than computing the source. RFC 0021's spike measured an attached,
+unreferenced LEFT entity join against no entity join on Hibernate 6.6 and 7.4:
+
+| Statement | PostgreSQL | MySQL | H2 |
+|---|---|---|---|
+| Page of 20, one hierarchy | 2.83 vs 2.84 ms | 8.07 vs 8.01 ms | 6.17 vs 5.51 ms |
+| Count, one hierarchy | 2.53 vs 2.42 ms | 12.5 vs 11.8 ms | 6.09 vs 5.42 ms |
+| Export, 4,734 rows | 4.77 vs 4.90 ms | 14.4 vs 13.9 ms | 6.27 vs 5.59 ms |
+| Count, all hierarchies | 0.90 vs 0.88 ms | 52.1 vs 49.6 ms | 16.5 vs 14.3 ms |
+| Export, 14,207 rows | 13.0 vs 14.1 ms | 61.5 vs 59.9 ms | 17.9 vs 15.8 ms |
+
+These are workload measurements, not latency guarantees. PostgreSQL removes the unreferenced LEFT entity join
+from count, page and export, even with its ON filter. MySQL and H2 do one primary-key index lookup per outer row:
+MySQL added about 3–5% to count/export and H2 about 12–15% in this fixture. Referencing entity columns requires
+reading the entity. An INNER entity join affects which rows qualify even when no selected column reads it;
+paging content and totals both retain that restriction.
 
 ## Reading a source
 
@@ -561,6 +681,9 @@ CTE and returns the root the outer statement reads:
 - `ProviderSupport#sources()` (`@Incubating`) returns the factory's `SourceRenderer`, empty by default. Empty, or a
   factory whose provider has no `ProviderSupport` at all, is `MQ4014` before any statement.
   A renderer that returns no duplicate-key check for `tree(...)` is `MQ4014` too.
+- `ProviderSupport#entityJoins()` (`@Incubating`) supplies the root-anchored entity-join renderer. The Hibernate
+  provider serves it on both 6.6 and 7.4. An absent hook, or a provider unable to attach the join to the root, is
+  `MQ4014` before any statement, after the vendor and source-renderer checks.
 - `VendorProfile#sources(SourceFeature)` (`@Incubating`) answers per feature — `CTE`, `RECURSIVE`, `WINDOW`, `UNION`,
   `INTERSECT` and `EXCEPT` — and is `false` by default, so a profile written before a constant was added fails safe. A
   `false` is `MQ4015`, naming the feature and the vendor, before any statement.

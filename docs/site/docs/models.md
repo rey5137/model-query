@@ -90,6 +90,68 @@ the case `@Join(on = ...)` would cover — write a hand-written `TableField` and
 condition goes through `Join#on`, so a `LEFT` join still keeps the rows that miss it. See
 [Migration recipes](recipes.md) for both.
 
+### Join filters
+
+The incubating `ModelQuery.Builder#joinFilter` binds a request's filter into one LEFT join's `ON`. A row that
+fails the filter keeps its outer row and reads the joined columns as null. This example is adapted from
+`JoinFilterExecutionTest`, using its `Detail(Long id, String joined)` row:
+
+```java
+var orders = TableField.root(OrderEntity.class);
+var id = ColumnField.of(Detail.class, orders, "id", Long.class).named("id");
+var customer = TableField.join(orders, "customer", JoinType.LEFT);
+var customerName = ColumnField.of(Detail.class, customer, "name", String.class).named("customer");
+var query = ModelQuery.builder(orders, row -> new Detail(row.get(id), row.get(customerName)))
+        .select(SelectSet.of(id, customerName)).primaryKey(PrimaryKey.of(id))
+        .where(f -> f.gte(id, 990L).lte(id, 1030L))
+        .joinFilter(customer, f -> f.lt(customerName, "Customer 0500"))
+        .orderBy(id.asc()).build();
+```
+
+=== "Plain JPA"
+
+    ```java
+    List<Detail> rows = executor.list(query, Limit.unlimited());
+    ```
+
+=== "Spring repository"
+
+    ```java
+    List<Detail> rows = orderRows.findAll(query, Limit.unlimited());
+    ```
+
+The same call accepts an `EntityJoin`: `joinFilter(MANAGER, f -> f.lt(MANAGER_NAME, "Customer 1000"))`, as in
+`JoinFilterExecutionTest`. See
+[entity joins off a joined source](source-models.md#joining-an-entity-off-a-joined-source)
+for that definition. The filter is ANDed with the entity join's key predicate or an association's static
+`TableField.on(...)` in exactly one provider `on(...)` call. It follows every statement that renders the join,
+including count, both primary-key-first steps, keyset and export. It also follows a joining `where` term moved
+into the semi-join used for a to-many filter.
+
+The lambda runs once when `joinFilter` is called; only recorded terms and values stay on the query. The shared
+`TableField` or `EntityJoin` holds no request state. There is one filter per join key per query: a second call
+**replaces** the first. Optional values and `when(...)` can skip terms. An all-skipped filter removes an earlier
+filter and is absent from storage, inspection and query-condition equality, as tested by `JoinFilterTest`.
+
+A `where` predicate on a column the join filter blanked can then drop the row. For example, adding
+`isNotNull(customerName)` to the example's `where` removes every row whose customer failed the ON filter;
+LEFT keeps the outer row with null joined values, and WHERE filters that row out. This is tested by
+`JoinFilterExecutionTest.ac_col_55_where_filter_on_a_blanked_column_drops_the_row`.
+
+Only the filtered join's own columns, values and constants are allowed. The refusals are tested by
+`JoinFilterTest`, `JoinFilterValidationTest` and `JoinFilterExecutionTest`:
+
+- At build, [`MQ1912`](diagnostics.md) rejects a root or INNER join, another table (including the root or a sibling),
+  any descendant path (to-one or to-many), `exists`, an aggregate, window or correlated value, or a sub-query term
+  crossing the filtered join. A sub-query reading the value through `outer.column(...)` reuses the outer join
+  and is allowed.
+- At first resolution, before SQL, `MQ1912` rejects id-form access to the filtered join, a join key the content
+  statement never applies (including a different type or alias), another join key resolving to that join, or a
+  filter column creating a descendant join, including an id-form or whole-entity to-one column. For id-form
+  access, map the foreign key as a basic column instead.
+- A filter alone creates no association join: select, filter or order on that join elsewhere in the query.
+  A null value is `MQ1301` at the `joinFilter` call.
+
 ## Foreign key by id
 
 A to-one association can be read as its foreign key, with no nested model, by declaring a column of the target's id

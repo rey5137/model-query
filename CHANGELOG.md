@@ -8,11 +8,22 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
 ## [0.11.0] - 2026-10-23
 
-0.11.0 covers milestones M31 (D-184) and M32 (D-185): faster flat reads, with no compiled or cached query API, and
-the report SQL that RFC 0020 adds: joined sources, aggregates for reports, null-safe equality and `count(*)`. Every
-addition below is `@Incubating`.
+0.11.0 covers milestones M31 (D-184), M32 (D-185) and M33 (D-193): faster flat reads, with no compiled or cached
+query API; report SQL from RFC 0020 (joined sources, aggregates, null-safe equality and `count(*)`); and RFC 0021's
+entity joins off joined sources and request-bound join filters. Every API addition below is `@Incubating`.
 
 ### Added (incubating)
+
+- Entity joins off joined sources (RFC 0021, D-193, R-SRC-23, R-SRC-24, R-PROC-46, R-VND-32): `EntityJoin` and
+  `ModelQuery.Builder#joinEntity`, plus `@JoinEntity`, `@Column(join = ...)` and `@FilterColumn(join = ...)`,
+  join an entity's full id to one joined source, LEFT or INNER, root-anchored in every read statement
+  (AC-SRC-53 to AC-SRC-58, AC-PROC-48). Invalid definitions are `MQ1911` or processor `MQ3046`.
+  `ProviderSupport#entityJoins()` serves Hibernate 6.6 and 7.4; `MQ4014` now also refuses a missing hook or a
+  provider unable to attach the entity join to the root, before SQL.
+- Request-bound join filters (R-COL-39, D-194, AC-COL-54 to AC-COL-57): `ModelQuery.Builder#joinFilter` ANDs
+  a filter into one LEFT join's ON alongside its key predicate or static `TableField.on`, in one provider call.
+  A second filter replaces the first; all-skipped terms remove it. Invalid filters are `MQ1912`, at build or
+  first resolution as D-194 specifies.
 
 - Joined sources (RFC 0020 Part A, D-185, D-187, R-SRC-21, R-SRC-22, R-PROC-44): `SourceJoin` and
   `ModelQuery.Builder#joinSource` join a unique `SourceQuery` on its full key, `LEFT` or `INNER`, in every statement
@@ -40,6 +51,10 @@ addition below is `@Incubating`.
 
 ### Added (docs)
 
+- [Entity joins off joined sources](docs/site/docs/source-models.md#joining-an-entity-off-a-joined-source):
+  generated and hand-written forms, statement rendering and cost per vendor;
+  [join filters](docs/site/docs/models.md#join-filters): request values in ON, replacement, skipping and refusals.
+
 - [Joining a source](docs/site/docs/source-models.md#joining-a-source) and the report aggregates in
   [Grouped queries](docs/site/docs/grouped-queries.md): the cost of a joined source, `firstBy` and its portable
   ranked-source route, filtered and exact aggregates.
@@ -47,6 +62,10 @@ addition below is `@Incubating`.
   flat reads and keyset exports.
 
 ### Changed
+
+- Entity-join columns now prefix `identityPath` with their join name, changing cursor fingerprints for those
+  columns only. A to-one column below an entity join resolves by its model field name. A `JoinPlan` (fetch plan)
+  over a named source or entity-join column is refused with `MQ1003` (AC-FCH-05).
 
 - A count of a table's identity renders `count(*)` where no row the statement reads can leave the identity null
   (Part F, R-AGG-19, AC-AGG-27 to AC-AGG-29): `Agg.count(table)`, a count of the id column, `@Aggregate(fn = COUNT)`,
