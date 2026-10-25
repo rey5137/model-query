@@ -15,6 +15,10 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.function.Supplier;
 import java.util.logging.Handler;
 import java.util.logging.Level;
@@ -174,6 +178,12 @@ class QueryParamTest {
     }
 
     @Test
+    void ac_col_61_a_values_insert_set_expression_reading_a_param_is_mq1613_at_the_call() {
+        assertCode(() -> ValuesInsert.builder(INSERT, Long.class, List.of(new NewOrder(1L, "a")))
+                .setExpression(NEW_STATUS, Expr.<NewOrder, String>param(CODE)), MqCode.MQ1613);
+    }
+
+    @Test
     void ac_col_61_a_conflict_arbiter_reading_a_param_is_refused_at_build_as_any_expression_value_there() {
         var arbiter = ValuesInsert.builder(INSERT, Long.class, List.of(new NewOrder(1L, "a"))).onConflict(NEW_ID)
                 .where(f -> f.compare(NEW_STATUS, Op.EQ, Expr.param(CODE))).doNothing();
@@ -285,6 +295,59 @@ class QueryParamTest {
                 .doesNotContain("secret-42").doesNotContain("4242"));
         assertThat(query.toString()).doesNotContain("secret-42").doesNotContain("4242");
         assertThat(query.conditions().toString()).contains("param(min)").doesNotContain("4242");
+    }
+
+    // ---- INV-9 (D-198, D-201): the builders are shared definitions
+
+    @Test
+    void ac_col_63_one_static_builder_binds_and_builds_from_many_threads_each_with_its_own_value() throws Exception {
+        var label = Expr.<View>concat(STATUS, Expr.param(CODE)).named("label");
+        ModelQuery.Builder<Order, Long, View> shared = base(label);
+        SourceQuery.Builder<Order, View, View> source = SourceQuery.builder(View.class, ROOT,
+                SelectSet.of(ID, label), PrimaryKey.of(ID));
+        int threads = 16;
+        int rounds = 200;
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        try {
+            CountDownLatch start = new CountDownLatch(1);
+            List<Future<List<Object[]>>> runs = new ArrayList<>();
+            for (int t = 0; t < threads; t++) {
+                int id = t;
+                runs.add(pool.submit(() -> {
+                    start.await();
+                    var out = new ArrayList<Object[]>();
+                    for (int r = 0; r < rounds; r++) {
+                        String value = "v" + id + "-" + r;
+                        ModelQuery<Order, Long, View> q = shared.bind(CODE, value).build();
+                        var s = source.bind(CODE, value).build();
+                        out.add(new Object[] {value, boundValue(q), boundValue(s), q.definitionKey()});
+                    }
+                    return out;
+                }));
+            }
+            start.countDown();
+            Object key = null;
+            for (Future<List<Object[]>> run : runs) {
+                for (Object[] row : run.get()) {
+                    assertThat(row[1]).isEqualTo(Map.of(CODE, row[0]));
+                    assertThat(row[2]).isEqualTo(Map.of(CODE, row[0]));
+                    key = key == null ? row[3] : key;
+                    assertThat(row[3]).isSameAs(key);
+                }
+            }
+            // bind returned copies: the shared builders themselves still bind nothing.
+            assertCode(shared::build, MqCode.MQ1512);
+            assertCode(source::build, MqCode.MQ1512);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    /** The bindings a built query or source holds, read from its private field (no accessor exposes the values). */
+    private static Object boundValue(Object built) throws ReflectiveOperationException {
+        var field = built.getClass().getDeclaredField("bindings");
+        field.setAccessible(true);
+        return field.get(built);
     }
 
     /** Runs {@code work}, adding to {@code into} each build log line of {@code ModelQuery} (R-INS-05). */

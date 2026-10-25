@@ -603,6 +603,21 @@ public final class JoinContext {
         return null;
     }
 
+    /**
+     * Whether a column read through {@code node} may read NULL for want of a joined row: the node is a LEFT joined
+     * source or entity join by its statement record, a provider {@link Join} that is not INNER, or a treated node.
+     * Either the record or the provider's join type saying outer is enough, because the record decides for a joined
+     * source and the node type for any other join (R-AGG-19, R-EXE-12, INV-6).
+     */
+    @EngineFacing
+    public boolean readsThroughOuterJoin(From<?, ?> node) {
+        JoinedSource joined = joinedSourceNode(node);
+        if (joined != null && !joined.inner()) {
+            return true;
+        }
+        return treatedNode(node) || node instanceof Join<?, ?> join && join.getJoinType() != JoinType.INNER;
+    }
+
     private JoinedSource bound(JoinKey key, String owner) {
         JoinedSource joined = joinedSources.get(key);
         if (joined == null) {

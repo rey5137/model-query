@@ -7,6 +7,9 @@ import com.rey.modelquery.core.Agg;
 import com.rey.modelquery.core.AggregateField;
 import com.rey.modelquery.core.ColumnConverter;
 import com.rey.modelquery.core.ColumnField;
+import com.rey.modelquery.annotations.JoinKind;
+import com.rey.modelquery.core.EntityJoin;
+import com.rey.modelquery.core.EntityJoinRenderer;
 import com.rey.modelquery.core.Enricher;
 import com.rey.modelquery.core.FetchPlan;
 import com.rey.modelquery.core.ModelQuery;
@@ -16,13 +19,35 @@ import com.rey.modelquery.core.Phase;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.RenderOptions;
 import com.rey.modelquery.core.SelectSet;
+import com.rey.modelquery.core.ExpectedNarrowing;
+import com.rey.modelquery.core.StatementShape;
 import com.rey.modelquery.core.TableField;
+import com.rey.modelquery.core.TreatSite;
+import com.rey.modelquery.core.TreatRenderer;
+import jakarta.persistence.Column;
+import jakarta.persistence.DiscriminatorColumn;
+import jakarta.persistence.Embeddable;
+import jakarta.persistence.Embedded;
+import jakarta.persistence.Entity;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.Id;
+import jakarta.persistence.Inheritance;
+import jakarta.persistence.InheritanceType;
+import jakarta.persistence.Table;
+import jakarta.persistence.criteria.CommonAbstractCriteria;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.From;
+import jakarta.persistence.criteria.Join;
+import jakarta.persistence.criteria.JoinType;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.hibernate.SessionFactory;
 import org.hibernate.boot.registry.StandardServiceRegistryBuilder;
@@ -113,6 +138,11 @@ class SingleRowReadTest {
         sessions = new Configuration()
                 .addAnnotatedClass(KeysetRowEntity.class)
                 .addAnnotatedClass(BindLimitPairEntity.class)
+                .addAnnotatedClass(LockParentEntity.class)
+                .addAnnotatedClass(LockChildEntity.class)
+                .addAnnotatedClass(HolderEntity.class)
+                .addAnnotatedClass(AnimalEntity.class)
+                .addAnnotatedClass(DogEntity.class)
                 .buildSessionFactory(new StandardServiceRegistryBuilder()
                         .applySetting(AvailableSettings.JAKARTA_JDBC_URL, "jdbc:h2:mem:singlerow;DB_CLOSE_DELAY=-1")
                         .applySetting(AvailableSettings.JAKARTA_JDBC_USER, "sa")
@@ -193,6 +223,139 @@ class SingleRowReadTest {
             assertThat(DefaultModelQueryExecutor.mayBeNull(C, built.joins())).isFalse();
             assertThat(DefaultModelQueryExecutor.mayBeNull(A, built.joins())).isTrue();
         }
+    }
+
+    @Test
+    void ac_exe_12_a_joined_entity_column_is_judged_by_the_statement_record_not_the_provider_node_type() {
+        var inner = EntityJoin.of("inner", KeysetRowEntity.class, JoinKind.INNER, List.of(EntityJoin.on(ID, "id")));
+        var left = EntityJoin.of("left", KeysetRowEntity.class, JoinKind.LEFT, List.of(EntityJoin.on(ID, "id")));
+        var innerC = ColumnField.of(Row.class, inner.root(), "c", Integer.class);
+        var leftC = ColumnField.of(Row.class, left.root(), "c", Integer.class);
+        try (EntityManager em = sessions.createEntityManager()) {
+            var cb = em.getCriteriaBuilder();
+            // A provider whose entity join is a plain From, so no Join type says LEFT.
+            RenderOptions options = RenderOptions.portable().withEntityJoinRenderer(new EntityJoinRenderer() {
+                @Override
+                public <T> From<?, T> join(From<?, ?> anchor, Class<T> entity, JoinKind kind,
+                        Function<From<?, T>, Predicate> on) {
+                    Root<T> node = cb.createQuery().from(entity);
+                    on.apply(node);
+                    return node;
+                }
+            });
+            var built = rows(new AtomicInteger()).joinEntity(inner).joinEntity(left).build()
+                    .buildQuery(cb, Phase.MODEL, options);
+            // c is a nullable=false column: only the LEFT record makes it NULL-able.
+            assertThat(DefaultModelQueryExecutor.mayBeNull(innerC, built.joins())).isFalse();
+            assertThat(DefaultModelQueryExecutor.mayBeNull(leftC, built.joins())).isTrue();
+        }
+    }
+
+    @Test
+    void ac_exe_12_a_left_provider_join_is_outer_even_when_the_statement_record_says_inner() {
+        var parent = TableField.root(LockParentEntity.class);
+        var parentId = ColumnField.of(Long.class, parent, "id", Long.class);
+        var child = EntityJoin.of("child", LockChildEntity.class, JoinKind.INNER, List.of(EntityJoin.on(parentId, "id")));
+        var childId = ColumnField.of(Long.class, child.root(), "id", Long.class);
+        try (EntityManager em = sessions.createEntityManager()) {
+            var cb = em.getCriteriaBuilder();
+            // The provider joins the association as LEFT while the record says INNER: either one is enough.
+            RenderOptions options = RenderOptions.portable().withEntityJoinRenderer(new EntityJoinRenderer() {
+                @Override
+                @SuppressWarnings("unchecked")
+                public <T> From<?, T> join(From<?, ?> anchor, Class<T> entity, JoinKind kind,
+                        Function<From<?, T>, Predicate> on) {
+                    Join<?, T> join = (Join<?, T>) anchor.join("child", JoinType.LEFT);
+                    return join.on(on.apply(join));
+                }
+            });
+            var built = ModelQuery.builder(parent, row -> row.get(parentId)).select(SelectSet.of(parentId))
+                    .joinEntity(child).build().buildQuery(cb, Phase.MODEL, options);
+            assertThat(DefaultModelQueryExecutor.mayBeNull(parentId, built.joins())).isFalse();
+            assertThat(DefaultModelQueryExecutor.mayBeNull(childId, built.joins())).isTrue();
+        }
+    }
+
+    @Test
+    void ac_exe_12_a_column_under_an_optional_embedded_component_may_be_null() {
+        var holder = TableField.root(HolderEntity.class);
+        var own = ColumnField.of(String.class, holder, "own", String.class);
+        var inner = ColumnField.of(String.class, holder, "part.label", String.class);
+        try (EntityManager em = sessions.createEntityManager()) {
+            var built = ModelQuery.builder(holder, row -> row.get(own)).select(SelectSet.of(own, inner)).build()
+                    .buildQuery(em.getCriteriaBuilder(), Phase.MODEL, RenderOptions.portable());
+            // label is nullable=false, but a NULL component reads it as NULL.
+            assertThat(DefaultModelQueryExecutor.mayBeNull(own, built.joins())).isFalse();
+            assertThat(DefaultModelQueryExecutor.mayBeNull(inner, built.joins())).isTrue();
+        }
+    }
+
+    @Test
+    void ac_exe_12_a_column_read_through_a_treat_may_be_null() {
+        var animal = TableField.root(AnimalEntity.class);
+        var name = ColumnField.of(String.class, animal, "name", String.class);
+        var tag = ColumnField.of(String.class, animal.treat(DogEntity.class), "tag", String.class);
+        RenderOptions options = RenderOptions.portable().withTreatRenderer(new TreatRenderer() {
+            @Override
+            @SuppressWarnings("unchecked")
+            public <T, S extends T> From<?, S> treat(CriteriaBuilder cb, From<?, T> from, Class<S> subtype) {
+                return cb.treat((Root<T>) from, subtype);
+            }
+
+            @Override
+            public Optional<String> refusal(TreatSite site) {
+                return Optional.empty();
+            }
+
+            @Override
+            public Optional<String> preflight(EntityManager em, CommonAbstractCriteria statement,
+                    StatementShape shape, List<ExpectedNarrowing> expected) {
+                return Optional.empty();
+            }
+        });
+        try (EntityManager em = sessions.createEntityManager()) {
+            var built = ModelQuery.builder(animal, row -> row.get(name)).select(SelectSet.of(name, tag)).build()
+                    .buildQuery(em.getCriteriaBuilder(), Phase.MODEL, options);
+            assertThat(DefaultModelQueryExecutor.mayBeNull(name, built.joins())).isFalse();
+            assertThat(DefaultModelQueryExecutor.mayBeNull(tag, built.joins())).isTrue();
+        }
+    }
+
+    @Entity
+    @Table(name = "sr_holders")
+    public static class HolderEntity {
+        @Id
+        Long id;
+
+        @Column(name = "own", nullable = false)
+        String own;
+
+        @Embedded
+        Part part;
+    }
+
+    @Embeddable
+    public static class Part {
+        @Column(name = "label", nullable = false)
+        String label;
+    }
+
+    @Entity
+    @Table(name = "sr_animals")
+    @Inheritance(strategy = InheritanceType.SINGLE_TABLE)
+    @DiscriminatorColumn(name = "kind")
+    public static class AnimalEntity {
+        @Id
+        Long id;
+
+        @Column(name = "name", nullable = false)
+        String name;
+    }
+
+    @Entity
+    public static class DogEntity extends AnimalEntity {
+        @Column(name = "tag", nullable = false)
+        String tag;
     }
 
     @Test

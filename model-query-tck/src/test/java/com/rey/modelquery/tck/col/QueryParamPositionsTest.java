@@ -1,16 +1,25 @@
 package com.rey.modelquery.tck.col;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.rey.modelquery.annotations.JoinKind;
 import com.rey.modelquery.core.Agg;
 import com.rey.modelquery.core.AggregateField;
+import com.rey.modelquery.core.ChildField;
 import com.rey.modelquery.core.ColumnField;
+import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.Correlated;
+import com.rey.modelquery.core.EntityJoin;
 import com.rey.modelquery.core.Expr;
 import com.rey.modelquery.core.ExpressionField;
+import com.rey.modelquery.core.FetchPlan;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
+import com.rey.modelquery.core.ModelQueryDefinitionException;
+import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.Op;
+import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.QueryParam;
 import com.rey.modelquery.core.SelectSet;
@@ -20,9 +29,12 @@ import com.rey.modelquery.tck.col.QueryParamStatementsTest.Recorder;
 import com.rey.modelquery.tck.col.QueryParamStatementsTest.Stmt;
 import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckTest;
+import jakarta.persistence.criteria.JoinType;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.LongStream;
 import org.hibernate.cfg.AvailableSettings;
 
@@ -39,6 +51,8 @@ class QueryParamPositionsTest {
             Long below) {}
 
     record Bucket(Long key, Long count) {}
+
+    record Referred(Long key, Long referrer, Long count) {}
 
     /** A correlated sub-select's model. */
     static final class Inner {}
@@ -97,6 +111,24 @@ class QueryParamPositionsTest {
             .builder(ROOT, row -> new Bucket(row.get(KEY), row.get(COUNT)))
             .select(SelectSet.of(KEY, COUNT)).where(f -> f.lte(BUCKET_ID, LAST)).groupBy(KEY).orderBy(KEY.asc());
 
+    private static final ColumnField<Referred, OrderEntity, Long> RF_ID =
+            ColumnField.of(Referred.class, ROOT, "id", Long.class);
+    private static final ColumnField<Referred, OrderEntity, Long> RF_ANCHOR =
+            ColumnField.of(Referred.class, ROOT, "referrerId", Long.class);
+    /** An INNER entity join anchored on a root column: the grouped count runs through the provider copy (D-197). */
+    private static final EntityJoin<Referred, CustomerEntity> REFERRER_JOIN =
+            EntityJoin.of("ref", CustomerEntity.class, JoinKind.INNER, List.of(EntityJoin.on(RF_ANCHOR, "id")));
+    private static final ColumnField<Referred, CustomerEntity, Long> RF_REFERRER =
+            ColumnField.of(Referred.class, REFERRER_JOIN.root(), "id", Long.class);
+    private static final ExpressionField<Referred, Long> RF_KEY = Expr.<Referred, Long>param(SHIFT).named("key");
+    private static final AggregateField<Referred, Long> RF_COUNT = Agg.count(RF_ID);
+    /** A param in the group key and another in the filter, over an anchored INNER entity join. */
+    private static final ModelQuery.Builder<OrderEntity, Object, Referred> REFERRED_GROUPS = ModelQuery
+            .builder(ROOT, row -> new Referred(row.get(RF_KEY), row.get(RF_REFERRER), row.get(RF_COUNT)))
+            .joinEntity(REFERRER_JOIN).select(SelectSet.of(RF_KEY, RF_REFERRER, RF_COUNT))
+            .where(f -> f.compare(RF_ID, Op.GTE, Expr.param(FROM)).lte(RF_ID, 60L)).groupBy(RF_KEY, RF_REFERRER)
+            .orderBy(RF_REFERRER.asc());
+
     /** One call's bound values. */
     record Values(String tag, long shift, long upTo, long fallback, long floor, long from) {}
 
@@ -133,6 +165,163 @@ class QueryParamPositionsTest {
                     });
                 });
             }
+        }
+    }
+
+    @TckTest
+    void ac_col_59_a_grouped_count_through_an_anchored_entity_join_applies_each_binding(TckDatabase db) {
+        try (var recorder = new Recorder(db)) {
+            for (Values v : CALLS) {
+                var q = REFERRED_GROUPS.bind(SHIFT, v.shift()).bind(FROM, v.from() * 10).build();
+                long groups = groupsFrom(db, v.from() * 10);
+                assertThat(groups).isGreaterThan(1);
+                recorder.serving(OrderEntity.class, executor -> {
+                    assertThat(executor.count(q)).isEqualTo(groups);
+                    var page = executor.page(q, PageSpec.of(0, 2), CountMode.COUNT);
+                    assertThat(page.total()).hasValue(groups);
+                    assertThat(page.content()).hasSize(2).allSatisfy(r -> assertThat(r.key()).isEqualTo(v.shift()));
+                });
+            }
+        }
+        // The two bindings count different totals, so a value kept from the first call would show.
+        assertThat(groupsFrom(db, CALLS.get(0).from() * 10)).isNotEqualTo(groupsFrom(db, CALLS.get(1).from() * 10));
+    }
+
+    record Kid(Long id, String status) {}
+
+    record Holder(Long id, Long customer, List<Kid> kids) {}
+
+    private static final ColumnField<Kid, OrderEntity, Long> KID_ID = ColumnField.of(Kid.class, ROOT, "id", Long.class);
+    private static final ColumnField<Kid, OrderEntity, String> KID_STATUS =
+            ColumnField.of(Kid.class, ROOT, "status", String.class);
+    private static final ColumnField<Kid, ?, Long> KID_CUSTOMER = ColumnField.of(Kid.class,
+            TableField.join(ROOT, "customer", JoinType.INNER), "id", Long.class);
+    private static final ColumnField<Holder, OrderEntity, Long> HOLDER_ID =
+            ColumnField.of(Holder.class, ROOT, "id", Long.class);
+    private static final ColumnField<Holder, ?, Long> HOLDER_CUSTOMER = ColumnField.of(Holder.class,
+            TableField.join(ROOT, "customer", JoinType.INNER), "id", Long.class);
+
+    /** Orders of customer 990's through-load reach ids 990, 1990, 2990, 3990, 4990. */
+    private static ModelQuery.Builder<OrderEntity, Long, Kid> kids(QueryParam<Long> from) {
+        return ModelQuery.builder(ROOT, row -> new Kid(row.get(KID_ID), row.get(KID_STATUS)))
+                .select(SelectSet.of(KID_ID, KID_STATUS, KID_CUSTOMER)).primaryKey(PrimaryKey.of(KID_ID))
+                .where(f -> f.compare(KID_ID, Op.GTE, Expr.param(from))).orderBy(KID_ID.asc());
+    }
+
+    private static ChildField<Holder, Kid> kidsOf(ModelQuery.Builder<?, ?, Kid> query, boolean through) {
+        return new ChildField<>() {
+            @Override
+            public String name() {
+                return "kids";
+            }
+
+            @Override
+            public ColumnField<Holder, ?, ?> key() {
+                return through ? HOLDER_ID : HOLDER_CUSTOMER;
+            }
+
+            @Override
+            public Optional<ColumnField<Kid, ?, ?>> foreignKey() {
+                return through ? Optional.empty() : Optional.of(KID_CUSTOMER);
+            }
+
+            @Override
+            public Optional<TableField<?, ?>> through() {
+                return through ? Optional.of(TableField.join(TableField.join(ROOT, "customer", JoinType.INNER),
+                        "orders", JoinType.INNER)) : Optional.empty();
+            }
+
+            @Override
+            public boolean isToMany() {
+                return true;
+            }
+
+            @Override
+            public ModelQuery.Builder<?, ?, Kid> query() {
+                return query;
+            }
+
+            @Override
+            public Holder with(Holder parent, List<Kid> rows) {
+                return new Holder(parent.id(), parent.customer(), rows);
+            }
+        };
+    }
+
+    private static ModelQuery<OrderEntity, Long, Holder> holders(ModelQuery.Builder<?, ?, Kid> kids,
+            boolean through, boolean readsParam) {
+        var plan = FetchPlan.of(SelectSet.of(HOLDER_ID, HOLDER_CUSTOMER)).child(kidsOf(kids, through),
+                FetchPlan.of(readsParam ? SelectSet.of(KID_ID, KID_STATUS, KID_TAG)
+                        : SelectSet.of(KID_ID, KID_STATUS)),
+                c -> c.where(f -> f.compare(KID_ID, Op.GTE, Expr.param(FROM))));
+        return ModelQuery.builder(ROOT, row -> new Holder(row.get(HOLDER_ID), row.get(HOLDER_CUSTOMER), List.of()))
+                .select(SelectSet.of(HOLDER_ID, HOLDER_CUSTOMER)).primaryKey(PrimaryKey.of(HOLDER_ID))
+                .where(f -> f.eq(HOLDER_ID, 990L)).fetch(plan).build();
+    }
+
+    private static final ExpressionField<Kid, String> KID_TAG = Expr.<Kid, String>param(TAG).named("tag");
+
+    /**
+     * A child load reads a param its own builder binds: the child's static definition carries the value, so two
+     * bindings of one shared builder give two child loads, each with its own rows. A child that reads a param its
+     * builder leaves unbound is {@code MQ1512} when the plan is built, before any statement (R-COL-40, R-FCH-04).
+     */
+    @TckTest
+    void ac_col_59_a_child_filter_reads_the_param_its_builder_binds_through_a_foreign_key_and_a_through_path(
+            TckDatabase db) {
+        var shared = kids(FROM);
+        for (boolean through : new boolean[] {false, true}) {
+            try (var recorder = new Recorder(db)) {
+                recorder.serving(OrderEntity.class, executor -> {
+                    for (long from : new long[] {1000L, 3000L, 1L}) {
+                        var q = holders(shared.bind(FROM, from), through, false);
+                        var expected = kidsFrom(db, from);
+                        assertThat(expected).isNotEmpty();
+                        assertThat(executor.list(q, Limit.unlimited())).singleElement()
+                                .satisfies(h -> assertThat(h.kids()).extracting(Kid::id)
+                                        .containsExactlyElementsOf(expected));
+                    }
+                });
+            }
+        }
+        assertThat(kidsFrom(db, 1000L)).isNotEqualTo(kidsFrom(db, 3000L));
+        for (boolean through : new boolean[] {false, true}) {
+            for (boolean readsParam : new boolean[] {false, true}) {
+                assertThatThrownBy(() -> holders(readsParam ? kids(FROM).bind(FROM, 1L) : kids(FROM), through,
+                        readsParam))
+                        .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                                e -> assertThat(e.code()).isEqualTo(MqCode.MQ1512))
+                        .hasMessageContaining("reads the param").hasMessageContaining("does not bind");
+            }
+        }
+    }
+
+    /** The ids of the orders of order 990's customer from {@code from}, native SQL. */
+    private static List<Long> kidsFrom(TckDatabase db, long from) {
+        String sql = "SELECT id FROM orders WHERE customer_id = (SELECT customer_id FROM orders WHERE id = 990)"
+                + " AND id >= " + from + " ORDER BY id";
+        List<Long> ids = new ArrayList<>();
+        try (var connection = db.getConnection(); var statement = connection.createStatement();
+                var rows = statement.executeQuery(sql)) {
+            while (rows.next()) {
+                ids.add(rows.getLong(1));
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException(e);
+        }
+        return ids;
+    }
+
+    /** The groups the oracle counts: distinct referrers of the orders from {@code from}, native SQL. */
+    private static long groupsFrom(TckDatabase db, long from) {
+        String sql = "SELECT COUNT(DISTINCT o.referrer_id) FROM orders o JOIN customers c ON c.id = o.referrer_id"
+                + " WHERE o.id >= " + from + " AND o.id <= 60";
+        try (var connection = db.getConnection(); var statement = connection.createStatement();
+                var rows = statement.executeQuery(sql)) {
+            rows.next();
+            return rows.getLong(1);
+        } catch (SQLException e) {
+            throw new IllegalStateException(e);
         }
     }
 
