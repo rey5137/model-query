@@ -2,6 +2,8 @@ package com.rey.modelquery.core;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.rey.modelquery.annotations.JoinKind;
+import com.rey.modelquery.hibernate.HibernateProviderSupport;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Id;
@@ -262,6 +264,49 @@ class RowCountEligibilityTest {
         assertThat(RowCounts.eligible(ctx, ctx.joinedSourceKey(overLeft, "count"))).isFalse();
         ctx.customized(true);
         assertThat(RowCounts.eligible(ctx, ctx.joinedSourceKey(inner, "count"))).isFalse();
+    }
+
+    @Test
+    void ac_agg_31_an_entity_join_and_its_descendants_follow_the_recorded_kind_and_attached_root() {
+        var renderer = new HibernateProviderSupport().entityJoins().orElseThrow();
+        for (JoinKind kind : List.of(JoinKind.INNER, JoinKind.LEFT)) {
+            From<?, Customer> entity = renderer.join(ctx.root(), Customer.class, kind, node -> cb.conjunction());
+            JoinKey key = JoinKey.joinedEntity(Customer.class, kind.name());
+            ctx.joinEntity(key, entity, ctx.root(), kind == JoinKind.INNER, entity.get("id"));
+            From<?, ?> descendant = entity.join("region", JoinType.INNER);
+            boolean inner = kind == JoinKind.INNER;
+            assertThat(RowCounts.eligible(ctx, entity)).isEqualTo(inner);
+            assertThat(RowCounts.eligible(ctx, entity.get("id"))).isEqualTo(inner);
+            assertThat(RowCounts.eligible(ctx, descendant)).isEqualTo(inner);
+            assertThat(RowCounts.eligible(ctx, descendant.get("id"))).isEqualTo(inner);
+            if (inner) {
+                ctx.customized(true);
+                assertThat(RowCounts.eligible(ctx, entity)).isFalse();
+                assertThat(RowCounts.eligible(ctx, descendant)).isFalse();
+                ctx.customized(false);
+                ctx.joinEntity(key, entity, LEFT_CUSTOMER.resolve(ctx), true, entity.get("id"));
+                assertThat(RowCounts.eligible(ctx, entity)).isFalse();
+                assertThat(RowCounts.eligible(ctx, descendant)).isFalse();
+            }
+        }
+    }
+
+    @Test
+    void ac_agg_32_filtered_counts_over_empty_roots_and_entity_joins_are_zero_with_either_renderer() {
+        var provider = new HibernateProviderSupport();
+        for (AggregateRenderer renderer : List.of(AggregateRenderer.DEFAULT, provider.aggregates().orElseThrow())) {
+            var options = RenderOptions.portable().withAggregateRenderer(renderer);
+            var rootCount = Agg.<Row>count(ROOT).filter(f -> f.gt(ID, 0L));
+            assertThat(sql(Order.class, options, (c, q) -> rootCount.expression(q))).contains("coalesce(");
+            var copy = EntityJoin.of("copy", Order.class, JoinKind.INNER, List.of(EntityJoin.on(ID, "id")));
+            var count = Agg.<Row>count(copy.root()).filter(f -> f.gt(ID, 0L));
+            assertThat(sql(Order.class, options, (c, q) -> {
+                From<?, Order> entity = provider.entityJoins().orElseThrow()
+                        .join(q.root(), Order.class, JoinKind.INNER, node -> c.conjunction());
+                q.joinEntity(copy.root().key(), entity, q.root(), true, entity.get("id"));
+                return count.expression(q);
+            })).contains("coalesce(");
+        }
     }
 
     @Test

@@ -399,7 +399,7 @@ class HibernateEntityJoinTest {
     }
 
     @Test
-    void ac_src_55_inner_entity_and_inner_descendant_still_count_the_id() {
+    void ac_agg_31_inner_entity_and_inner_descendant_count_rows() {
         var person = person(JoinKind.INNER);
         TableField<Person, Code> code = TableField.join(person.root(), "code", JoinType.INNER);
         executing(executor -> {
@@ -410,7 +410,7 @@ class HibernateEntityJoinTest {
                 assertThat(executor.list(query, Limit.unlimited())).extracting(View::count).containsExactly(1L);
             }
             assertThat(SQL).hasSize(2).allSatisfy(sql -> assertThat(sql)
-                    .containsPattern("count\\(\\w+\\.(id|a)\\)").doesNotContain("count(*)")
+                    .contains("count(*)").doesNotContainPattern("count\\(\\w+\\.(id|a)\\)")
                     .doesNotContain("count(1)").doesNotContain("count(("));
         });
     }

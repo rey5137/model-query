@@ -54,6 +54,24 @@ final class EntityJoinChecks {
             }
             checkPath(model, field.entityJoin(), field.attribute(), diagnostics);
         }
+        for (var field : model.aggregates()) {
+            var aggregate = field.aggregate();
+            if (!aggregate.entityJoin().isEmpty()) {
+                if (aggregate.expression() != null) {
+                    diagnostics.error(field.element(), DiagnosticCode.MQ3046, model.name() + "." + field.name()
+                            + ": @Aggregate entityJoin cannot be combined with expression");
+                    continue;
+                }
+                if (checkPath(model, aggregate.entityJoin(), aggregate.attribute(), diagnostics)) {
+                    for (String entry : aggregate.orderBy()) {
+                        var order = ModelDefinition.AggregateOrder.parse(entry);
+                        if (order != null) {
+                            checkPath(model, aggregate.entityJoin(), order.path(), diagnostics);
+                        }
+                    }
+                }
+            }
+        }
         for (var column : model.filterColumns()) {
             if (!column.entityJoin().isEmpty()) {
                 if (column.treat() != null) {
@@ -192,21 +210,25 @@ final class EntityJoinChecks {
         }
     }
 
-    private void checkPath(ModelDefinition model, String name, String path, Diagnostics diagnostics) {
+    private boolean checkPath(ModelDefinition model, String name, String path, Diagnostics diagnostics) {
         var join = model.entityJoins().stream().filter(candidate -> candidate.name().equals(name))
                 .findFirst().orElse(null);
         if (join == null) {
             error(model, name, "unknown entity join", diagnostics);
-            return;
+            return false;
         }
         if (!(join.entity() instanceof DeclaredType declared)
                 || !QueryModelReader.isEntity((TypeElement) declared.asElement())) {
-            return;
+            return false;
+        }
+        if (path.isEmpty()) {
+            return true;
         }
         var walk = metamodel.walk(model.entityRoot(name), path);
         if (walk.steps().stream().anyMatch(step -> step.attribute().kind() == EntityAttribute.Kind.COLLECTION)) {
             error(model, name, "a joined-entity path cannot traverse a to-many attribute", diagnostics);
         }
+        return true;
     }
 
     private static void error(ModelDefinition model, String join, String detail, Diagnostics diagnostics) {

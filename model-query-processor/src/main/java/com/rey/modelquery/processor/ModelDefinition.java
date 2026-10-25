@@ -425,13 +425,14 @@ record ModelDefinition(
      * @param fn the function's name: {@code COUNT}, {@code SUM}, {@code AVG}, {@code MIN} or {@code MAX}
      * @param attribute the entity attribute path the function reads; {@code ""} for a {@code COUNT} over the root or
      *     an aggregate over an expression
+     * @param entityJoin the named entity join whose attributes it reads; empty for the root
      * @param expression the class named by {@code expression}, or {@code null} for none
      * @param distinct whether {@code distinct = true} was written
      * @param orderBy the entries written for {@code orderBy}, as written
      * @param filter the class named by {@code filter}, or {@code null} for none
      * @param scale the {@code scale} written, or {@code null} when it was left out
      */
-    record AggregateDefinition(String fn, String attribute, TypeMirror expression, boolean distinct,
+    record AggregateDefinition(String fn, String attribute, String entityJoin, TypeMirror expression, boolean distinct,
             List<String> orderBy, TypeMirror filter, Integer scale) {
 
         AggregateDefinition {

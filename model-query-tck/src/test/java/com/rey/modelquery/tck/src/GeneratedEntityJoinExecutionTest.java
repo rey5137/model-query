@@ -3,6 +3,7 @@ package com.rey.modelquery.tck.src;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.rey.modelquery.core.Limit;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.tck.col.JoinTestSupport;
@@ -84,5 +85,35 @@ class GeneratedEntityJoinExecutionTest {
             assertThat(statement).doesNotContain("'PAID'");
             assertThat(statement.replace(" ", "")).containsPattern("status=\\?");
         });
+    }
+
+    @TckTest
+    void ac_proc_50_generated_joined_entity_totals_match_native_sql(TckDatabase db) throws SQLException {
+        var query = QEntityJoinTotals.query()
+                .select(SelectSet.of(QEntityJoinTotals.COUNTRY, QEntityJoinTotals.REPS,
+                        QEntityJoinTotals.ROWS, QEntityJoinTotals.LAST_HIRE))
+                .where(f -> f.gte(QEntityJoinTotals.ID, 990L).lte(QEntityJoinTotals.ID, 1030L))
+                .orderBy(QEntityJoinTotals.COUNTRY.asc()).build();
+        List<EntityJoinTotals> rows = new ArrayList<>();
+        List<String> sql = SqlSnapshots.capture(db, ds -> {
+            try (SessionFactory sf = JoinTestSupport.sessionFactory(ds)) {
+                sf.inSession(em -> rows.addAll(ModelQueryExecutor.create(em, OrderEntity.class,
+                        ModelQueryConfig.defaults()).list(query, Limit.unlimited())));
+            }
+        });
+        List<EntityJoinTotals> nativeRows = new ArrayList<>();
+        try (var connection = db.getConnection(); var statement = connection.createStatement();
+                var result = statement.executeQuery("""
+                        select c.country, count(c.id), count(c.id), max(c.created_at)
+                        from orders o join customers c on c.id = o.referrer_id
+                        where o.id between 990 and 1030 group by c.country order by c.country""")) {
+            while (result.next()) {
+                var lastHire = result.getTimestamp(4);
+                nativeRows.add(new EntityJoinTotals(result.getString(1), result.getLong(2), result.getLong(3),
+                        lastHire == null ? null : lastHire.toLocalDateTime()));
+            }
+        }
+        assertThat(rows).isNotEmpty().containsExactlyElementsOf(nativeRows);
+        assertThat(sql).anySatisfy(statement -> assertThat(statement.toLowerCase()).contains("count(*)"));
     }
 }

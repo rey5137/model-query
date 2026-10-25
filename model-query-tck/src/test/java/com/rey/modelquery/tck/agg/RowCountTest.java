@@ -4,22 +4,29 @@ import static jakarta.persistence.criteria.JoinType.INNER;
 import static jakarta.persistence.criteria.JoinType.LEFT;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.rey.modelquery.annotations.JoinKind;
 import com.rey.modelquery.core.Agg;
 import com.rey.modelquery.core.AggregateField;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.Correlated;
+import com.rey.modelquery.core.EntityJoin;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.Op;
 import com.rey.modelquery.core.OrderedColumnField;
+import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.SelectSet;
+import com.rey.modelquery.core.SourceJoin;
+import com.rey.modelquery.core.SourceQuery;
 import com.rey.modelquery.core.SubSelect;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
+import com.rey.modelquery.tck.col.CompositeNodeEntity;
 import com.rey.modelquery.tck.col.CustomerEntity;
 import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.col.OrderEntity;
+import com.rey.modelquery.tck.exe.EmbeddedNodeEntity;
 import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckFixture;
 import com.rey.modelquery.tck.harness.TckTest;
@@ -47,6 +54,10 @@ class RowCountTest {
 
     /** One order and a count, the row of the correlated count and of the count grouped by order. */
     record Line(Long id, Long count, Long paid) {}
+
+    record Counts(Long id, Long rows, Long ids, Long paid, Long distinct) {}
+
+    record NodeCounts(Integer tenant, Long count, Long filtered) {}
 
     /** The rows a sub-select reads. */
     static final class Inner {}
@@ -238,6 +249,186 @@ class RowCountTest {
             assertThat(lines).filteredOn(line -> line.count() == 0).isNotEmpty()
                     .allSatisfy(line -> assertThat(line.paid()).isZero());
         });
+    }
+
+    // ---- AC-AGG-31, AC-AGG-32
+
+    @TckTest
+    void ac_agg_31_entity_join_counts_match_native_ids_for_both_anchors_and_every_join_kind(TckDatabase db) {
+        var id = ColumnField.of(Counts.class, ORDERS, "id", Long.class);
+        var referrer = ColumnField.of(Counts.class, ORDERS, "referrerId", Long.class);
+        var status = ColumnField.of(Counts.class, ORDERS, "status", String.class);
+        var sourceId = ColumnField.of(Inner.class, ORDERS, "id", Long.class).named("id");
+        var sourceReferrer = ColumnField.of(Inner.class, ORDERS, "referrerId", Long.class).named("referrer");
+        var source = SourceQuery.builder(Inner.class, ORDERS, SelectSet.of(sourceId, sourceReferrer),
+                PrimaryKey.of(sourceId)).where(f -> f.lte(sourceId, 1020L)).build();
+        var keys = SourceJoin.of("keys", Inner.class, JoinKind.LEFT, List.of(SourceJoin.on(id, sourceId)));
+        var anchor = ColumnField.over(Counts.class, keys.root(), sourceReferrer);
+        var eligible = new ArrayList<Boolean>();
+        List<String> sql = SqlSnapshots.capture(db, ds -> executor(ds, executor -> {
+            for (boolean sourceAnchored : List.of(false, true)) {
+                for (JoinKind kind : List.of(JoinKind.INNER, JoinKind.LEFT)) {
+                    var entity = EntityJoin.of("copy", OrderEntity.class, kind,
+                            List.of(EntityJoin.on(sourceAnchored ? anchor : referrer, "id")));
+                    var joinedStatus = ColumnField.of(Counts.class, entity.root(), "status", String.class);
+                    for (boolean blanked : kind == JoinKind.LEFT ? List.of(false, true) : List.of(false)) {
+                        for (boolean descendant : List.of(false, true)) {
+                            if (blanked && descendant) {
+                                continue; // MQ1912 forbids INNER descendants below a join filter.
+                            }
+                            var table = descendant ? TableField.join(entity.root(), "customer", INNER) : entity.root();
+                            var countedId = ColumnField.of(Counts.class, table, "id", Long.class);
+                            var rows = Agg.<Counts>count(table);
+                            var ids = Agg.count(countedId);
+                            var paid = Agg.<Counts>count(table).filter(f -> f.eq(status, "PAID")).named("paid");
+                            var distinct = Agg.countDistinct(countedId);
+                            for (boolean grouped : List.of(false, true)) {
+                                for (boolean customized : kind == JoinKind.INNER ? List.of(false, true)
+                                        : List.of(false)) {
+                                    var builder = ModelQuery.builder(ORDERS, row -> new Counts(
+                                                    grouped ? row.get(id) : null, row.get(rows), row.get(ids),
+                                                    row.get(paid), row.get(distinct)))
+                                            .joinEntity(entity).select(SelectSet.of(rows, ids, paid, distinct))
+                                            .where(f -> f.gte(id, 990L).lte(id, 1030L));
+                                    if (sourceAnchored) {
+                                        builder = builder.joinSource(keys, source);
+                                    }
+                                    if (blanked) {
+                                        builder = builder.joinFilter(entity, f -> f.eq(joinedStatus, "PAID"));
+                                    }
+                                    if (grouped) {
+                                        builder = builder.select(SelectSet.of(id, rows, ids, paid, distinct))
+                                                .groupBy(id).orderBy(id.asc());
+                                    }
+                                    if (customized) {
+                                        builder = builder.customize((spec, joins, criteria, cb, phase) -> {});
+                                    }
+                                    String from = " from orders o " + (sourceAnchored
+                                            ? "left join (select id, referrer_id from orders where id <= 1020) s "
+                                                    + "on s.id = o.id " : "")
+                                            + (kind == JoinKind.INNER ? "join" : "left join")
+                                            + " orders e on e.id = "
+                                            + (sourceAnchored ? "s.referrer_id" : "o.referrer_id")
+                                            + (blanked ? " and e.status = 'PAID'" : "")
+                                            + (descendant ? " join customers c on c.id = e.customer_id" : "")
+                                            + " where o.id >= 990 and o.id <= 1030";
+                                    String identity = descendant ? "c.id" : "e.id";
+                                    List<Counts> expected = oracle(db, "select " + (grouped ? "o.id, " : "")
+                                            + "count(" + identity + "), count(" + identity + "), "
+                                            + "count(case when o.status = 'PAID' then " + identity + " end), "
+                                            + "count(distinct " + identity + ")" + from
+                                            + (grouped ? " group by o.id order by o.id" : "")).stream().map(r -> {
+                                                int offset = grouped ? 1 : 0;
+                                                return new Counts(grouped ? ((Number) r[0]).longValue() : null,
+                                                        ((Number) r[offset]).longValue(),
+                                                        ((Number) r[offset + 1]).longValue(),
+                                                        ((Number) r[offset + 2]).longValue(),
+                                                        ((Number) r[offset + 3]).longValue());
+                                            }).toList();
+                                    assertThat(executor.list(builder.build(), Limit.unlimited()))
+                                            .isNotEmpty().containsExactlyElementsOf(expected);
+                                    if (grouped && kind == JoinKind.LEFT && !descendant) {
+                                        assertThat(expected).anySatisfy(row -> assertThat(row.rows()).isZero());
+                                    }
+                                    eligible.add(kind == JoinKind.INNER && !customized);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }));
+        assertThat(sql).hasSize(eligible.size());
+        for (int i = 0; i < sql.size(); i++) {
+            assertThat(sql.get(i)).contains("count(distinct", "coalesce(");
+            if (eligible.get(i)) {
+                assertThat(sql.get(i)).contains("count(*)");
+            } else {
+                assertThat(sql.get(i)).doesNotContain("count(*)");
+            }
+        }
+    }
+
+    @TckTest
+    void ac_agg_31_inner_entity_joins_with_composite_and_embedded_ids_count_one_identity(TckDatabase db) {
+        var nodes = TableField.root(CompositeNodeEntity.class);
+        var id = ColumnField.of(NodeCounts.class, nodes, "id", Long.class);
+        var tenant = ColumnField.of(NodeCounts.class, nodes, "tenantId", Integer.class);
+        var sourceId = ColumnField.of(Inner.class, nodes, "id", Long.class).named("id");
+        var sourceTenant = ColumnField.of(Inner.class, nodes, "tenantId", Integer.class).named("tenant");
+        var source = SourceQuery.builder(Inner.class, nodes, SelectSet.of(sourceId, sourceTenant),
+                PrimaryKey.composite(sourceTenant, sourceId)).build();
+        var keys = SourceJoin.of("keys", Inner.class, JoinKind.LEFT,
+                List.of(SourceJoin.on(id, sourceId), SourceJoin.on(tenant, sourceTenant)));
+        List<String> sql = SqlSnapshots.capture(db, ds -> {
+            try (SessionFactory sf = JoinTestSupport.sessionFactory(ds, EmbeddedNodeEntity.class)) {
+                sf.inSession(em -> {
+                    var executor = ModelQueryExecutor.create(em, CompositeNodeEntity.class,
+                            ModelQueryConfig.defaults());
+                    for (boolean sourceAnchored : List.of(false, true)) {
+                        var anchorId = sourceAnchored ? ColumnField.over(NodeCounts.class, keys.root(), sourceId) : id;
+                        var anchorTenant = sourceAnchored
+                                ? ColumnField.over(NodeCounts.class, keys.root(), sourceTenant) : tenant;
+                        var composite = EntityJoin.of("composite", CompositeNodeEntity.class, JoinKind.INNER,
+                                List.of(EntityJoin.on(anchorId, "id"), EntityJoin.on(anchorTenant, "tenantId")));
+                        var embedded = EntityJoin.of("embedded", EmbeddedNodeEntity.class, JoinKind.INNER,
+                                List.of(EntityJoin.on(anchorId, "key.id"),
+                                        EntityJoin.on(anchorTenant, "key.tenantId")));
+                        for (var entity : List.of(composite, embedded)) {
+                            var count = Agg.<NodeCounts>count(entity.root());
+                            var filtered = count.filter(f -> f.lte(id, 3L)).named("filtered");
+                            for (boolean grouped : List.of(false, true)) {
+                                var builder = ModelQuery.builder(nodes, row -> new NodeCounts(
+                                                grouped ? row.get(tenant) : null, row.get(count), row.get(filtered)))
+                                        .joinEntity(entity).select(SelectSet.of(count, filtered));
+                                if (sourceAnchored) {
+                                    builder = builder.joinSource(keys, source);
+                                }
+                                if (grouped) {
+                                    builder = builder.select(SelectSet.of(tenant, count, filtered)).groupBy(tenant)
+                                            .orderBy(tenant.asc());
+                                }
+                                List<NodeCounts> expected = oracle(db, "select " + (grouped ? "o.tenant_id, " : "")
+                                        + "count(e.id), count(case when o.id <= 3 then e.id end) "
+                                        + "from composite_nodes o "
+                                        + (sourceAnchored ? "left join composite_nodes s on s.id = o.id "
+                                                + "and s.tenant_id = o.tenant_id " : "")
+                                        + "join composite_nodes e on e.id = " + (sourceAnchored ? "s" : "o")
+                                        + ".id and e.tenant_id = " + (sourceAnchored ? "s" : "o") + ".tenant_id"
+                                        + (grouped ? " group by o.tenant_id order by o.tenant_id" : "")).stream()
+                                        .map(r -> new NodeCounts(grouped ? ((Number) r[0]).intValue() : null,
+                                                ((Number) r[grouped ? 1 : 0]).longValue(),
+                                                ((Number) r[grouped ? 2 : 1]).longValue())).toList();
+                                assertThat(executor.list(builder.build(), Limit.unlimited()))
+                                        .isNotEmpty().containsExactlyElementsOf(expected);
+                            }
+                        }
+                    }
+                });
+            }
+        });
+        assertThat(sql).hasSize(8).allSatisfy(statement -> assertThat(statement)
+                .contains("count(*)", "coalesce(").doesNotContain("count(("));
+    }
+
+    @TckTest
+    void ac_agg_32_filtered_counts_over_empty_roots_and_entity_joins_are_zero_and_sums_stay_null(TckDatabase db) {
+        var id = ColumnField.of(Counts.class, ORDERS, "id", Long.class);
+        var rootCount = Agg.<Counts>count(ORDERS).filter(f -> f.gt(id, 0L));
+        var copy = EntityJoin.of("copy", OrderEntity.class, JoinKind.INNER, List.of(EntityJoin.on(id, "id")));
+        var joinedCount = Agg.<Counts>count(copy.root()).filter(f -> f.gt(id, 0L));
+        var sum = Agg.sumAsLong(id).filter(f -> f.gt(id, 0L));
+        var query = ModelQuery.builder(ORDERS,
+                        row -> new Counts(null, row.get(rootCount), row.get(joinedCount), row.get(sum), null))
+                .joinEntity(copy).select(SelectSet.of(rootCount, joinedCount, sum)).where(f -> f.lt(id, 0L)).build();
+        executor(db, executor -> assertThat(executor.list(query, Limit.unlimited()))
+                .containsExactly(new Counts(null, 0L, 0L, null, null)));
+        Object[] nativeCounts = oracle(db, "select count(case when o.id > 0 then o.id end), "
+                + "count(case when o.id > 0 then e.id end), sum(case when o.id > 0 then o.id end) "
+                + "from orders o join orders e on e.id = o.id where o.id < 0").get(0);
+        assertThat(((Number) nativeCounts[0]).longValue()).isZero();
+        assertThat(((Number) nativeCounts[1]).longValue()).isZero();
+        assertThat(nativeCounts[2]).isNull();
     }
 
     // ---- support

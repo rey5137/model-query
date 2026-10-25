@@ -20,7 +20,7 @@
 | `@Child(key = {}, foreignKey = {})` | `List<ChildModel>` or `Optional<ChildModel>` field or component | Filled from another model's rows when a fetch plan names it (`api/15`) |
 | `@FilterColumn(name = "...", path = "...", joinType = LEFT, alias = "", converter = Foo.class, treat = void.class, entityJoin = "")` | model type (repeatable) | A filter-only column: a `ColumnField` constant with no model field, left out of every generated `SelectSet` and of `map(Row)`; the incubating `entityJoin` member selects a named entity join (R-PROC-46) |
 | `@FilterColumns` | model type | The container that makes `@FilterColumn` repeatable; never written by hand |
-| `@Aggregate(fn = SUM, attribute = "...", expression = Def.class, distinct = false, orderBy = {}, filter = Def.class, scale = -1)` | field or component | An `AggregateField` constant, mapped into this field (`api/13`); `expression` aggregates a `@Computed`-style definition instead of an attribute; `orderBy` orders `FIRST_BY`, `filter` names a `FilterDefinition<Model>` and `scale` rounds a `BigDecimal` average (R-PROC-45, D-188) |
+| `@Aggregate(fn = SUM, attribute = "...", entityJoin = "", expression = Def.class, distinct = false, orderBy = {}, filter = Def.class, scale = -1)` | field or component | An `AggregateField` constant, mapped into this field (`api/13`); `expression` aggregates a `@Computed`-style definition instead of an attribute; `orderBy` orders `FIRST_BY`, `filter` names a `FilterDefinition<Model>` and `scale` rounds a `BigDecimal` average (R-PROC-45, D-188); the incubating `entityJoin` selects a named entity join (R-PROC-47) |
 | `@JoinSource(name = "...", source = S.class, type = LEFT, on = @On(column = "...", key = "..."))` | model type (repeatable through `@JoinSources`) | Joins a `@SourceModel` to a `@QueryModel` rooted at an entity; the generated `query(...)` takes the caller's `SourceQuery<S>` for it (R-PROC-44, D-189) |
 | `@SourceColumn(join = "...", field = "...")` | field or component | A column read from a joined source's field, through `ColumnField.over(Model.class, JOIN.root(), QSource.FIELD)` (R-PROC-44) |
 | `@JoinEntity(name = "...", entity = E.class, source = "", type = LEFT, on = @JoinEntity.On(field = "", column = "", id = ""), when = @JoinEntity.When(column = "", value = ""))` | model type (repeatable) | Incubating entity join anchored to the model's joined source named by `source`, or with `source = ""` to columns of the root or its to-one paths; `when` adds one static term (R-PROC-46) |
@@ -169,11 +169,28 @@ boxed-type mismatches, unknown source fields, a `source` that names no `@JoinSou
 both or neither of `field` and `column`, pairs mixing the two, a `column` with a `source`, a `field` without one,
 an anchor over a joined source, another entity join, a to-many or treated path, an expression or a to-one column read
 by its id, duplicate names across either kind of join, entity-join constants colliding with
-reserved or other generated constants, unknown entity-join names in either
+reserved or other generated constants, unknown entity-join names in a column
 `entityJoin` member, to-many paths below the entity, a nested `@Join` or `@PrimaryKey` on a joined-entity column, and
 `@JoinEntity` on a `@SourceModel`. A nonempty `entityJoin` combined with `treat` is also `MQ3046`, as is a `when`
 column that is converted or enum-typed, a value that does not bind or parse as the column's boxed type, and a second
-`when`. Existing attribute, type, converter and alias checks continue to apply.
+`when`. Joined-entity aggregate refusals are specified by R-PROC-47 (D-202). Existing attribute, type, converter
+and alias checks continue to apply.
+
+**R-PROC-47** *(D-199, D-202, `@Incubating`)* **Joined-entity aggregates.** `@Aggregate.entityJoin` defaults to `""`,
+retaining the root meaning and exactly the existing generated source for every model that omits it. A nonempty
+value names this model's `@JoinEntity`: `attribute` and `FIRST_BY`'s `orderBy` paths resolve relative to that
+entity, with the same to-one path layout as `@Column(entityJoin = ...)`. The generated aggregate builds its column
+over the named join's `root()` or the to-one table below it, reusing that table with other joined-entity columns.
+For example, `@Aggregate(fn = COUNT, entityJoin = "rep", attribute = "code")` generates a named
+`Agg.count(ColumnField.of(Model.class, REP.root(), "code", ...))`; with no attribute, COUNT generates
+`Agg.<Model>count(REP.root()).named(...)`. R-AGG-19 decides the row-count rendering: an eligible INNER join is
+`count(*)`; LEFT keeps the first basic id attribute. Other functions, `distinct`, filters and rounding retain
+their existing semantics. An expression chooses its own scope: a nonempty `entityJoin` combined with `expression`,
+including one supplied by `@BindExpression`, is `MQ3046` on the aggregate for every function (D-202). The empty
+default continues to allow expression aggregates. An unknown join name is `MQ3046` with the same message shape as
+`@Column.entityJoin`, including COUNT with no attribute; attribute and `orderBy` resolution are skipped for that
+aggregate so the unknown name produces no fallback-root diagnostics. A to-many path is also `MQ3046`; existing
+attribute, result-type and aggregate option diagnostics continue to apply for a known join.
 
 ## 4. `@Join` and nested models
 

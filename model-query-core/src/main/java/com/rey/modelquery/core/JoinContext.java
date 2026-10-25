@@ -572,9 +572,9 @@ public final class JoinContext {
         return null;
     }
 
-    /** Registers an entity join and its first id path; it always ends the row-count walk (R-AGG-19). */
-    void joinEntity(JoinKey key, From<?, ?> join, From<?, ?> outer, Path<?> firstId) {
-        joinedSources.put(key, new JoinedSource(join, outer, false, firstId, true));
+    /** Registers an entity join, its attached root, kind and first id path (R-AGG-19). */
+    void joinEntity(JoinKey key, From<?, ?> join, From<?, ?> outer, boolean inner, Path<?> firstId) {
+        joinedSources.put(key, new JoinedSource(join, outer, inner, firstId, true));
     }
 
     /** Resolves a registered entity join, never falling back to the statement root (R-SRC-23). */
@@ -589,7 +589,18 @@ public final class JoinContext {
 
     /** Whether this statement registered the node as an entity join (R-AGG-19). */
     boolean isJoinedEntity(From<?, ?> node) {
-        return joinedSources.values().stream().anyMatch(joined -> joined.entity() && joined.join() == node);
+        JoinedSource joined = joinedSourceNode(node);
+        return joined != null && joined.entity();
+    }
+
+    /** The statement record for a joined source or entity node, independent of its provider type (R-AGG-19). */
+    JoinedSource joinedSourceNode(From<?, ?> node) {
+        for (JoinedSource joined : joinedSources.values()) {
+            if (joined.join() == node) {
+                return joined;
+            }
+        }
+        return null;
     }
 
     private JoinedSource bound(JoinKey key, String owner) {
@@ -602,8 +613,8 @@ public final class JoinContext {
     }
 
     /**
-     * A bound source or entity join, its anchor and count identity. Entity joins always stop the row-count walk;
-     * source joins may continue through an INNER anchor (R-AGG-19).
+     * A bound source or entity join, its attached root and count identity. INNER joins continue the row-count walk
+     * through the attached root; LEFT joins stop it (R-AGG-19).
      */
     record JoinedSource(From<?, ?> join, From<?, ?> outer, boolean inner, Path<?> key, boolean entity) {}
 

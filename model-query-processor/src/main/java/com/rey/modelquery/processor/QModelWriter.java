@@ -235,7 +235,7 @@ final class QModelWriter {
         // may read any constant of the model declared earlier in this order (R-GEN-27, R-PROC-22). They are in no
         // column set, or every query of the model would be grouped (R-PROC-17).
         for (ModelField field : writeOnly ? List.<ModelField>of() : model.aggregates()) {
-            type.addField(aggregate(modelName, model, field));
+            type.addField(aggregate(modelName, model, field, filters));
         }
         // Window fields come after the aggregates, since a window term may reference an aggregate constant (R-GEN-38).
         for (ModelField field : writeOnly ? List.<ModelField>of() : model.windows()) {
@@ -856,11 +856,25 @@ final class QModelWriter {
                 : CodeBlock.of("new $T().expression()", type);
     }
 
+    private static FilterLayout.Column aggregateColumn(
+            FilterLayout filters, AggregateDefinition aggregate, String path) {
+        return filters.aggregateColumns().stream()
+                .filter(column -> column.definition().entityJoin().equals(aggregate.entityJoin())
+                        && column.definition().path().equals(path))
+                .findFirst().orElseThrow();
+    }
+
+    private CodeBlock aggregateColumn(ClassName modelName, FilterLayout.Column path) {
+        return CodeBlock.of("$T.of($T.class,$W$L,$W$S,$W$L)", COLUMN_FIELD, modelName,
+                path.table(), path.attribute(), classOf(column(path.read().type())));
+    }
+
     /**
      * The constant of an {@code @Aggregate} field, over a column built in place from its attribute: the aggregate is
      * keyed by that column, so it equals the same function written by hand (api/13 R-AGG-01).
      */
-    private FieldSpec aggregate(ClassName modelName, ModelDefinition model, ModelField field) {
+    private FieldSpec aggregate(
+            ClassName modelName, ModelDefinition model, ModelField field, FilterLayout filters) {
         AggregateDefinition aggregate = field.aggregate();
         // Named after the field, so a client-facing key never carries the canonical text of the function (R-GEN-33).
         CodeBlock named = CodeBlock.of("$Z.named($S)", field.name());
@@ -873,7 +887,26 @@ final class QModelWriter {
             TypeMirror sourceType = definition.value();
             String function = aggregateFunction(field, sourceType);
             CodeBlock call = CodeBlock.of("$T.$L($L$L)", AGG, function, definitionExpression(definition),
-                    firstByOrders(aggregate, model, modelName));
+                    firstByOrders(aggregate, model, modelName, filters));
+            return constant.initializer("$L$L", refined(aggregate, call), named).build();
+        }
+        if (!aggregate.entityJoin().isEmpty()) {
+            CodeBlock call;
+            if (aggregate.attribute().isEmpty() && aggregate.fn().equals("COUNT")) {
+                call = CodeBlock.of("$T.<$T>count($L.root())", AGG, modelName,
+                        QueryModelReader.constantName(aggregate.entityJoin()));
+            } else {
+                FilterLayout.Column path = aggregateColumn(filters, aggregate, aggregate.attribute());
+                TypeMirror attributeType = path.read().type();
+                TypeMirror converter = builtIns.between(field.type(), attributeType);
+                CodeBlock source = converter == null ? aggregateColumn(modelName, path)
+                        : CodeBlock.of("$T.of($T.class,$W$L,$W$S,$W$L,$W$L,$W$T.INSTANCE)", COLUMN_FIELD,
+                                modelName, path.table(), path.attribute(), classOf(result),
+                                classOf(column(attributeType)),
+                                ClassName.get((TypeElement) types.asElement(converter)));
+                call = CodeBlock.of("$T.$L($Z$L$L)", AGG, aggregateFunction(field, attributeType), source,
+                        firstByOrders(aggregate, model, modelName, filters));
+            }
             return constant.initializer("$L$L", refined(aggregate, call), named).build();
         }
         if (aggregate.attribute().isEmpty() && aggregate.fn().equals("COUNT")) {
@@ -901,7 +934,7 @@ final class QModelWriter {
         // field takes a filter like any count (R-AGG-01).
         String function = aggregateFunction(field, attributeType);
         CodeBlock call = CodeBlock.of("$T.$L($Z$L$L)", AGG, function, source,
-                firstByOrders(aggregate, model, modelName));
+                firstByOrders(aggregate, model, modelName, filters));
         return constant.initializer("$L$L", refined(aggregate, call), named).build();
     }
 
@@ -923,7 +956,8 @@ final class QModelWriter {
     }
 
     /** The {@code , order...} arguments of a {@code FIRST_BY}, and nothing for any other function. */
-    private CodeBlock firstByOrders(AggregateDefinition aggregate, ModelDefinition model, ClassName modelName) {
+    private CodeBlock firstByOrders(
+            AggregateDefinition aggregate, ModelDefinition model, ClassName modelName, FilterLayout filters) {
         if (!aggregate.fn().equals("FIRST_BY")) {
             return CodeBlock.of("");
         }
@@ -931,7 +965,9 @@ final class QModelWriter {
         for (String entry : aggregate.orderBy()) {
             AggregateOrder order = AggregateOrder.parse(entry);
             ModelField fromSource = model.sourceField(order.path());
-            CodeBlock column = fromSource != null && model.readsSource()
+            CodeBlock column = !aggregate.entityJoin().isEmpty()
+                    ? aggregateColumn(modelName, aggregateColumn(filters, aggregate, order.path()))
+                    : fromSource != null && model.readsSource()
                     ? CodeBlock.of("$T.over($T.class,$WROOT,$W$T.$L)", COLUMN_FIELD, modelName,
                             generatedName(model.source()), fromSource.constant())
                     : CodeBlock.of("$T.of($T.class,$WROOT,$W$S,$W$L)", COLUMN_FIELD, modelName, order.path(),
