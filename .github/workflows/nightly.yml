@@ -20,7 +20,7 @@ jobs:
         java: [17, 21, 25]
         hibernate:
           - { name: '6.6', version: 6.6.58.Final, jpa: 3.1.0 }
-          - { name: '7.x', version: 7.4.11.Final, jpa: 3.2.0 }
+          - { name: '7.x', version: 7.4.14.Final, jpa: 3.2.0 }
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6

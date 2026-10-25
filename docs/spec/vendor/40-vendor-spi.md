@@ -479,7 +479,10 @@ read from a derived table restricted to some discriminator values, a `TABLE_PER_
 lacks one of its entity's tables, a `JOINED` root `INNER` joined to a table that holds only some of its subtypes'
 rows, and a discriminator restriction in the `where` that leaves out a concrete subtype are narrowings, the
 discriminator a column, a formula, `TABLE_PER_CLASS`'s `clazz_` or `JOINED`'s `CASE`. A subtype
-root is expected; a `LEFT` join and a `CASE` guard don't narrow a root. A declared `TABLE_PER_CLASS` treated join is
+root is expected; a `LEFT` join and a `CASE` guard don't narrow a root. An `exists` root that reads all of its
+entity's rows is also narrowed by a discriminator restriction to exactly a declared subtype's concrete entities that
+is a top-level conjunct of its `where` or of an `INNER` join's condition from it, the shape Hibernate 7.4.14 renders
+a treat of it in under an `or` (D-203). A declared `TABLE_PER_CLASS` treated join is
 also checked against its translated target union (D-161). Every branch outside the declared subtype's tables must
 have a NULL key in a top-level join equality, or an effective discriminator restriction to the subtype in the
 `where`, the join's own `ON`, or an `INNER` join from its target. A `CASE` guarding selected inherited columns does

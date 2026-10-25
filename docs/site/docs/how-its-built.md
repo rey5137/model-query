@@ -48,7 +48,7 @@ Tests run against in-memory H2, and against real database instances via Testcont
 All tests run across both supported Hibernate lines:
 - Hibernate 6.6 (`6.6.58.Final` in [`pom.xml`](https://github.com/rey5137/model-query/blob/main/pom.xml))
 - Hibernate 7.4
-  (`7.4.11.Final` in [CI workflow](https://github.com/rey5137/model-query/blob/main/.github/workflows/ci.yml))
+  (`7.4.14.Final` in [CI workflow](https://github.com/rey5137/model-query/blob/main/.github/workflows/ci.yml))
 
 ## SQL snapshots
 

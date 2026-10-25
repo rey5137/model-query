@@ -365,7 +365,8 @@ Equality with a NULL lifted value matches no row: correlated count is zero and e
   not the provider (`vendor/40` R-VND-26); the executor hands the metamodel to the build through
   `RenderOptions#withMetamodel`. `eq(Expr.typeOf(...), type)` (`api/10` R-COL-36) matches the exact class only.
 - **`notOfType`** is its negation, `TYPE(table) NOT IN (...)`. Over a node reached through a LEFT join it also keeps
-  rows whose join is absent, `OR TYPE(table) IS NULL`, as `notIn` keeps NULL (R-FLT-04, D-5).
+  rows whose join is absent, as `notIn` keeps NULL (R-FLT-04, D-5): it renders
+  `CASE WHEN TYPE(table) IN (...) THEN 1 ELSE 0 END = 0`, whose unknown `IN` falls to the `ELSE`, not an `OR` (D-203).
 - **Empty forms.** An empty `Optional` skips the filter (P-3, R-FLT-03). An empty collection is "none of these
   types" (R-FLT-02): `ofType` keeps no row and `notOfType` keeps every row, and neither reads a type, so neither needs
   a renderer. A null type, collection or varargs array is `MQ1301`.

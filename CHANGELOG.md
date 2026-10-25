@@ -6,6 +6,17 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-10-25
+
+### Fixed
+
+- On Hibernate 7.4.14, `notOfType` over a LEFT-joined `JOINED` node kept the excluded subtypes' rows: Hibernate
+  (HHH-20818) dropped the subtype joins its type read needs under the `OR` that keeps an absent join. It now renders
+  `CASE WHEN TYPE(...) IN (...) THEN 1 ELSE 0 END = 0`, which keeps the same rows on every line (D-203).
+- On Hibernate 7.4.14, an `exists` over a treated root under `or` was refused with `MQ4016`: Hibernate renders the
+  treat as a discriminator restriction in a join condition, a shape the preflight now recognises (D-203).
+- The tested 7.x line is now Hibernate 7.4.14.Final (was 7.4.11.Final).
+
 ## [0.11.0] - 2026-10-25
 
 0.11.0 covers milestones M31 (D-184), M32 (D-185), M33 (D-193) and M34 (D-197 to D-202): faster flat reads, with no

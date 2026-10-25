@@ -792,7 +792,10 @@ public final class JoinContext {
         // Type literals, not binds: the provider's preflight reads them to attribute the restriction (D-158).
         Predicate in = type.in(expanded.stream().map(cb::literal).toArray(Expression<?>[]::new));
         if (negated) {
-            return TreatChecks.joinUse(table.key()) == TreatUse.LEFT_JOIN ? cb.or(cb.not(in), cb.isNull(type))
+            // An absent LEFT join's unknown IN falls to the ELSE, so its row is kept. Not an OR: Hibernate 7.4.14
+            // prunes the subtype joins of a LEFT-joined node's type read under one (D-203).
+            return TreatChecks.joinUse(table.key()) == TreatUse.LEFT_JOIN
+                    ? cb.equal(cb.selectCase().when(in, 1).otherwise(0), 0)
                     : cb.not(in);
         }
         // Only the statement's untreated root declares: the preflight matches the declaration to the single root of
