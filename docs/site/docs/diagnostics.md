@@ -84,6 +84,7 @@ throws when it affects no rows (see [Bulk writes](bulk-writes.md)).
 | `MQ1505` | A CASE condition uses `add`, `exists`, a sub-select, a correlated value or `op`. |
 | `MQ1508` | An `Expr.constant` cannot be rendered as a literal: its value is not a `String`, `Number` or `Boolean` after the column's converter, the column is not a basic attribute of a root table, the provider has no constant renderer, or it is used other than as a comparison or `in` operand. The message names the cause. |
 | `MQ1509` | `Expr.nextval` misused: a name that is not a plain, optionally schema-qualified identifier, use in a filter, `having`, order or group key, or a vendor with no sequences (MySQL). |
+| `MQ1512` | A query reads a `QueryParam` it doesn't bind, or two `QueryParam`s share one name, at build; a bulk write, a fetch-plan child model or an engine-built statement reads one no binding covers; see below. |
 | `MQ1701` | A fetch plan's join plan whose join has no column of the query's selection at or below it. |
 | `MQ1702` | A column a fetch plan needs (a child's key, an enricher's column) is read through a to-many join; checked on first execution, and `count` logs a warning instead. |
 | `MQ1703` | A fetch plan names the same child or join twice. |
@@ -121,18 +122,28 @@ throws when it affects no rows (see [Bulk writes](bulk-writes.md)).
 | `MQ1911` | Invalid hand-written entity join; see the checks below. |
 | `MQ1912` | Invalid request-bound join filter; see the checks below. |
 
-`MQ1911` rejects a converted anchor, pairs spanning sources, an unbound source or a duplicate name at build.
-At first resolution before SQL it rejects partial, extra, repeated, non-id or association-id pairs, boxed-type
-mismatches, to-many paths and an entity class the render options' metamodel rejects as unmapped (without a metamodel, the
-provider decides: Hibernate may throw its own exception). A
-column over an entity join the query does not bind is `MQ1003`. See
-[Entity joins](source-models.md#joining-an-entity-off-a-joined-source).
+`MQ1512` also covers one name shared by two different params, even when both are bound. A bulk update, delete or
+insert whose `where` or conflict update's `where` reads a param is `MQ1512` at its build, a conflict arbiter's is
+`MQ1804`, `setExpression` with an expression reading one is `MQ1613`, and a fetch plan whose child model reads one is
+`MQ1512` when the plan is built. A bound param that nothing reads is allowed, and inspection names params by name and
+type, never by value.
+
+`MQ1911` rejects a converted anchor, pairs over two joined sources or an unbound source, pairs mixing a joined
+source's columns with the root's, a column anchor over another entity join or a path below one, a treated node, a
+source or an `Outer` lift, a query rooted at a source, a duplicate name, or a bad `when` term (a second one, a
+converted column, one off the root and its to-one paths, or a value that is null, not of the column's boxed type or
+not bindable) at build. At first resolution before SQL it rejects partial, extra, repeated, non-id or association-id
+pairs, boxed-type mismatches, to-many paths, and a column anchor through a to-many path or reading a to-one by its id;
+an entity class the render options' metamodel rejects as unmapped (without a metamodel, the provider decides:
+Hibernate may throw its own exception). A column over an entity join the query does not bind is `MQ1003`. See
+[Entity joins](source-models.md#joining-an-entity).
 
 `MQ1912` rejects a root or INNER join, a filter on an entity join the query does not bind, another table or descendant path, `exists`, an aggregate, window or
 correlated value, or a sub-query crossing the join at build. At first resolution before SQL it rejects id-form
 access, a join key whose filter is never applied, another key resolving to the same join, or filter columns
 creating a descendant join. It also rejects a join that renders `INNER` (declared, and not turned `LEFT`) below a
-filtered join, at the first statement that resolves it; declare it `LEFT`.
+filtered join, and an `INNER` entity join whose column anchor or `when` column reads through a filtered join, at the
+first statement that resolves it; declare it `LEFT`.
 
 For `MQ1313`, the message names the operator and column; a thrown `RuntimeException` is the cause. Preparation fails
 when adding the filter, rendering when building the statement. A `ModelQueryException` keeps its own code.
@@ -238,11 +249,11 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | `MQ3036` | An outer model's `@PrimaryKey` is not exactly its source's key. |
 | `MQ3037` | A recursive source is not well written: a `@Depth` that is not one `Integer`, a second one, a `@Depth` outside a `@SourceModel`, or `@Window`, `@Aggregate` or `@GroupBy` beside it. |
 | `MQ3038` | A model's `root` is neither an `@Entity` nor a `@SourceModel`, or both. |
-| `MQ3039` | `@Child` whose child model is rooted at a source or joins one (`@JoinSource`): a fetch plan has no source to pass it. |
+| `MQ3039` | `@Child` whose child model is rooted at a source, joins one (`@JoinSource`), or declares an entity join: a fetch plan has no source or join to pass it. |
 | `MQ3040` | `generateChanges` on a model rooted at a source. A write needs an entity root; read the source through an outer model instead ([Source models](source-models.md)). |
-| `MQ3044` | `@JoinSource` or `@SourceColumn` written wrongly: `on` misses or exceeds the source's key, pairs a key twice or mismatches a type, an unknown root attribute, source field or join, a class that is no `@SourceModel`, a repeated join name, a key field with a converter, a `@SourceColumn` beside `@PrimaryKey` or an annotation that makes the field no column, a model that is not a `@QueryModel` rooted at an entity, or a nested `@Join` model that joins a source. |
+| `MQ3044` | `@JoinSource` or `@SourceColumn` written wrongly: `on` misses or exceeds the source's key, pairs a key twice or mismatches a type, an unknown root attribute, source field or join, a class that is no `@SourceModel`, a repeated join name, a key field with a converter, a `@SourceColumn` beside `@PrimaryKey` or an annotation that makes the field no column, a model that is not a `@QueryModel` rooted at an entity, or a nested `@Join` model that joins a source or declares an entity join. |
 | `MQ3045` | `@Aggregate` with `orderBy` but not `FIRST_BY` (or `FIRST_BY` without one), an unknown or malformed `orderBy` key, a `filter` class that is no public `FilterDefinition` of the model with an `INSTANCE` or no-arg constructor, a `scale` outside 0 to 30 or on a field that is not a `BigDecimal`, or an `AVG` field typed `BigDecimal` over a `Double` or `Float` attribute. |
-| `MQ3046` | Invalid `@JoinEntity` or joined-entity column; see the checks below. |
+| `MQ3046` | Invalid `@JoinEntity`, joined-entity column or joined-entity aggregate; see the checks below. |
 | `MQ3201` | Aggregate model: field is primitive. |
 | `MQ3202` | Aggregate model: field type does not match the function's result type. |
 | `MQ3203` | Aggregate model: no `@GroupBy` field and is not `singleGroup`. |
@@ -271,9 +282,14 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | `MQ3506` | `@ExcludeFromInserts` on a model without `generateInserts`, on an update or insert model, or on a field `generateInserts` already leaves out. |
 
 `MQ3046` rejects an invalid entity or name, constant collision, partial, extra, repeated, non-id or association-id
-pairs, converted anchor, boxed-type mismatch, unknown source field, a `source` that names no `@JoinSource` of this model, duplicate join name, unknown
-`@Column.entityJoin` or `@FilterColumn.entityJoin`, to-many path,
-nested `@Join`, joined-column `@PrimaryKey`, declaration on `@SourceModel`, or `treat` combined with `entityJoin`.
+pairs, converted anchor, boxed-type mismatch, unknown source field, a `source` that names no `@JoinSource` of this
+model, duplicate join name, unknown `@Column.entityJoin`, `@FilterColumn.entityJoin` or `@Aggregate.entityJoin`, both
+or neither of `field` and `column` on one pair, pairs mixing the two, a `column` with a `source` or a `field` without
+one, an anchor over a joined source or another entity join, a to-many or treated path, an expression or a to-one read
+by its id, a `when` column that is converted or enum-typed, a value that does not bind or parse as its boxed type, or a
+second `when`, to-many path below the entity, nested `@Join`, joined-column `@PrimaryKey`, declaration on
+`@SourceModel`, `treat` combined with `entityJoin`, or a nonempty `@Aggregate.entityJoin` combined with `expression`
+(including `@BindExpression`), for any function.
 
 See [Models and QModels](models.md).
 
@@ -294,14 +310,14 @@ See [Models and QModels](models.md).
 | `MQ4012` | A factory is not on one of the declared target vendors; the message names the factory, its vendor, how it was found and the list. |
 | `MQ4013` | The [portability check](portability.md) cannot boot your unit offline for a target: no provider support for its vendor, a vendor with no offline boot (Oracle, SQL Server, `OTHER`), or a version that is not numeric. |
 | `MQ4014` | Missing provider renderer, source check or custom operator feature support; see below. |
-| `MQ4015` | The vendor lacks a source, operator or aggregate feature, or a recursive source exceeds its depth limit. |
+| `MQ4015` | The vendor lacks a source, operator or aggregate feature, an entity join anchored on a joined source lacks `CTE`, or a recursive source exceeds its depth limit. |
 
 For `MQ4014`, `ProviderSupport#sources()` is empty, there is no `ProviderSupport`, or the provider's `SourceRenderer`
 returned no duplicate-key check for `tree(...)`. An operator requiring a feature also needs an operator gate and a
 provider that serves that feature (`ProviderSupport#operators`), after the vendor check passes. A query that joins a source whose `SourceRenderer` has no `join` hook, an `Agg.avgExact` with no `AggregateRenderer#exactAverage`, and an `Agg.firstBy` with no `AggregateRenderer#firstBy` (or no native `FILTER` form when filtered) are also `MQ4014`, as is an entity-join renderer that does not call `on` exactly once, returns another join than the one it passed to `on` or returns one with no `ON` (the message names the renderer class). All are refused before
 any statement; the [portability check](portability.md) reports them per declared target with no database attached.
 
-For `MQ4015`, `VendorProfile#operators` refuses an operator's required feature before the provider check (`MQ4014`), and `VendorProfile#aggregates` does the same for an `Agg.firstBy`: false on MySQL and `OTHER`. A joined source needs the same source features as a source root, so it is `MQ4015` where `CTE` is false (`OTHER`).
+For `MQ4015`, `VendorProfile#operators` refuses an operator's required feature before the provider check (`MQ4014`), and `VendorProfile#aggregates` does the same for an `Agg.firstBy`: false on MySQL and `OTHER`. A joined source needs the same source features as a source root, so it is `MQ4015` where `CTE` is false (`OTHER`). An entity join anchored on a joined source needs `CTE` too; one anchored on the root's columns needs no vendor fact and renders on `OTHER`.
 The message names the feature, vendor, operator and column. For sources it names the unsupported feature or depth:
 `maxDepth + 2` must fit `VendorProfile#maxRecursionDepth()` (R-VND-23).
 

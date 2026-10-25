@@ -485,11 +485,15 @@ joins of one source model (a high band and a low band, say) stay apart by name.
 - **Same vendor needs as a source root.** A joined source needs `CTE`, which `OTHER` lacks (`MQ4015`), and a provider
   whose `SourceRenderer` has the `join` hook (`MQ4014`). `model-query-hibernate` has it on both lines.
 
-### Joining an entity off a joined source
+### Joining an entity
 
-A joined source can supply the full id of an entity that the outer model also needs to read. The incubating
-`@JoinEntity` declares that join; `@Column(entityJoin = ...)` and `@FilterColumn(entityJoin = ...)` read its entity rather than
-the root. This generated form is adapted from `JoinEntityModelTest` and `GeneratedEntityJoinExecutionTest`:
+An entity join reads one row of an entity per outer row, the join a read-only association would express. Its outer
+side is either a joined source (RFC 0021) or columns of the root and its to-one paths (RFC 0022 Part B). The
+incubating `@JoinEntity` declares either kind; `@Column(entityJoin = ...)` and `@FilterColumn(entityJoin = ...)` read
+its entity rather than the root.
+
+**Off a joined source.** A joined source can supply the full id of an entity that the outer model also needs to read.
+This generated form is adapted from `JoinEntityModelTest` and `GeneratedEntityJoinExecutionTest`:
 
 ```java
 @SourceModel(root = OrderEntity.class)
@@ -563,28 +567,114 @@ var query = ModelQuery.builder(ORDERS,
     List<Detail> rows = orders.findAll(query, Limit.unlimited());
     ```
 
-- **LEFT by default.** `@JoinEntity.type` defaults to `JoinKind.LEFT`; the hand-written form above supplies it
-  explicitly. An unmatched source or entity leaves the outer row with null joined values. `JoinKind.INNER` drops
-  either kind of unmatched row. Separate names joining the same entity remain independent.
-- **Every id attribute, once.** Each `@JoinEntity.On` pairs a field of the joined source named by `@JoinEntity#source` with an entity id
-  attribute. Its `id` defaults to the sole basic id; composite ids need explicit pairs for every attribute, including
-  flattened embedded paths such as `id = "key.part"`. Hand-written `EntityJoin.on(anchor, "id")` names the id
-  explicitly.
+**Off the root's columns.** With `source = ""` (the default), each `@JoinEntity.On` names a model column or a
+`@FilterColumn` over the root or a to-one path from it. The join needs no joined source, and the generated
+`query(...)` adds no source parameter. This model is adapted from `GeneratedEntityJoinExecutionTest`:
+
+```java
+@QueryModel(root = OrderEntity.class)
+@JoinEntity(name = "manager", entity = CustomerEntity.class, type = JoinKind.LEFT,
+        on = @JoinEntity.On(column = "id"),
+        when = @JoinEntity.When(column = "STATUS", value = "PAID"))
+@JoinEntity(name = "copy", entity = OrderEntity.class, type = JoinKind.INNER,
+        on = @JoinEntity.On(column = "id"))
+@FilterColumn(name = "STATUS", path = "status")
+public record ColumnEntityJoinDetail(
+        @PrimaryKey Long id,
+        @Column(entityJoin = "manager", attribute = "name") String managerName,
+        @Column(entityJoin = "copy", attribute = "customer.name") String viaOrder) {}
+```
+
+```java
+var query = QColumnEntityJoinDetail.query().select(QColumnEntityJoinDetail.ALL)
+        .where(f -> f.gte(QColumnEntityJoinDetail.ID, 990L).lte(QColumnEntityJoinDetail.ID, 1030L))
+        .orderBy(QColumnEntityJoinDetail.ID.asc()).build();
+```
+
+=== "Plain JPA"
+
+    ```java
+    List<ColumnEntityJoinDetail> rows = executor.list(query, Limit.unlimited());
+    ```
+
+=== "Spring repository"
+
+    ```java
+    List<ColumnEntityJoinDetail> rows = orders.findAll(query, Limit.unlimited());
+    ```
+
+The hand-written form uses the same `EntityJoin` and `joinEntity` with a column anchor. With `ORDERS`, `ID` and
+`STATUS` defined as in `ColumnEntityJoinExecutionTest`, this excerpt joins a customer on the root's id and adds the
+static term:
+
+```java
+record Row(Long id, String manager, String referred, String referrer) {}
+
+var manager = EntityJoin.of("manager", CustomerEntity.class, JoinKind.LEFT,
+        List.of(EntityJoin.on(ID, "id"))).when(STATUS, "PAID");
+var name = ColumnField.of(Row.class, manager.root(), "name", String.class).named("manager");
+var query = ModelQuery.builder(ORDERS, row -> new Row(row.get(ID), row.get(name), null, null))
+        .joinEntity(manager).select(SelectSet.of(ID, name)).primaryKey(PrimaryKey.of(ID))
+        .where(f -> f.gte(ID, 990L).lte(ID, 1030L)).orderBy(ID.asc()).build();
+```
+
+=== "Plain JPA"
+
+    ```java
+    List<Row> rows = executor.list(query, Limit.unlimited());
+    ```
+
+=== "Spring repository"
+
+    ```java
+    List<Row> rows = orders.findAll(query, Limit.unlimited());
+    ```
+
+- **LEFT by default.** `@JoinEntity.type` defaults to `JoinKind.LEFT`; the hand-written forms above supply it
+  explicitly. An unmatched source, anchor or entity leaves the outer row with null joined values. `JoinKind.INNER`
+  drops either kind of unmatched row, including one whose column anchor is NULL because its own LEFT to-one path was
+  unmatched. Separate names joining the same entity remain independent.
+- **One anchor kind per join.** Each `@JoinEntity.On` pairs a field of the joined source named by `@JoinEntity#source`
+  with an entity id attribute, or names a `column` over the root or a to-one path from it when `source = ""`. Every
+  pair of one join uses the same kind, never a mix. Its `id` defaults to the sole basic id; composite ids need explicit
+  pairs for every attribute, including flattened embedded paths such as `id = "key.part"`. Hand-written
+  `EntityJoin.on(anchor, "id")` names the id explicitly.
   Converted anchors, partial or extra ids, association ids and differing boxed types are refused. `int` and `Integer`
   agree. Names must be unique across source and entity joins.
+- **What an anchor may read.** A column anchor is the root or a to-one path from it (`customer.legacyRepCode`), not a
+  joined source (use `field`), another entity join or a path below one (no chains), a to-many or treated path, an
+  expression, a correlated column, or a to-one read by its id (anchor on the foreign key's basic column). Pairs over
+  two anchor kinds, an anchor over another entity join, a converted anchor and a query rooted at a source are
+  [`MQ1911`](diagnostics.md) at build; the id rules and a to-many path are `MQ1911` at first resolution, before any
+  statement. A generated declaration is [`MQ3046`](diagnostics.md) instead.
+- **The static `when` term.** `@JoinEntity.When(column, value)` and `EntityJoin#when(column, value)` AND one constant
+  equality into the join's one `ON`, for a polymorphic reference whose ids collide across tables. The column follows
+  the anchor rule, and the value must have the column's boxed type and be bindable (a `java.time` value binds; an
+  enum, `Date`, `Calendar`, `Optional`, collection, array or entity value does not, and a `null` value is refused
+  too). It is a definition constant, so the shared `EntityJoin` or `@JoinEntity` retains the value, as INV-9 allows;
+  each statement binds it as a parameter, so the SQL text holds no literal. A second `when` is `MQ3046` from the
+  processor or `MQ1911` when a hand-written join is built.
 - **Basic columns and to-one paths.** Joined columns can follow to-one paths, as `customer.name` does above, with
   their declared join kind (`@FilterColumn#joinType` applies to the associations on the path; the entity join's own kind is `@JoinEntity#type`). A to-one column below an entity join resolves by its model field name (`viaOrder` here).
   To-many paths, nested `@Join`, a joined-column `@PrimaryKey`, `@JoinEntity` on `@SourceModel`, and `treat` combined
-  with `entityJoin` are refused. Generated declarations fail with [`MQ3046`](diagnostics.md); invalid hand-written
+  with `entityJoin` are refused. A `@Child` whose child model declares an entity join is `MQ3039`, since a fetch plan
+  passes no join; a nested `@Join` model that declares one is `MQ3044`.
+  Generated declarations fail with [`MQ3046`](diagnostics.md); invalid hand-written
   definitions fail with [`MQ1911`](diagnostics.md), at build or first resolution before SQL; an entity class the render
   options' metamodel rejects as unmapped is `MQ1911` too (without a metamodel, the provider decides). A column over an entity join the query does not bind is `MQ1003`.
   A cursor over an entity-join column carries the join in its identity path, so it cannot collide with a root attribute.
-- **Root-anchored in every statement.** The engine creates each entity join immediately after its source join,
-  attached to the statement's root. This includes unused joins, content and count, both primary-key-first steps,
-  keyset pages, `byKeys`, both `one` calls, export pages, streams, fetch-parent reads and through-child loads.
-  An INNER entity join therefore drops outer rows from content and count alike. Grouped queries with entity joins
-  count groups client-side. A count of a joined entity or a descendant uses its first basic id attribute, so an
-  unmatched LEFT entity counts as zero, including with composite ids.
+- **Root-anchored in every statement.** The engine creates each entity join immediately after the joined sources and
+  their entity joins, attached to the statement's root. This includes unused joins, content and count, both
+  primary-key-first steps, keyset pages, `byKeys`, both `one` calls, export pages, streams, fetch-parent reads and
+  through-child loads. An INNER entity join therefore drops outer rows from content and count alike; an INNER one
+  whose anchor or `when` column reads through a `joinFilter` join is `MQ1912`, so declare it `LEFT`. Grouped queries
+  with column-anchored entity joins count their groups through the provider's copy, which keeps the join; one that
+  joins a source still counts client-side. A count of a joined entity or a descendant follows R-AGG-19: an eligible
+  INNER entity join counts `count(*)`, a LEFT one counts its first basic id attribute, so an unmatched or
+  filter-blanked entity counts zero, including with composite ids. A filtered `COUNT` over no rows is 0 on both
+  provider lines.
+- **No CTE gate.** `MQ4015` for an entity join on a vendor without CTEs (`OTHER`) applies only to a join anchored on
+  a joined source; a column-anchored join renders on `OTHER`.
 
 Use a [join filter](models.md#join-filters) to blank a LEFT-joined entity's columns for one request while keeping
 its outer row. A `where` on a blanked column can still filter that row out.

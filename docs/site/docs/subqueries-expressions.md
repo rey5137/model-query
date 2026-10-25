@@ -161,6 +161,73 @@ rendered once and reused across `select`, `group by` and `order by` (R-COL-19).
 
 Tested by `ExpressionFilterTest`, `ExpressionAggregateTest`, `ExpressionTest` and `SampleApplicationTest`.
 
+### Request-bound values
+
+`QueryParam.of(name, type)` is an immutable, named and typed placeholder that can live in a `static final`.
+`Expr.param(param)` reads it anywhere an `ExpressionField` goes: a select item, a `coalesce`, `nullIf`, arithmetic or
+`concat` operand, a CASE condition or result, a `function` argument, a filter through `compare`, an order or group
+key, and a `Correlated` correlation. Two params are equal only by identity, and `toString` is `name: Type`. A declared
+type that cannot bind is `MQ1502` when `param` is called.
+
+`bind(param, value)` on `ModelQuery.Builder` or `SourceQuery.Builder` holds the value on the built query, never on the
+`QueryParam`, the expression or the model's constants (INV-9). A second `bind` of one param replaces the first; a
+`null` value, a value of the wrong type and a value that cannot bind are `MQ1502`. There is no optional bind: a caller
+with an optional value binds a default.
+
+```java
+static final QueryParam<Long> MIN_ID = QueryParam.of("minId", Long.class);
+static final QueryParam<String> TAG = QueryParam.of("tag", String.class);
+
+/** Select-only: the count statements render it not, so they bind no tag. */
+private static final ExpressionField<Row, String> LABEL =
+        Expr.<Row>concat(STATUS, Expr.param(TAG)).named("label");
+
+/** One shared definition (INV-9); each request binds it. */
+private static final ModelQuery.Builder<OrderEntity, Long, Row> ROWS = ModelQuery
+        .builder(ROOT, row -> new Row(row.get(ID), row.get(STATUS), row.get(LABEL)))
+        .select(SelectSet.of(ID, STATUS, LABEL)).primaryKey(PrimaryKey.of(ID))
+        .where(f -> f.compare(ID, Op.GTE, Expr.param(MIN_ID)).lte(ID, LAST)).orderBy(ID.asc());
+```
+
+With `ROOT`, `ID`, `STATUS` and `LAST` defined as in `QueryParamStatementsTest`, each request builds its own query:
+
+```java
+var query = ROWS.bind(MIN_ID, minId).bind(TAG, tag).build();
+```
+
+=== "Plain JPA"
+
+    ```java
+    List<Row> rows = executor.list(query, Limit.unlimited());
+    ```
+
+=== "Spring repository"
+
+    ```java
+    List<Row> rows = orders.findAll(query, Limit.unlimited());
+    ```
+
+A param that an expression the query renders reads and the query does not bind is `MQ1512` at `build()`, naming the
+param and where it is read, before any statement. So is one name shared by two different params, even when both are
+bound; a bound param that nothing reads is allowed. Every statement binds each param it renders once, so a param only
+a select column reads is absent from the count and is not bound there. Under inline value handling it stays a bound
+`?`, with the same SQL text and binds as the default mode.
+
+Where no operand gives the type (a bare select item, an arithmetic or `concat` operand, a CASE result, a group key),
+the param renders `cast(? as <type>)`; as a comparison operand, in `coalesce` beside a column and in a correlation it
+renders bare. A group and an order key reading one param are one node, so PostgreSQL matches the group key.
+
+A write binds no param. A bulk update, delete or insert whose `where` or conflict update's `where` reads one is
+`MQ1512` at its build; a conflict arbiter's is `MQ1804`, as any expression value in an arbiter is; `setExpression`
+with an expression that reads one is `MQ1613` at the call. A write that reads a caller's `ModelQuery`
+(`ModelInsert.select`) uses that query's bindings.
+
+Inspection names each param and its type, never its value. A keyset order key cannot be an expression, so a param
+never reaches a cursor; a cursor reused under different bound values continues with the new values, as one reused
+under a different `where` does.
+
+Tested by `QueryParamTest`, `QueryParamPositionsTest` and `QueryParamStatementsTest`.
+
 ### Paging with an expression order key
 
 Offset paging and offset export accept an expression key: the engine selects it and appends the primary-key

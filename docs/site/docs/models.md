@@ -122,7 +122,7 @@ var query = ModelQuery.builder(orders, row -> new Detail(row.get(id), row.get(cu
 
 The same call accepts an `EntityJoin`: `joinFilter(MANAGER, f -> f.lt(MANAGER_NAME, "Customer 1000"))`, as in
 `JoinFilterExecutionTest`. See
-[entity joins off a joined source](source-models.md#joining-an-entity-off-a-joined-source)
+[entity joins](source-models.md#joining-an-entity)
 for that definition. The filter is ANDed with the entity join's key predicate or an association's static
 `TableField.on(...)` in exactly one provider `on(...)` call. It follows every statement that renders the join,
 including count, both primary-key-first steps, keyset and export. It also follows a joining `where` term moved
