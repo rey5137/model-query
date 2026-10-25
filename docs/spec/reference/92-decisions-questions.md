@@ -3082,7 +3082,8 @@ decision).** A `QueryParam<C>` is an immutable, named and typed placeholder that
 `Builder#bind(param, value)` on `ModelQuery` and `SourceQuery` only, as `where` and `joinFilter` take values (INV-9).
 `ModelQuery#with(param, value)` is additive later. An unbound read param is `MQ1512` at `build()`, two params with one
 name are `MQ1512`, a bound param nothing reads is allowed, a `Correlated` reads the outer query's binding, and a
-non-query write that reads a param is `MQ1512`. Spike C: where no operand gives the type (a bare select item, an
+bulk write's `where` (or its conflict update's `where`) that reads a param is `MQ1512` (a `setExpression` is `MQ1613`, a
+conflict arbiter `MQ1804`). Spike C: where no operand gives the type (a bare select item, an
 arithmetic or concat operand, a CASE result, a group key), the param renders as `cast(? as <type>)` on both lines; as
 a comparison operand, in `coalesce` beside a column or in a correlation it renders bare, and PostgreSQL reports no
 undetermined type; as a group and order key it is one node. A param stays a bound `?` under `value_handling_mode=inline`

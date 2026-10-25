@@ -47,7 +47,6 @@ final class ParamReads {
         return Collections.unmodifiableMap(bound);
     }
 
-
     void field(SelectField<?, ?> field) {
         if (field == null) {
             return;

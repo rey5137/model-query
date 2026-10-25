@@ -159,7 +159,8 @@ are `@Incubating`; `RecursiveCte` is a record a provider constructs, and a tree 
 The column-anchored entity-join and request-bound value members are new in 0.11.0 and `@Incubating` (D-197 to D-202),
 and join the list above: `QueryParam`, `Expr.param`, `bind` on `ModelQuery.Builder` and `SourceQuery.Builder`,
 `EntityJoin#when`, the widened `EntityJoin.on(column, idAttribute)`, `@JoinEntity.When` and `@JoinEntity.On#column`,
-and `@Aggregate#entityJoin`. `ModelQuery#definitionKey()` is `@EngineFacing`, so not API. See
+and `@Aggregate#entityJoin`. `ModelQuery#definitionKey()` is `@Incubating` and `@EngineFacing`: for executors, not
+applications. See
 [Joining an entity](source-models.md#joining-an-entity),
 [request-bound values](subqueries-expressions.md#request-bound-values) and
 [aggregating a joined entity](grouped-queries.md#aggregating-a-joined-entity).

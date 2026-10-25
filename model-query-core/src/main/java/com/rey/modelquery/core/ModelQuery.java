@@ -469,8 +469,9 @@ public final class ModelQuery<E, K, M> {
      * {@link #withLock} or {@link #withFetch} copy has its own key, the same for every such copy of those queries with
      * an equal lock or the same plan. Any other builder change makes a new key, an {@link #orderedBy} copy's order
      * included, so two queries built apart have two keys even when equal; a phase check keys on
-     * {@link #definition()}'s. It holds no value (INV-9); compare it by identity.
+     * {@link #definition()}'s. It holds no value (INV-9); compare it by identity. For executors, not applications.
      */
+    @Incubating
     @EngineFacing
     public Object definitionKey() {
         return definitionKey;

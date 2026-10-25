@@ -233,12 +233,14 @@ extra row, so none is one (`delivery/61` R-REL-07).
 - `first(q)` renders with a limit of 1 and a stable order: `q`'s `orderBy`, then the primary key (or, for a grouped
   query, its group keys) wherever the `orderBy` does not already cover it. With no `orderBy`, that is the key
   ascending. An implicit column that can be NULL sorts `nullsLast` explicitly (`api/10` R-COL-12), since vendors place
-  NULL differently (INV-6); a column that cannot (an `@Id`, a non-optional or a primitive attribute, not read through
-  a LEFT join) sorts plain ascending, so an index can satisfy `ORDER BY ... LIMIT 1` where the vendor renders
-  `nullsLast` as a `CASE`. When the selection reads through a to-many join the key spans several rows, so the chosen
-  row is not deterministic, as with offset paging (`engine/21` R-PAG-13 refuses only key-based paging). A query with neither an
-  `orderBy` nor a key throws `MQ2203` (`api/11` R-QRY-03) before any statement; a grouped query's key is its group
-  keys, and one that only aggregates (no `groupBy`) has exactly one row, so it needs neither.
+  NULL differently (INV-6); a column that cannot (an `@Id`, a non-optional or a primitive attribute, with no outer
+  join, embedded parent or `TREAT` above it) sorts plain ascending, so an index can satisfy `ORDER BY ... LIMIT 1`
+  where the vendor renders `nullsLast` as a `CASE`. A join is outer when either the provider's join type or the
+  statement's record for a joined source or entity join says LEFT. When the selection reads through a to-many join
+  the key spans several rows, so the chosen row is not deterministic, as with offset paging (`engine/21` R-PAG-13
+  refuses only key-based paging). A query with neither an `orderBy` nor a key throws `MQ2203` (`api/11` R-QRY-03) before any
+  statement; a grouped query's key is its group keys, and one that only aggregates (no `groupBy`) has exactly one
+  row, so it needs neither.
 - `one(q, key)` adds `primary key = key` to `q`'s filter, converting each component as `whereKey` does
   (`api/14` R-WRT-08), and behaves as `one(q)`. A `q` that already filters on its key is accepted: the filters AND
   together, and contradictory ones give empty. A `null` key, a `null` component, or a composite key with the wrong

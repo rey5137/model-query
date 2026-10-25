@@ -3234,7 +3234,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /**
      * Whether {@code column} can read NULL: false only for a path to an id, a non-optional or a primitive attribute
-     * that no LEFT join sits above, so the common key orders plainly and an index can satisfy it (R-EXE-12).
+     * with no outer join, embedded or optional to-one parent, or TREAT above it, so the common key orders plainly and
+     * an index can satisfy it. A join is outer when the provider's join type or the statement's record for a joined
+     * source or entity join says so, either one sufficing (R-EXE-12).
      */
     static boolean mayBeNull(SelectField<?, ?> column, JoinContext joins) {
         if (!(column.expression(joins) instanceof Path<?> path)
@@ -3242,7 +3244,15 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             return true;
         }
         for (Path<?> up = path.getParentPath(); up != null; up = up.getParentPath()) {
-            if (up instanceof Join<?, ?> join && join.getJoinType() != JoinType.INNER) {
+            if (up instanceof From<?, ?> node) {
+                if (joins.readsThroughOuterJoin(node)) {
+                    return true;
+                }
+            } else if (up.getModel() instanceof SingularAttribute<?, ?> parent && !parent.isId()
+                    && (parent.isOptional()
+                            || parent.getPersistentAttributeType() == Attribute.PersistentAttributeType.EMBEDDED)) {
+                // A NULL embedded component or to-one reads its leaves as NULL, whatever the leaf declares; the
+                // metamodel does not say whether a component is always present, so an embedded parent counts.
                 return true;
             }
         }

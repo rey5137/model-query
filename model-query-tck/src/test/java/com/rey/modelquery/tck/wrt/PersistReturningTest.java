@@ -4,8 +4,10 @@ import static com.rey.modelquery.tck.wrt.BulkWriteTest.writes;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.rey.modelquery.annotations.JoinKind;
 import com.rey.modelquery.core.Agg;
 import com.rey.modelquery.core.ColumnField;
+import com.rey.modelquery.core.EntityJoin;
 import com.rey.modelquery.core.Expr;
 import com.rey.modelquery.core.FetchPlan;
 import com.rey.modelquery.core.InsertColumns;
@@ -19,6 +21,7 @@ import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
+import com.rey.modelquery.tck.col.CustomerEntity;
 import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckTest;
 import com.rey.modelquery.tck.vnd.ins.InsPersistEntity;
@@ -200,6 +203,25 @@ class PersistReturningTest {
                 .primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(100)).build());
 
         assertRefused(db, refused);
+    }
+
+    @TckTest
+    void ac_src_61_persist_returning_a_query_with_an_entity_join_throws_mq1809_before_any_statement(TckDatabase db) {
+        var join = EntityJoin.of("owner", CustomerEntity.class, JoinKind.LEFT,
+                List.of(EntityJoin.on(QInsPersistView.ID, "id")));
+        var refused = new LinkedHashMap<String, ModelQuery<InsPersistEntity, Long, InsPersistView>>();
+        refused.put("joinEntity(...)", QInsPersistView.query().joinEntity(join).select(QInsPersistView.ALL).build());
+        assertRefused(db, refused);
+        // The message names the clause and what the query may hold (R-SRC-25).
+        var persist = ModelPersist.of(COLUMNS, Long.class,
+                new NewPersist("x2", InsPersistEntity.Status.NEW, true, "#1", "Hanoi", 1L));
+        try (InsertProbes p = InsertProbes.withPersistRoots(db)) {
+            inProbeTransaction(p, em -> assertThatThrownBy(() ->
+                    executor(em).persist(persist, refused.get("joinEntity(...)")))
+                    .isInstanceOf(ModelQueryDefinitionException.class)
+                    .hasMessageContaining("persist returning a model takes only the selection, the mapper, afterMap "
+                            + "and the finisher of its query, which has joinEntity(...); build a query without them"));
+        }
     }
 
     @TckTest

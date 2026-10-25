@@ -378,6 +378,65 @@ class ColumnEntityJoinExecutionTest {
                 assertThat(SourceJoinExecutionTest.occurrences(statement, "left join customers")).isEqualTo(3));
     }
 
+    /** The returned model's id and the key it is chosen by. */
+    private static <K> ModelQuery.Builder<OrderEntity, K, Row> pick(ColumnField<Row, ?, K> key,
+            EntityJoin<Row, CustomerEntity> join) {
+        return ModelQuery.builder(ORDERS, row -> new Row(row.get(ID), null, null)).joinEntity(join)
+                .select(SelectSet.of(ID, key)).primaryKey(PrimaryKey.of(key));
+    }
+
+    /**
+     * {@code first} keys on a column of an entity joined LEFT: it can read NULL whatever the entity declares, so
+     * the key sorts NULLs last on every vendor, and a key of an INNER join sorts plain (R-EXE-12, AC-EXE-12).
+     */
+    @TckTest
+    void ac_exe_12_first_by_a_left_entity_join_column_puts_unmatched_rows_last(TckDatabase db) throws SQLException {
+        var key = ColumnField.of(Row.class, MANAGER.root(), "id", Long.class);
+        // Orders 995 to 1000 match a customer of their own id, 1001 to 1010 match none: NULL must not come first.
+        var left = pick(key, MANAGER).where(f -> f.gte(ID, 995L).lte(ID, 1010L)).build();
+        var innerReferred = customer("referred", JoinKind.INNER, REFERRER_ID);
+        var innerKey = ColumnField.of(Row.class, innerReferred.root(), "id", Long.class);
+        var inner = pick(innerKey, innerReferred).where(f -> f.gte(ID, 990L).lte(ID, 1030L)).build();
+        List<Long> ids = new ArrayList<>();
+        List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, x -> {
+            ids.add(x.first(left).map(Row::id).orElse(null));
+            ids.add(x.first(inner).map(Row::id).orElse(null));
+        }));
+        assertThat(ids.get(0)).isEqualTo(Long.valueOf(SourceJoinExecutionTest.rows(db, """
+                select o.id from orders o left join customers m on m.id = o.id
+                where o.id between 995 and 1010
+                order by case when m.id is null then 1 else 0 end, m.id""").get(0)));
+        assertThat(ids.get(0)).isEqualTo(995L);
+        // Several orders can share the smallest referrer, so the INNER row is checked by its referrer.
+        String expected = SourceJoinExecutionTest.rows(db, """
+                select c.id from orders o join customers c on c.id = o.referrer_id
+                where o.id between 990 and 1030 order by c.id""").get(0);
+        assertThat(SourceJoinExecutionTest.rows(db, "select c.id from orders o join customers c on c.id = "
+                + "o.referrer_id where o.id = " + ids.get(1))).containsExactly(expected);
+        assertThat(sql).hasSize(2);
+        assertThat(SourceJoinExecutionTest.occurrences(sql.get(0), "left join customers")).isEqualTo(1);
+        assertThat(sql.get(1)).doesNotContainPattern("nulls last|case when");
+    }
+
+    /**
+     * {@code first} keys on a primitive column read through a LEFT-joined optional to-one: a NULL association reads
+     * it as NULL, so the key sorts NULLs last on every vendor (R-EXE-12, AC-EXE-12). The path is a joined node: a
+     * dotted attribute cannot cross an association (MQ1002), so the join is the only way to such a column.
+     */
+    @TckTest
+    void ac_exe_12_first_by_a_column_below_an_optional_to_one_puts_orphans_last(TckDatabase db) throws SQLException {
+        var key = ColumnField.of(Row.class, REFERRER, "vip", Boolean.class);
+        // Of 990 to 992 only 990 has a referrer: NULL keys must come after it, not first.
+        var query = ModelQuery.builder(ORDERS, row -> new Row(row.get(ID), null, null))
+                .select(SelectSet.of(ID, key)).primaryKey(PrimaryKey.of(key))
+                .where(f -> f.gte(ID, 990L).lte(ID, 992L)).build();
+        List<Row> first = new ArrayList<>();
+        List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, x ->
+                first.add(x.first(query).orElse(null))));
+        assertThat(first).singleElement().satisfies(row -> assertThat(row.id()).isEqualTo(990L));
+        assertThat(sql).hasSize(1);
+    }
+
     @TckTest
     void ac_src_62_when_removes_colliding_rows_and_binds_a_parameter(TckDatabase db) throws SQLException {
         var paid = MANAGER.when(STATUS, "PAID");
