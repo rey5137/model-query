@@ -615,8 +615,8 @@ runtime API they generate against.
   generated `query(...)` takes every joined source, so only hand-written code reaches it.
 - **`Agg.count` over a joined source.** Over a `LEFT` join it renders `count(x.mq_<first key field>)`, so an outer row
   the source does not match counts `0`; over an `INNER` join it is the row count where R-AGG-19's eligibility holds,
-  an `INNER` join reached through a `LEFT` one excluded (R-AGG-19). A filtered count counts the key under its filter
-  (R-AGG-17).
+  an `INNER` join reached through a `LEFT` one excluded (R-AGG-19). A filtered count uses `1` when eligible, else the
+  key, under its filter and wraps the count in `coalesce(<count>, 0)` (R-AGG-17).
 
 **R-SRC-22** *(D-185, D-187)* **Rendering.** The engine builds the joined source's body as R-SRC-12 does, registers it
 (and its chain, R-SRC-18) on the top statement with `SourceRenderer#register` or `#registerRecursive`, and joins it
@@ -669,8 +669,11 @@ source-binding code. A to-one column below an entity join resolves by its model 
 path for an entity-join column is `entity(<join>).<attr...>` (R-PAG-19, D-196). The processor forms and `MQ3046`
 belong to M33.2.
 
-`Agg.count` over a joined entity, or any join below it, counts its first basic id attribute, including for INNER
-joins and composite ids (R-AGG-19). A LEFT-unmatched entity counts 0. Filtered counts use that same attribute;
+`Agg.count` over an INNER joined entity, its id column or an INNER to-one join below it renders the row count
+`count(*)` when its attached root is eligible (R-AGG-19, D-199), for source and column anchors alike, including
+composite and embedded ids. A LEFT join, plain or filtered, stops eligibility and counts the first basic id
+attribute; an unmatched or filter-blanked row counts 0. Filtered counts use `1` under the condition when eligible,
+else that identity, wrapped in `coalesce(<count>, 0)` so empty input returns 0 on both Hibernate lines.
 `firstBy` may read a joined-entity column and returns one value per group. Nullable joined order keys follow the
 existing keyset rules, including `nullsLast`.
 
@@ -793,9 +796,9 @@ the root and several of its to-one paths.
 | AC-SRC-53 | On Tier 1, a LEFT entity join matches native SQL; unmatched source and entity rows yield null joined columns; two names joining the same entity remain independent; to-one paths below the entity retain their declared join kind (R-SRC-23). The processor-generated form is covered by `GeneratedEntityJoinExecutionTest.ac_src_53_ac_proc_48_generated_left_entity_joins_match_native_sql`. |
 | AC-SRC-54 | Entity joins, including unused ones, occur after their anchor source join in every R-SRC-22 statement, including fetch-parent reads and through-child loads (R-SRC-24). |
 | AC-SRC-55 | INNER entity joins drop missing entity and LEFT-source rows in content and totals; nullable joined keyset ordering with `nullsLast` loses no row under the existing cursor rules; an unmatched LEFT entity count is 0 (R-SRC-23, R-SRC-24). |
-| AC-SRC-56 | Hand-written forms raise `MQ1911` at build or first resolution as R-SRC-23 specifies, and an unregistered joined-entity column is `MQ1003`; an entity class the render options' metamodel rejects as unmapped is `MQ1911` (without a metamodel the renderer or provider decides). **M33.2 covered by `EntityJoinChecksTest.ac_src_56_*` and `JoinEntityModelTest.ac_proc_48_*` (AC-PROC-48):** processor `MQ3046` cases: partial or extra id pair, non-id or association id, converted field, boxed-type mismatch, unknown join or field, `source` not a joined source, to-many path, nested `@Join`, joined-column `@PrimaryKey`, `@SourceModel`, duplicate name shared with source joins, unknown `entityJoin` member, `treat` combined with `entityJoin`, and a `source` that names no `@JoinSource`, once per join. |
+| AC-SRC-56 | Hand-written forms raise `MQ1911` at build or first resolution as R-SRC-23 specifies, and an unregistered joined-entity column is `MQ1003`; an entity class the render options' metamodel rejects as unmapped is `MQ1911` (without a metamodel the renderer or provider decides). **M33.2 covered by `EntityJoinChecksTest.ac_src_56_*` and `JoinEntityModelTest.ac_proc_48_*` (AC-PROC-48):** processor `MQ3046` cases: partial or extra id pair, non-id or association id, converted field, boxed-type mismatch, unknown join or field, `source` not a joined source, to-many path, nested `@Join`, joined-column `@PrimaryKey`, `@SourceModel`, duplicate name shared with source joins, unknown `entityJoin` member, `treat` combined with `entityJoin`, and a `source` that names no `@JoinSource`, once per join. Joined-entity aggregate MQ3046 cases are covered by AC-PROC-50: unknown `entityJoin` and nonempty `entityJoin` combined with an expression (R-PROC-47, D-202). |
 | AC-SRC-57 | Lock `MQ1903` and child-model `MQ3039` remain unchanged; entity joins to `@IdClass` and `@EmbeddedId` targets match every id attribute (R-SRC-23, R-SRC-24). |
-| AC-SRC-58 | Missing `entityJoins()` is `MQ4014` before SQL, after vendor `MQ4015` and SourceRenderer `MQ4014`, reported per PortabilityCheck target. Entity and descendant counts use the first id attribute on both Hibernate lines, including composite ids; `on` is called once per entity join, and a renderer breaking that is `MQ4014` (AC-VND-22); `firstBy` returns one value per group (R-SRC-24, R-AGG-19, R-VND-32). |
+| AC-SRC-58 | Missing `entityJoins()` is `MQ4014` before SQL, after vendor `MQ4015` and SourceRenderer `MQ4014`, reported per PortabilityCheck target. LEFT entity and descendant counts use the first id attribute on both Hibernate lines, including composite ids; eligible INNER entity joins use `count(*)` (R-AGG-19, AC-AGG-31); `on` is called once per entity join, and a renderer breaking that is `MQ4014` (AC-VND-22); `firstBy` returns one value per group (R-SRC-24, R-AGG-19, R-VND-32). |
 | AC-SRC-59 | A `LEFT` entity join anchored on a root column, and one on a to-one path's column, match native SQL on Tier 1 and both Hibernate lines; orphan anchors read NULL and keep the row; two joins of one entity stay apart; a non-id anchor on a to-one path renders that path's join before the entity join, whose `ON` reads it; a vendor without `SourceFeature.CTE` renders it (R-SRC-25, D-197). |
 | AC-SRC-60 | An `INNER` column-anchored join drops unmatched rows, including rows whose `LEFT` anchor path is unmatched, in content and totals; it and an unread `LEFT` join are in every R-SRC-24 statement (list, count, counted page, primary-key-first, keyset pages, `byKeys`, `one`, export, stream); keyset over a nullable joined column with `nullsLast` loses no row; `count` and a counted page of a grouped query with an `INNER` column-anchored join return the group count from the provider's count copy, which keeps the join (R-SRC-25, D-197). |
 | AC-SRC-61 | `MQ1911` at build for mixed anchor kinds, chains, treated, converted, lifted and source anchors and a source-rooted query, and at first resolution for a to-many or id-form anchor and the id rules, before SQL; `MQ1912` for an `INNER` join anchored through a `joinFilter` join; `MQ2211` for a lock; `MQ1604`, `MQ1801` and `MQ1003` for the writes; a hand-written `through` child load keeps the join and returns the rows its anchors match (R-SRC-25). |

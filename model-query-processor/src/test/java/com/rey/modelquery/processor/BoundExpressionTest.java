@@ -91,6 +91,24 @@ class BoundExpressionTest {
     }
 
     @Test
+    void ac_proc_50_entity_join_with_a_bound_expression_is_mq3046() {
+        compileToClasspath(classes, ORDER_ENTITY, source("shop.OrderBand", ORDER_BAND
+                .replace("public record", "@JoinEntity(name = \"other\", entity = OrderEntity.class,"
+                        + " on = @JoinEntity.On(column = \"rootId\"))\npublic record")
+                .replace("public record OrderBand(", "public record OrderBand("
+                        + "@GroupBy @Column(attribute = \"id\") Long rootId,")
+                .replace("SUM)", "SUM, entityJoin = \"other\")")));
+
+        Compilation compilation = compileAgainst(classes, processor, ORDER_ENTITY, band("persistence"),
+                bandDoubled("persistence"), binding(BIND.formatted(BOTH)));
+
+        assertThat(compilation).failed();
+        assertThat(compilation).hadErrorContaining("MQ3046: OrderBand.doubled: "
+                + "@Aggregate entityJoin cannot be combined with expression");
+        assertThat(compilation).hadErrorCount(1);
+    }
+
+    @Test
     void ac_proc_25_valueless_computed_on_an_annotated_model_is_mq3025() {
         Compilation compilation = processor.compile(ORDER_ENTITY, source("shop.OrderBand", ORDER_BAND
                 .replace("public record", "@QueryModel(root = OrderEntity.class)\npublic record")

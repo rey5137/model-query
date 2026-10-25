@@ -3137,6 +3137,14 @@ Rejected: keeping the first-built query as the definition (it holds the first re
 recheck (log noise, D-21).
 → `api/10` R-COL-40, AC-COL-63, `api/11` R-QRY-09, `engine/20` R-EXE-13, R-EXE-15, `engine/21` R-PAG-27, D-21, D-198.
 
+**D-202 — Refuse joined-entity expression aggregates (M34.4, 2026-10-25, user decision).** A nonempty
+`@Aggregate.entityJoin` scopes `attribute` and `FIRST_BY`'s `orderBy` paths only. An `ExpressionDefinition` brings
+its own scope, so combining a nonempty `entityJoin` with an expression is refused with `MQ3046` on the aggregate
+for every function, including expressions supplied by `@BindExpression`. This prevents the value expression from
+reading one scope while its order keys read another. The default empty `entityJoin` keeps expression aggregates
+unchanged. The refusal can be relaxed later if a rule defines the combined scope.
+→ `processor/30` R-PROC-47, `processor/32` MQ3046, AC-PROC-50.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

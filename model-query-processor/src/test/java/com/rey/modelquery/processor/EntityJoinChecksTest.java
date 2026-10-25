@@ -311,7 +311,8 @@ class EntityJoinChecksTest {
 
     @Test
     void ac_src_56_empty_id_pairs_are_mq3046() {
-        rejected(model(SOURCE_JOIN + "@JoinEntity(name = \"manager\", source = \"edge\", entity = Profile.class, on = {})",
+        rejected(model(SOURCE_JOIN + "@JoinEntity(name = \"manager\", source = \"edge\","
+                        + " entity = Profile.class, on = {})",
                 FIELDS, PROFILE), "cover every basic id attribute exactly once");
     }
 
@@ -499,5 +500,120 @@ class EntityJoinChecksTest {
         assertThat(compilation).failed();
         assertThat(compilation).hadErrorContaining("MQ3039:");
         assertThat(compilation).hadErrorContaining("ChildRow joins 'manager', an entity join");
+    }
+
+    @Test
+    void ac_proc_50_unknown_aggregate_entity_join_is_mq3046_with_or_without_an_attribute() {
+        for (String attribute : new String[] {"", ", attribute = \"id\"", ", attribute = \"absent\"",
+                ", attribute = \"absent\", distinct = true", ", attribute = \"parent.id\"",
+                ", attribute = \"children.id\""}) {
+            Compilation compilation = model(SOURCE_JOIN + ENTITY_JOIN,
+                    "@Aggregate(fn = AggregateFunction.COUNT, entityJoin = \"missing\"" + attribute + ") Long total",
+                    PROFILE);
+            rejected(compilation, "Detail entity join 'missing': unknown entity join");
+            assertThat(compilation).hadErrorCount(1);
+        }
+        for (String fn : new String[] {"SUM", "AVG", "MIN", "MAX", "FIRST_BY"}) {
+            String order = fn.equals("FIRST_BY") ? ", orderBy = \"absentOrder\"" : "";
+            Compilation compilation = model(SOURCE_JOIN + ENTITY_JOIN,
+                    "@Aggregate(fn = AggregateFunction." + fn + ", entityJoin = \"missing\","
+                            + " attribute = \"absent\"" + order + ") Long total", PROFILE);
+            rejected(compilation, "Detail entity join 'missing': unknown entity join");
+            assertThat(compilation).hadErrorCount(1);
+        }
+    }
+
+    @Test
+    void ac_proc_50_entity_join_with_an_expression_is_mq3046_for_every_function() {
+        for (String fn : new String[] {"COUNT", "SUM", "AVG", "MIN", "MAX", "FIRST_BY"}) {
+            String order = fn.equals("FIRST_BY") ? ", orderBy = \"id\"" : "";
+            for (String join : new String[] {"manager", "missing"}) {
+                Compilation compilation = model(SOURCE_JOIN + ENTITY_JOIN,
+                        "@Aggregate(fn = AggregateFunction." + fn + ", entityJoin = \"" + join + "\","
+                                + " expression = IdExpr.class" + order + ") Long total", PROFILE);
+                rejected(compilation, "Detail.total: @Aggregate entityJoin cannot be combined with expression");
+                assertThat(compilation).hadErrorCount(1);
+            }
+        }
+    }
+
+    @Test
+    void ac_proc_50_root_expression_aggregates_keep_their_scope() {
+        for (String fn : new String[] {"COUNT", "SUM", "AVG", "MIN", "MAX", "FIRST_BY"}) {
+            String order = fn.equals("FIRST_BY") ? ", orderBy = \"id\"" : "";
+            String type = fn.equals("AVG") ? "Double" : "Long";
+            for (String join : new String[] {"", ", entityJoin = \"\""}) {
+                Compilation compilation = model(SOURCE_JOIN + ENTITY_JOIN, "@GroupBy Long id, "
+                        + "@Aggregate(fn = AggregateFunction." + fn + ", expression = IdExpr.class"
+                        + join + order + ") " + type + " total", PROFILE);
+                assertThat(compilation).succeededWithoutWarnings();
+            }
+        }
+    }
+
+    @Test
+    void ac_proc_50_entity_join_expression_rejection_precedes_path_and_option_checks() {
+        for (String options : new String[] {
+                "fn = AggregateFunction.COUNT, distinct = true",
+                "fn = AggregateFunction.SUM, distinct = true",
+                "fn = AggregateFunction.SUM, attribute = \"absent\"",
+                "fn = AggregateFunction.FIRST_BY, orderBy = \"absentOrder\"",
+                "fn = AggregateFunction.MAX, orderBy = \"id\"",
+                "fn = AggregateFunction.MAX, filter = IdExpr.class",
+                "fn = AggregateFunction.MAX, scale = 31"}) {
+            Compilation compilation = model(SOURCE_JOIN + ENTITY_JOIN,
+                    "@Aggregate(" + options + ", entityJoin = \"manager\", expression = IdExpr.class) Long total",
+                    PROFILE);
+            rejected(compilation, "Detail.total: @Aggregate entityJoin cannot be combined with expression");
+            assertThat(compilation).hadErrorCount(1);
+        }
+        Compilation wrongExpression = model(SOURCE_JOIN + ENTITY_JOIN,
+                "@Aggregate(fn = AggregateFunction.SUM, entityJoin = \"manager\","
+                        + " expression = String.class) Long total", PROFILE);
+        rejected(wrongExpression, "Detail.total: @Aggregate entityJoin cannot be combined with expression");
+        assertThat(wrongExpression).hadErrorCount(1);
+    }
+
+    @Test
+    void ac_proc_50_joined_aggregate_paths_keep_existing_attribute_and_type_diagnostics() {
+        Compilation missing = model(SOURCE_JOIN + ENTITY_JOIN,
+                "@GroupBy Long id, "
+                        + "@Aggregate(fn = AggregateFunction.MAX, entityJoin = \"manager\", "
+                        + "attribute = \"absent\") Long total",
+                PROFILE);
+        assertThat(missing).failed();
+        assertThat(missing).hadErrorContaining("MQ3001:");
+        assertThat(missing).hadErrorCount(1);
+        Compilation wrongType = model(SOURCE_JOIN + ENTITY_JOIN,
+                "@GroupBy Long id, "
+                        + "@Aggregate(fn = AggregateFunction.MAX, entityJoin = \"manager\", "
+                        + "attribute = \"name\") Long total",
+                PROFILE);
+        assertThat(wrongType).failed();
+        assertThat(wrongType).hadErrorContaining("MQ3202:");
+        Compilation many = model(SOURCE_JOIN + ENTITY_JOIN,
+                "@GroupBy Long id, "
+                        + "@Aggregate(fn = AggregateFunction.COUNT, entityJoin = \"manager\","
+                        + " attribute = \"peers.id\") Long total",
+                PROFILE + " @OneToMany java.util.List<Profile> peers;");
+        rejected(many, "a joined-entity path cannot traverse a to-many attribute");
+    }
+
+    @Test
+    void ac_proc_50_joined_aggregate_order_keys_keep_option_diagnostics() {
+        for (String order : new String[] {"absent", "name sideways"}) {
+            Compilation compilation = model(SOURCE_JOIN + ENTITY_JOIN,
+                    "@GroupBy Long id, @Aggregate(fn = AggregateFunction.FIRST_BY, entityJoin = \"manager\","
+                            + " attribute = \"name\", orderBy = \"" + order + "\") String first", PROFILE);
+            assertThat(compilation).failed();
+            assertThat(compilation).hadErrorContaining("MQ3045:");
+            assertThat(compilation).hadErrorCount(1);
+        }
+        Compilation association = model(SOURCE_JOIN + ENTITY_JOIN,
+                "@GroupBy Long id, @Aggregate(fn = AggregateFunction.MAX, entityJoin = \"manager\","
+                        + " attribute = \"peer\") Long total", PROFILE + " @ManyToOne Profile peer;");
+        assertThat(association).failed();
+        assertThat(association).hadErrorContaining("MQ3002:");
+        assertThat(association).hadErrorCount(1);
     }
 }

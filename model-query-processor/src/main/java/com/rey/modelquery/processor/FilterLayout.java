@@ -16,10 +16,12 @@ import javax.lang.model.element.TypeElement;
  *
  * @param tables the joins to declare, a parent before what hangs from it
  * @param columns the filter columns whose path resolved, in declaration order
+ * @param aggregateColumns the joined-entity aggregate paths, used in place rather than emitted as constants
  * @param problems what is wrong with the paths; empty for a model that may be generated
  * @implSpec R-PROC-10, R-PROC-11, R-PROC-12, R-PROC-13
  */
-record FilterLayout(List<Table> tables, List<Column> columns, List<Problem> problems) {
+record FilterLayout(
+        List<Table> tables, List<Column> columns, List<Column> aggregateColumns, List<Problem> problems) {
 
     private static final String ROOT = "ROOT";
     private static final String LEFT = "LEFT";
@@ -35,6 +37,7 @@ record FilterLayout(List<Table> tables, List<Column> columns, List<Problem> prob
     FilterLayout {
         tables = List.copyOf(tables);
         columns = List.copyOf(columns);
+        aggregateColumns = List.copyOf(aggregateColumns);
         problems = List.copyOf(problems);
     }
 
@@ -85,7 +88,7 @@ record FilterLayout(List<Table> tables, List<Column> columns, List<Problem> prob
     static FilterLayout of(ModelDefinition model, List<JoinedTable> joined, EntityMetamodel metamodel) {
         // An insert model reads no row of its root, so it declares no table; its @FilterColumn is MQ3502 (R-PROC-23).
         if (model.insertModel()) {
-            return new FilterLayout(List.of(), List.of(), List.of());
+            return new FilterLayout(List.of(), List.of(), List.of(), List.of());
         }
         if (model.readsSource()) {
             return overSource(model);
@@ -127,7 +130,35 @@ record FilterLayout(List<Table> tables, List<Column> columns, List<Problem> prob
                 columns.add(column);
             }
         }
-        return new FilterLayout(new ArrayList<>(tables.values()), columns, problems);
+        var aggregateColumns = new ArrayList<Column>();
+        for (var field : model.aggregates()) {
+            var aggregate = field.aggregate();
+            if (aggregate.entityJoin().isEmpty()) {
+                continue;
+            }
+            var paths = new ArrayList<String>();
+            if (!aggregate.attribute().isEmpty()) {
+                paths.add(aggregate.attribute());
+            }
+            for (String entry : aggregate.orderBy()) {
+                var order = ModelDefinition.AggregateOrder.parse(entry);
+                if (order != null) {
+                    paths.add(order.path());
+                }
+            }
+            for (String path : paths) {
+                var definition = new FilterColumnDefinition(field.constant(), path, LEFT, false, "", null, null,
+                        aggregate.entityJoin(), true);
+                Walk walk = metamodel.walk(model.entityRoot(aggregate.entityJoin()), path);
+                if (walk.problem() == null) {
+                    Column column = place(model, definition, walk, joined, tables, problems);
+                    if (column != null) {
+                        aggregateColumns.add(column);
+                    }
+                }
+            }
+        }
+        return new FilterLayout(new ArrayList<>(tables.values()), columns, aggregateColumns, problems);
     }
 
     /** Source filter columns alias a single CTE column; an outer query declares none (R-SRC-16). */
@@ -152,7 +183,7 @@ record FilterLayout(List<Table> tables, List<Column> columns, List<Problem> prob
                 }
             }
         }
-        return new FilterLayout(List.of(), columns, problems);
+        return new FilterLayout(List.of(), columns, List.of(), problems);
     }
 
     /**

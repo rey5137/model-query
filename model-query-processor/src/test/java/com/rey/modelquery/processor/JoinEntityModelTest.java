@@ -206,4 +206,74 @@ class JoinEntityModelTest {
         assertThat(generatedFlat(compilation, "shop.QNodeDetail"))
                 .contains("QManagerEdge.MANAGER_ID), \"id\"))).when(ID, 7L)");
     }
+
+    @Test
+    void ac_proc_50_joined_aggregates_use_the_join_root_and_reuse_to_one_tables() {
+        Compilation compilation = model("""
+                @QueryModel(root = Node.class)
+                @JoinEntity(name = "manager", entity = Profile.class, type = JoinKind.INNER,
+                        on = @JoinEntity.On(column = "ID"))
+                @FilterColumn(name = "ID", path = "id")
+                public record NodeDetail(
+                        @GroupBy @Column(entityJoin = "manager", attribute = "type.id") Long typeId,
+                        @Aggregate(fn = AggregateFunction.COUNT, entityJoin = "manager", attribute = "id") Long total,
+                        @Aggregate(fn = AggregateFunction.COUNT, entityJoin = "manager") Long rows,
+                        @Aggregate(fn = AggregateFunction.COUNT, entityJoin = "manager", attribute = "id",
+                                distinct = true) Long distinctIds,
+                        @Aggregate(fn = AggregateFunction.MAX, entityJoin = "manager",
+                                attribute = "type.name") String name,
+                        @Aggregate(fn = AggregateFunction.FIRST_BY, entityJoin = "manager", attribute = "firstName",
+                                orderBy = "type.name desc nulls last") String first) {}
+                """);
+        assertThat(compilation).succeededWithoutWarnings();
+        String generated = generatedFlat(compilation, "shop.QNodeDetail");
+        assertThat(generated)
+                .contains("TOTAL = Agg.count( ColumnField.of(NodeDetail.class, MANAGER.root(), \"id\", Long.class))")
+                .contains("ROWS = Agg.<NodeDetail>count(MANAGER.root())")
+                .contains("DISTINCT_IDS = Agg.countDistinct( ColumnField.of(NodeDetail.class, MANAGER.root(), ")
+                .contains("NAME = Agg.max( ColumnField.of(NodeDetail.class, MANAGER_TYPE_TABLE, "
+                        + "\"name\", String.class))")
+                .contains("ColumnField.of(NodeDetail.class, MANAGER_TYPE_TABLE, "
+                        + "\"name\", String.class).desc().nullsLast()")
+                .contains(".joinEntity(MANAGER)");
+        assertThat(generated.indexOf("MANAGER_TYPE_TABLE ="))
+                .isEqualTo(generated.lastIndexOf("MANAGER_TYPE_TABLE ="));
+    }
+
+    @Test
+    void ac_proc_50_empty_entity_join_generates_the_same_source_as_the_default() {
+        String declaration = """
+                @QueryModel(root = Node.class, singleGroup = true)
+                public record NodeDetail(
+                        @Aggregate(fn = AggregateFunction.COUNT) Long total,
+                        @Aggregate(fn = AggregateFunction.MAX, attribute = "name") String name) {}
+                """;
+        Compilation implicit = model(declaration);
+        Compilation explicit = model(declaration.replace("@Aggregate(", "@Aggregate(entityJoin = \"\", "));
+        assertThat(implicit).succeededWithoutWarnings();
+        assertThat(explicit).succeededWithoutWarnings();
+        assertThat(generatedFlat(explicit, "shop.QNodeDetail"))
+                .isEqualTo(generatedFlat(implicit, "shop.QNodeDetail"));
+    }
+
+    @Test
+    void ac_proc_50_aggregate_only_to_one_paths_declare_their_table() {
+        Compilation compilation = model("""
+                @QueryModel(root = Node.class, singleGroup = true)
+                @JoinEntity(name = "manager", entity = Profile.class, type = JoinKind.INNER,
+                        on = @JoinEntity.On(column = "ID"))
+                @FilterColumn(name = "ID", path = "id")
+                public record NodeDetail(
+                        @Aggregate(fn = AggregateFunction.MAX, entityJoin = "manager",
+                                attribute = "type.name") String name,
+                        @Aggregate(fn = AggregateFunction.FIRST_BY, entityJoin = "manager", attribute = "firstName",
+                                orderBy = "type.id") String first) {}
+                """);
+        assertThat(compilation).succeededWithoutWarnings();
+        assertThat(generatedFlat(compilation, "shop.QNodeDetail"))
+                .contains("MANAGER_TYPE_TABLE = TableField.<Profile, ProfileType>join("
+                        + "MANAGER.root(), \"type\", JoinType.LEFT)")
+                .contains("NAME = Agg.max( ColumnField.of(NodeDetail.class, MANAGER_TYPE_TABLE,")
+                .contains("ColumnField.of(NodeDetail.class, MANAGER_TYPE_TABLE, \"id\", Long.class).asc()");
+    }
 }

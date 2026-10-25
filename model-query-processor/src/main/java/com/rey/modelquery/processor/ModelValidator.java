@@ -1040,7 +1040,7 @@ final class ModelValidator {
      */
     private TypeMirror orderKeyType(
             ModelDefinition model, String path, ModelField field, String where, Diagnostics diagnostics) {
-        if (model.readsSource()) {
+        if (model.readsSource() && field.aggregate().entityJoin().isEmpty()) {
             ModelField source = model.sourceField(path);
             if (source == null) {
                 diagnostics.error(field.element(), DiagnosticCode.MQ3045, where + "orderBy key '" + path
@@ -1048,7 +1048,11 @@ final class ModelValidator {
             }
             return source == null ? null : boxed(source.type());
         }
-        Resolution resolution = metamodel.resolve(model.root(), path);
+        if (unknownAggregateJoin(model, field)) {
+            return null;
+        }
+        Resolution resolution = metamodel.resolve(model.entityRoot(field.aggregate().entityJoin()), path,
+                !field.aggregate().entityJoin().isEmpty());
         if (resolution.attribute() == null) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3045,
                     where + "orderBy key '" + path + "': " + resolution.problem());
@@ -1057,10 +1061,16 @@ final class ModelValidator {
         EntityAttribute attribute = resolution.attribute();
         if (attribute.kind() == EntityAttribute.Kind.TO_ONE || attribute.kind() == EntityAttribute.Kind.COLLECTION) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3045, where + "orderBy key '" + path
-                    + "' is an association on " + model.root().getSimpleName() + "; order by a basic attribute");
+                    + "' is an association on " + model.entityRoot(field.aggregate().entityJoin()).getSimpleName()
+                    + "; order by a basic attribute");
             return null;
         }
         return boxed(attribute.type());
+    }
+
+    private static boolean unknownAggregateJoin(ModelDefinition model, ModelField field) {
+        String name = field.aggregate().entityJoin();
+        return !name.isEmpty() && model.entityJoins().stream().noneMatch(join -> join.name().equals(name));
     }
 
     /**
@@ -1181,7 +1191,7 @@ final class ModelValidator {
         }
         // An aggregate over a model rooted at a source reads a source field, and takes that field's type: the CTE
         // column carries the conversion the source's own constant declares (R-SRC-10).
-        if (model.readsSource()) {
+        if (model.readsSource() && aggregate.entityJoin().isEmpty()) {
             ModelField source = model.sourceField(aggregate.attribute());
             if (source == null) {
                 diagnostics.error(field.element(), DiagnosticCode.MQ3001, where + "no field '"
@@ -1190,7 +1200,11 @@ final class ModelValidator {
             }
             return expectedResult(boxed(source.type()), true, field, where, diagnostics);
         }
-        Resolution resolution = metamodel.resolve(model.root(), aggregate.attribute());
+        if (unknownAggregateJoin(model, field)) {
+            return null;
+        }
+        Resolution resolution = metamodel.resolve(model.entityRoot(aggregate.entityJoin()), aggregate.attribute(),
+                !aggregate.entityJoin().isEmpty());
         if (resolution.attribute() == null) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3001, where + resolution.problem());
             return null;
@@ -1198,7 +1212,8 @@ final class ModelValidator {
         EntityAttribute attribute = resolution.attribute();
         if (attribute.kind() == EntityAttribute.Kind.TO_ONE || attribute.kind() == EntityAttribute.Kind.COLLECTION) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3002, where + "@Aggregate attribute '"
-                    + attribute.name() + "' is an association on " + model.root().getSimpleName()
+                    + attribute.name() + "' is an association on "
+                    + model.entityRoot(aggregate.entityJoin()).getSimpleName()
                     + "; aggregate a basic attribute");
             return null;
         }

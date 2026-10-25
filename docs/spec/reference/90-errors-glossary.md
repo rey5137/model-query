@@ -187,7 +187,9 @@ precedence, entity or deployment changed); start again with KeysetSpec.first`.
 ## 4. `MQ3xxx` — annotation processing
 
 Catalogued with messages in `processor/32` §1: `MQ3001`–`MQ3046` for structural checks, options, bound models and
-query sources and inheritance declarations (D-134, D-143, D-145, D-154, D-188, D-189, D-193),
+query sources and inheritance declarations (D-134, D-143, D-145, D-154, D-188, D-189, D-193). For joined-entity
+aggregates, `MQ3046` includes an unknown join and a nonempty `entityJoin` combined with an explicit or bound
+expression, for any function (R-PROC-47, D-202). The remaining families are
 `MQ3201`–`MQ3208` for aggregate models,
 `MQ3301`–`MQ3307` for update models,
 `MQ3401`–`MQ3406` for `@Child` (`api/15`), `MQ3501`–`MQ3506` for insert models and `generateInserts` (D-116, D-117,

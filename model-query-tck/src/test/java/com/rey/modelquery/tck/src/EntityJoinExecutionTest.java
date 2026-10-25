@@ -400,8 +400,8 @@ class EntityJoinExecutionTest {
         var id = ColumnField.of(Counted.class, ORDERS, "id", Long.class);
         var bound = SourceJoin.of("keys", Keys.class, JoinKind.LEFT, List.of(SourceJoin.on(id, S_ID)));
         var anchor = ColumnField.over(Counted.class, bound.root(), S_ID);
-        List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, x -> {
-            for (var kind : List.of(JoinKind.LEFT, JoinKind.INNER)) {
+        for (var kind : List.of(JoinKind.LEFT, JoinKind.INNER)) {
+            List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, x -> {
                 var entity = EntityJoin.of("copy", OrderEntity.class, kind, List.of(EntityJoin.on(anchor, "id")));
                 var descendant = TableField.join(entity.root(), "customer", JoinType.INNER);
                 for (var table : List.of(entity.root(), descendant)) {
@@ -417,10 +417,14 @@ class EntityJoinExecutionTest {
                         assertThat(x.page(query, PageSpec.of(0, 7), CountMode.COUNT).total()).hasValue(groups);
                     }
                 }
+            }));
+            assertThat(sql).allSatisfy(statement -> assertThat(statement).doesNotContain("count(("));
+            if (kind == JoinKind.INNER) {
+                assertThat(sql).anySatisfy(statement -> assertThat(statement).contains("count(*)"));
+            } else {
+                assertThat(sql).allSatisfy(statement -> assertThat(statement).doesNotContain("count(*)", "count(1)"));
             }
-        }));
-        assertThat(sql).allSatisfy(statement -> assertThat(statement)
-                .doesNotContain("count(*)", "count(1)", "count(("));
+        }
     }
 
     @TckTest

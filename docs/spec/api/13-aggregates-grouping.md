@@ -203,7 +203,11 @@ is the first to need resolves `LEFT` (R-FLT-10), so a NULL path drops no row fro
 would. Rendering goes through `ProviderSupport#aggregates()` (R-VND-30): `Hibernate` renders `FILTER (WHERE ...)` where
 the database has it and its own CASE emulation elsewhere. With no such hook the engine renders the CASE form,
 `fn(case when c then x end)` (a count passes the argument the unfiltered count uses); the two forms give equal rows on
-every vendor. `MQ1412` when the field is already filtered (combine the conditions in one `filter`), when it comes from
+every vendor. A filtered COUNT renders `coalesce(<count>, 0)`, around either the provider's filtered count or the
+engine's CASE count, so an empty input returns 0 on both Hibernate lines. Hibernate 7.4 can render the inner count
+as `sum(case when c then 1 else 0 end)`, whose empty-input result is NULL (D-199). Other filtered aggregates retain
+R-AGG-04's empty-input result: a filtered SUM over no rows stays NULL.
+`MQ1412` when the field is already filtered (combine the conditions in one `filter`), when it comes from
 `Agg.of` (the engine cannot place a condition inside an opaque expression), when the condition leaves no filter, when
 it reads a correlated value (thrown by `filter`), when a filtered `count(table)` has an embedded or composite id with no usable first id attribute (the filtered count counts that id attribute), or when the condition adds a to-many join (thrown when the query is built): a to-many join already resolved when the filter renders (the argument's own, or one an earlier column joined) is the aggregated rows' own and is allowed, while one only a later column joins is `MQ1412`, and `Filters.exists(path, inner)` filters on a to-many without joining it. A filtered `firstBy` is the exception to the CASE
 form: `array_agg` keeps NULLs, so the CASE form would yield a NULL element where `FILTER` skips the row. It needs the
@@ -231,25 +235,31 @@ one selection (R-AGG-06). A `filter` (R-AGG-17) on `avgExact` filters the argume
 keeps the quotient exact. A rounded aggregate is not itself filterable: `filter` on it is `MQ1412`; filter the inner
 aggregate, `Agg.round(Agg.avgExact(x).filter(...), 2)`.
 
-**R-AGG-19** *(D-185, `@Incubating`)* **Row counts.** A count of a table's identity renders the provider's row count,
-`AggregateRenderer#rowCount` (R-VND-30, `count(*)` on Hibernate), where no row the statement reads can leave that
-identity null: the counted `From` is a criteria `Root` or reached from one through `INNER` joins only (walked through
-`Join#getParent()`, so a `rootedAt` context whose root is a `LEFT` join does not qualify). The walk stops at a
-joined source or joined entity (D-193), so no join below either qualifies. No node on the qualifying chain is
-treated (R-COL-35), the count reads the `From` itself or its own single id attribute, and the statement has no
-customizer (which could add a `RIGHT` or `FULL` join). The sites are `Agg.count(table)`, `Agg.count(column)` over the
-id, the generated `@Aggregate(fn = COUNT)` (emitted as `Agg.count(column).named(...)`), a `Correlated` count over the
-sub-select root's id, and the page total (`engine/20` R-EXE-05). Everything else keeps counting the identity,
-`count(t.id)`: a `LEFT` hop, a treated node, a foreign-key read, a statement with a customizer. Unchanged:
-`countDistinct` (and the page total's dedup, R-EXE-04), a treated root's page total, the inline count window, the
-count of groups, and `count(col)` over a non-id column; a composite id already counts as one identity. A source's row
-is counted as `count(1)`. A filtered count (R-AGG-17) counts `1` under its condition when the count is eligible, else
-the identity, so a `LEFT`-joined unmatched row counts 0 as the unfiltered count does. The row count returns the same
-number as `count(t.id)`, grouped or not. A filtered `count(table)` over an embedded or composite id is `MQ1412`
-even where `count(*)` would be allowed, except for a joined entity or a join below one. A joined source is
-classified by its join kind (`INNER` the row count, `LEFT` its first key field). A joined entity, and every join
-below it, always counts its first basic id attribute, for LEFT and INNER alike, including composite ids and
-filtered counts: never the entity or a tuple of its id attributes (R-SRC-23, D-193).
+**R-AGG-19** *(D-185, D-199, `@Incubating`)* **Row counts.** A count of a table's identity renders the provider's
+row count, `AggregateRenderer#rowCount` (R-VND-30, `count(*)` on Hibernate), where no row the statement reads can
+leave that identity null. The counted `From` is a criteria `Root` or reaches one through INNER hops only. Ordinary
+joins follow `Join#getParent()`; a registered source or entity join is one hop to the root it is attached to,
+using the join context's recorded kind and attached root. This applies to source- and column-anchored entity joins
+alike and never depends on whether the provider's entity join implements Jakarta `Join` (6.6 versus 7.4).
+An INNER to-one join below an entity join follows the same walk. A LEFT hop, plain or with `joinFilter`, stops it,
+including an INNER hop attached below a LEFT root. No node on the qualifying chain is treated (R-COL-35), and the
+statement has no customizer, which could add a RIGHT or FULL join.
+The count reads the `From` itself or its own single id attribute; for an entity join with a composite or embedded
+id, counting its first basic id attribute also counts one identity. The sites include `Agg.count(table)`,
+`Agg.count(column)` over the id, generated `@Aggregate(fn = COUNT)` fields, a `Correlated` count over the sub-select
+root's id, and the page total (`engine/20` R-EXE-05). Everything else keeps counting the identity, `count(t.id)`:
+a LEFT hop, a treated node, a foreign-key read, or a statement with a customizer. A joined entity or a join below
+one uses the first basic id attribute for that fallback, never the entity or a tuple of id attributes (R-SRC-23).
+A LEFT-unmatched or filter-blanked entity therefore counts 0. A joined source uses its first key field for the
+fallback, and a source's own row is counted as `count(1)`.
+Unchanged: `countDistinct` (and the page total's dedup, R-EXE-04), a treated root's page total, the inline count
+window, the count of groups, and `count(col)` over a non-id column; a composite id counts as one identity.
+A filtered count (R-AGG-17) counts `1` under its condition when eligible, else the identity. It renders
+`coalesce(<count>, 0)` so empty input is 0 even with Hibernate 7.4's SUM-based filtered count (D-199); non-count
+filtered aggregates keep their existing empty-input result. The row count equals native `count(t.id)`, grouped or
+not. A filtered `count(table)` over an embedded or composite id is `MQ1412` even where `count(*)` would be allowed,
+except for a joined entity or a join below one, whose first basic id attribute is available.
+
 
 ## 5. Generated support
 
@@ -289,5 +299,7 @@ generated `GROUP_KEYS` `SelectSet`, and `QProductSales.query()` comes pre-config
 | AC-AGG-26 | Generated from `@Aggregate`: an `AVG` field typed `BigDecimal` is `Agg.avgExact`, rounded by `scale` and averaged over the `filter` only; `FIRST_BY` with `orderBy` is `Agg.firstBy`; each runs as the hand-written aggregate does, `FIRST_BY` on H2 and PostgreSQL; `MQ3045` for each misuse (R-PROC-45, D-188, `processor/32` AC-PROC-47). |
 | AC-AGG-27 | On every Tier-1 vendor and both Hibernate lines, `Agg.count(table)` over the root and over an inner-joined table, and `count` over the root's id column, render `count(*)` and return `count(t.id)`'s rows, grouped and ungrouped; a `Correlated` count over the sub-select root's id renders `count(*)` and equals the identity count, `0` for an outer row with no match (R-AGG-19). |
 | AC-AGG-28 | A `LEFT`-joined or treated table, a `rootedAt` `LEFT` root, a statement with a customizer, a foreign-key read, `countDistinct`, the page total's dedup and a non-id column keep counting the identity or column (R-AGG-19). |
-| AC-AGG-29 | The page total of an entity root renders `count(*)`; a filtered row count renders `count(1) filter (where c)` or its CASE form; with no `rowCount` the count is `count(t.id)`; a filtered count over a `LEFT`-joined table counts 0 for an unmatched row, as the unfiltered count does (R-AGG-19, R-AGG-17). |
+| AC-AGG-29 | The page total of an entity root renders `count(*)`; a filtered row count renders `coalesce(count(1) filter (where c), 0)` or the corresponding CASE form; with no `rowCount` the count is `count(t.id)`; a filtered count over a `LEFT`-joined table counts 0 for an unmatched row, as the unfiltered count does (R-AGG-19, R-AGG-17). |
 | AC-AGG-30 | `firstBy` whose value or order key reads a to-many join an earlier column created is `MQ1412`, as one that adds the join is, whatever the column order (R-AGG-16). |
+| AC-AGG-31 | INNER entity-join counts over the table, its id column and an INNER to-one descendant render `count(*)` when the attached root is eligible, for column and source anchors, including composite and embedded ids. LEFT, filtered LEFT, customizer and distinct counts keep their identity forms and unmatched rows count 0. Every INNER claim agrees with native `count(id)`, grouped and ungrouped, on every Tier-1 vendor and both Hibernate lines (R-AGG-19, D-199). `RowCountTest.ac_agg_31_entity_join_counts_match_native_ids_for_both_anchors_and_every_join_kind`, `ac_agg_31_inner_entity_joins_with_composite_and_embedded_ids_count_one_identity`, `RowCountEligibilityTest.ac_agg_31_an_entity_join_and_its_descendants_follow_the_recorded_kind_and_attached_root` and `HibernateEntityJoinTest.ac_agg_31_inner_entity_and_inner_descendant_count_rows`. |
+| AC-AGG-32 | A filtered COUNT over empty root and joined-entity inputs returns 0 on every Tier-1 vendor and both Hibernate lines; a filtered SUM over the same input stays NULL. Filtered COUNT wraps the provider or CASE count in `coalesce(<count>, 0)` (R-AGG-17, R-AGG-19, D-199). `RowCountTest.ac_agg_32_filtered_counts_over_empty_roots_and_entity_joins_are_zero_and_sums_stay_null` and `RowCountEligibilityTest.ac_agg_32_filtered_counts_over_empty_roots_and_entity_joins_are_zero_with_either_renderer`. |

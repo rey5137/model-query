@@ -797,7 +797,7 @@ public final class ModelQuery<E, K, M> {
             }
             join.when().ifPresent(when -> equal.add(whenTerm(join, when, paths.get(paths.size() - 1), joins)));
             // Registered here, not after the renderer returns: filter columns need it while the ON is built.
-            joins.joinEntity(join.root().key(), entity, root,
+            joins.joinEntity(join.root().key(), entity, root, join.kind() == JoinKind.INNER,
                     entityId(entity, EntityJoin.idAttributes(type).keySet().iterator().next()));
             equal.addAll(joins.joinFilter(join.root().key()));
             return cb.and(equal.toArray(Predicate[]::new));

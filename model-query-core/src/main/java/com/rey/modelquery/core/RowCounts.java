@@ -36,9 +36,10 @@ public final class RowCounts {
      */
     @EngineFacing
     public static Expression<Long> count(JoinContext ctx, Expression<?> counted) {
+        boolean rows = eligible(ctx, counted);
         counted = identity(ctx, counted);
         CriteriaBuilder cb = ctx.cb();
-        if (!eligible(ctx, counted)) {
+        if (!rows) {
             return cb.count(counted);
         }
         return ctx.renderOptions().aggregateRenderer().orElse(AggregateRenderer.DEFAULT).rowCount(cb, counted);
@@ -72,7 +73,8 @@ public final class RowCounts {
      * {@code rootedAt} context is a join. A joined source's table is counted by its first key column
      * ({@link JoinContext#joinedSourceKey}), classified by its join kind: an INNER join is a hop of the chain, from the
      * {@code From} it joins, and a LEFT join keeps the column's count, 0 where no source row matched. An entity join
-     * always stops the walk, including when reached from a join below it (R-AGG-19).
+     * is a hop to its attached root only when its statement record says INNER, including when reached from a join
+     * below it; its provider type and parent do not decide eligibility (R-AGG-19).
      */
     static boolean eligible(JoinContext ctx, Expression<?> counted) {
         if (ctx.customized()) {
@@ -80,13 +82,21 @@ public final class RowCounts {
             return false;
         }
         JoinContext.JoinedSource joined = ctx.joinedSourceCounted(counted);
-        if (joined != null && !joined.inner()) {
+        if (joined != null && (!joined.inner() || ctx.treatedNode(joined.join()))) {
             return false;
         }
         From<?, ?> node = joined != null ? joined.outer() : identified(counted);
         while (node != null) {
-            if (ctx.treatedNode(node) || ctx.isJoinedEntity(node)) {
+            if (ctx.treatedNode(node)) {
                 return false;
+            }
+            joined = ctx.joinedSourceNode(node);
+            if (joined != null) {
+                if (!joined.inner()) {
+                    return false;
+                }
+                node = joined.outer();
+                continue;
             }
             if (node instanceof Root<?>) {
                 return true;

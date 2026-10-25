@@ -1,1 +1,1 @@
-select oe1_0.id,count(r1_0.id),count(r1_0.id) filter (where oe1_0.status=cast(? as varchar)) from orders oe1_0 left join customers r1_0 on r1_0.id=oe1_0.referrer_id where oe1_0.id<=? group by 1 order by 1
+select oe1_0.id,count(r1_0.id),coalesce(count(r1_0.id) filter (where oe1_0.status=?),?) from orders oe1_0 left join customers r1_0 on r1_0.id=oe1_0.referrer_id where oe1_0.id<=? group by 1 order by 1

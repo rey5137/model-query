@@ -403,6 +403,7 @@ final class QueryModelReader {
         return new AggregateDefinition(
                 explicit(mirror, "fn") instanceof Element fn ? fn.getSimpleName().toString() : "",
                 explicit(mirror, "attribute") instanceof String attribute ? attribute : "",
+                explicit(mirror, "entityJoin") instanceof String join ? join : "",
                 expression == null ? bound : expression,
                 Boolean.TRUE.equals(explicit(mirror, "distinct")),
                 strings(mirror, "orderBy"), type(mirror, "filter"),

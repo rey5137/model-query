@@ -16,6 +16,13 @@ import java.lang.annotation.Target;
 public @interface Aggregate {
 
     /**
+     * Named entity join whose attributes and order keys this aggregate reads; empty for the model root.
+     * A nonempty value cannot be combined with an expression, including one supplied by {@link BindExpression}.
+     */
+    @Incubating
+    String entityJoin() default "";
+
+    /**
      * The aggregate function.
      *
      * @return the function
