@@ -4,7 +4,7 @@ Everything in the library works with a plain `EntityManager`. Spring only adds w
 
 ## 1. Add the dependencies
 
-Import the BOM, then add the modules you need. Replace `0.11.0` with the release you use.
+Import the BOM, then add the modules you need. Replace `0.11.1` with the release you use.
 
 === "Maven"
 
@@ -14,7 +14,7 @@ Import the BOM, then add the modules you need. Replace `0.11.0` with the release
             <dependency>
                 <groupId>io.github.rey5137</groupId>
                 <artifactId>model-query-bom</artifactId>
-                <version>0.11.0</version>
+                <version>0.11.1</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -40,7 +40,7 @@ Import the BOM, then add the modules you need. Replace `0.11.0` with the release
         <path>
             <groupId>io.github.rey5137</groupId>
             <artifactId>model-query-processor</artifactId>
-            <version>0.11.0</version>
+            <version>0.11.1</version>
         </path>
     </annotationProcessorPaths>
     ```
@@ -49,11 +49,11 @@ Import the BOM, then add the modules you need. Replace `0.11.0` with the release
 
     ```kotlin
     dependencies {
-        implementation(platform("io.github.rey5137:model-query-bom:0.11.0"))
+        implementation(platform("io.github.rey5137:model-query-bom:0.11.1"))
         implementation("io.github.rey5137:model-query-jpa")
         implementation("io.github.rey5137:model-query-annotations")
 
-        annotationProcessor(platform("io.github.rey5137:model-query-bom:0.11.0"))
+        annotationProcessor(platform("io.github.rey5137:model-query-bom:0.11.1"))
         annotationProcessor("io.github.rey5137:model-query-processor")
     }
     ```

@@ -252,9 +252,10 @@ class TypeOfTest {
     void ac_flt_31_not_of_type_keeps_an_absent_left_join_and_an_empty_set_keeps_every_row() {
         assertThat(render(f -> f.notOfType(ROOT, Card.class)))
                 .containsExactly("not(root.type().in(literal(Card), literal(Premium)))");
+        // No OR: Hibernate 7.4.14 prunes a LEFT join's subtype joins for a type read under one (D-203).
         assertThat(render(f -> f.notOfType(PEER, Card.class))).containsExactly(
-                "or(not(root.join(peer, LEFT).type().in(literal(Card), literal(Premium))), "
-                        + "isNull(root.join(peer, LEFT).type()))");
+                "equal(selectCase().when(root.join(peer, LEFT).type().in(literal(Card), literal(Premium)), 1)"
+                        + ".otherwise(0), 0)");
         // An empty collection holds for every row; for ofType it is FALSE, and neither reads a type.
         assertThat(render(RenderOptions.portable(), f -> f.notOfType(ROOT, List.of()))).isEmpty();
         assertThat(render(RenderOptions.portable(), f -> f.ofType(ROOT, List.of()))).containsExactly("disjunction()");

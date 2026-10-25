@@ -526,6 +526,20 @@ final class TreatPreflight extends AbstractSqlAstWalker {
             lost = inner;
             narrowing = joined;
         }
+        if (lost == null && candidate != null && candidate.kind() == ExpectedNarrowing.Kind.EXISTS_ROOT) {
+            // Hibernate 7.4.14 (HHH-20818) may render an exists root's treat as a restriction of its discriminator
+            // in its where or an INNER join's condition, instead of narrowing what the root reads (a derived table,
+            // an INNER join to the subtype's tables, a union of its tables only): the same rows, narrowed there.
+            for (ExpectedNarrowing declared : unused) {
+                EntityMappingType subtype = subtype(entity, declared.types().iterator().next());
+                if (declared.entity() == entity.getMappedClass() && subtype != null && subtype != entity
+                        && restrictedTo(spec, root, table.getIdentificationVariable(), entity, subtype)) {
+                    lost = name(entity) + " is restricted to some of its subtypes, so its other rows are lost";
+                    narrowing = narrowing(entity, declared.types().iterator().next());
+                    break;
+                }
+            }
+        }
         EntityMappingType readAs = entity;
         if (lost != null) {
             if (candidate == null) {

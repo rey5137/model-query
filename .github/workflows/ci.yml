@@ -71,7 +71,7 @@ jobs:
       # The same R-QA-08 gate against the newest supported Hibernate, so a 7.x-only failure shows on its own commit
       - run: >
           ./mvnw -B -ntp verify
-          -Dhibernate.version=7.4.11.Final
+          -Dhibernate.version=7.4.14.Final
           -Djakarta-persistence.version=3.2.0
 
   ac-audit:

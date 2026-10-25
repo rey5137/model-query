@@ -2370,7 +2370,7 @@ entities only, in class-name order, so the IN list repeats across runs, and rend
 which the preflight reads to attribute it. (2) The varargs forms carry no `@SafeVarargs`, which an interface method
 can't (D-87); the RFC's sketch had it. A `Collection` form sits beside them, as `in` has, so an empty collection needs
 no `Optional`. (3) `notOfType` renders `TYPE NOT IN (...)`, measured on the root, and only over a node reached through a
-LEFT join adds `OR TYPE IS NULL`, the measured `notOfType`-over-LEFT envelope `{PREDICATE, NEGATED, NULL_TEST,
+LEFT join adds `OR TYPE IS NULL` (rendered as a `CASE` since D-203), the measured `notOfType`-over-LEFT envelope `{PREDICATE, NEGATED, NULL_TEST,
 DISJUNCTION, LEFT_JOIN, TYPE}`; over the root or an INNER join its site is `{PREDICATE, TYPE}` (plus the join use). (4)
 The engine refuses a `typeOf` read (select, order or group key) over a LEFT-joined node itself, since both lines fail on
 it; a `typeOf` group key is exempt from the treated-group-key refusal (Q-27), and a selected group key is one site,
@@ -3145,6 +3145,22 @@ for every function, including expressions supplied by `@BindExpression`. This pr
 reading one scope while its order keys read another. The default empty `entityJoin` keeps expression aggregates
 unchanged. The refusal can be relaxed later if a rule defines the combined scope.
 → `processor/30` R-PROC-47, `processor/32` MQ3046, AC-PROC-50.
+
+**D-203 — Hibernate 7.4.14 is the pinned 7.x line; two treat renderings follow its `or` handling (0.11.1,
+2026-10-25).** Hibernate 7.4.14 (HHH-20818) collects entity-name uses per branch of an `or`. Over a LEFT-joined
+`JOINED` node it then prunes the subtype joins a `TYPE` read needs, so `notOfType`'s `TYPE NOT IN (...) OR TYPE IS
+NULL` read every row as the base type and kept the excluded subtypes' rows: a wrong result, on every Tier-1 vendor. A
+positive `IN` or an `IS NULL` of the join's id under the same `or` prunes as well. (1) Over a LEFT join `notOfType`
+renders `CASE WHEN TYPE IN (...) THEN 1 ELSE 0 END = 0` instead: no `or`, the same rows on 6.6, 7.4.11 and 7.4.14,
+its site envelope unchanged. (2) Under an `or`, 7.4.14 renders a treat of an `exists` root as a discriminator
+restriction in an `INNER` join's condition, over all of the entity's rows, instead of a derived table, a union of the
+subtype's tables or an `INNER` join to them. The preflight refused that as an unconsumed declaration (`MQ4016`); it now
+accepts a top-level discriminator restriction to exactly the declared subtype's concrete entities in the root's `where`
+or an `INNER` join's condition from it, the check it already makes for a `TABLE_PER_CLASS` join's branches (D-161).
+(3) The 7.x pin moves from 7.4.11 to 7.4.14, with its `hibernate7/` SQL snapshots (`cast(? as varchar(255))`, a
+reordered `TABLE_PER_CLASS` union): snapshots are kept per major line, so one set can't match both. Earlier
+decisions measured on 7.4.11 stand.
+→ `api/12` R-FLT-28, `vendor/40` R-VND-26, AC-FLT-31, AC-VND-19.
 
 ## 2. Open questions
 
