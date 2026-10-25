@@ -583,7 +583,7 @@ The processor runs in the persistence module only, and the API module is an ordi
         <dependency>
             <groupId>io.github.rey5137</groupId>
             <artifactId>model-query-annotations</artifactId>
-            <version>0.10.0</version>
+            <version>0.11.0</version>
         </dependency>
     </dependencies>
 
@@ -605,7 +605,7 @@ The processor runs in the persistence module only, and the API module is an ordi
                         <path>
                             <groupId>io.github.rey5137</groupId>
                             <artifactId>model-query-processor</artifactId>
-                            <version>0.10.0</version>
+                            <version>0.11.0</version>
                         </path>
                     </annotationProcessorPaths>
                 </configuration>
@@ -621,13 +621,13 @@ The processor runs in the persistence module only, and the API module is an ordi
     ```kotlin
     // shop-api/build.gradle.kts
     dependencies {
-        api("io.github.rey5137:model-query-annotations:0.10.0")
+        api("io.github.rey5137:model-query-annotations:0.11.0")
     }
 
     // shop-persistence/build.gradle.kts
     dependencies {
         implementation(project(":shop-api"))
-        annotationProcessor("io.github.rey5137:model-query-processor:0.10.0")
+        annotationProcessor("io.github.rey5137:model-query-processor:0.11.0")
     }
 
     // Recompile when the API module's classes change in any way, annotations on private fields included.
@@ -700,7 +700,7 @@ reflection, so they are excluded from the field-initialization check.
                 <path>
                     <groupId>io.github.rey5137</groupId>
                     <artifactId>model-query-processor</artifactId>
-                    <version>0.10.0</version>
+                    <version>0.11.0</version>
                 </path>
                 <path>
                     <groupId>com.google.errorprone</groupId>
@@ -728,7 +728,7 @@ reflection, so they are excluded from the field-initialization check.
     }
 
     dependencies {
-        annotationProcessor("io.github.rey5137:model-query-processor:0.10.0")
+        annotationProcessor("io.github.rey5137:model-query-processor:0.11.0")
         compileOnly("org.jspecify:jspecify:1.0.0")
         errorprone("com.google.errorprone:error_prone_core:2.47.0")
         errorprone("com.uber.nullaway:nullaway:0.13.1")

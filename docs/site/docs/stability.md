@@ -1,6 +1,6 @@
 # API stability
 
-model-query is at 0.10.0. Until 1.0.0 the public API may change in any minor release, and the commit that does it is
+model-query is at 0.11.0. Until 1.0.0 the public API may change in any minor release, and the commit that does it is
 marked breaking. From 1.0.0 the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Today: everything is `@Incubating`
@@ -155,6 +155,14 @@ and `VendorProfile#maxRecursionDepth()`. `SetOperation`, `WindowSpec`, `SourceRe
 and `RecursiveTerm` are `@EngineFacing`, so not API. `RecursiveSpec.tree` and `RecursiveCte.duplicateKey` (D-147)
 are `@Incubating`; `RecursiveCte` is a record a provider constructs, and a tree needs its `duplicateKey`.
 `SourceFeature.RECURSIVE_COMPOSITE_KEY` (D-149) is also `@Incubating`. See [Source models](source-models.md).
+
+The report-SQL and entity-join members are new in 0.11.0 and `@Incubating` (D-185 to D-196), and join the list above:
+`SourceJoin` with `ModelQuery.Builder#joinSource`, `EntityJoin` with `joinEntity`, `ModelQuery.Builder#joinFilter`,
+the `@JoinSource`, `@JoinSources`, `@SourceColumn`, `@JoinEntity` and `@JoinEntities` annotations, `FilterDefinition`
+with `AggregateField#filter`, `Agg.firstBy`, `Agg.avgExact`, `Agg.round` and `Expr.round`, and the `notDistinctFrom`,
+`distinctFrom`, `notDistinctFromColumn` and `distinctFromColumn` filters. `SourceRenderer#join`, `EntityJoinRenderer`,
+`AggregateRenderer`, `AggregateFeature`, `AggregateGate`, `NullSafeEqualityRenderer`, `RowCounts` and
+`JoinContext#readsThroughOuterJoin` are `@EngineFacing`, so not API.
 
 The column-anchored entity-join and request-bound value members are new in 0.11.0 and `@Incubating` (D-197 to D-202),
 and join the list above: `QueryParam`, `Expr.param`, `bind` on `ModelQuery.Builder` and `SourceQuery.Builder`,
