@@ -12,7 +12,7 @@ Every capability starts in the specification under
 [`docs/spec/`](https://github.com/rey5137/model-query/tree/main/docs/spec).
 Requirements are organized into numbered rules (`R-*`) and explicit acceptance criteria (`AC-*`).
 
-At the time of writing (version 0.10.0), the specification defines 457 acceptance criteria. CI's AC audit
+At the time of writing (version 0.11.0), the specification defines 514 acceptance criteria. CI's AC audit
 ([`.github/scripts/ac_audit.py`](https://github.com/rey5137/model-query/blob/main/.github/scripts/ac_audit.py),
 R-QA-11) fails the build when an in-scope acceptance criterion has no test method named `ac_xxx_nn_`.
 

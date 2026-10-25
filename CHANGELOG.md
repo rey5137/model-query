@@ -6,7 +6,7 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
 ## [Unreleased]
 
-## [0.11.0] - 2026-10-23
+## [0.11.0] - 2026-10-25
 
 0.11.0 covers milestones M31 (D-184), M32 (D-185), M33 (D-193) and M34 (D-197 to D-202): faster flat reads, with no
 compiled or cached query API; report SQL from RFC 0020 (joined sources, aggregates, null-safe equality and
@@ -117,6 +117,18 @@ API addition below is `@Incubating`.
 - The `LikeMode.EXACT` javadoc says the pattern is rendered with `escape ''`, so a `\` in it cannot escape a wildcard.
 - The custom-operators page explains how pgjdbc's `prepareThreshold` leads to generic plans that skip a trigram
   index, and how to avoid it.
+- `first(q)` and `one(q)` order a column that may be NULL with the vendor's null precedence also when an outer join
+  (the provider's join type or the statement's record for a joined source or entity join), an embedded parent or a
+  `TREAT` sits above it; only a column with none of these sorts plain ascending (R-EXE-12). This can add the null
+  precedence to a statement that sorted plain ascending before.
+
+### Upgrade notes
+- A count of a table's identity renders `count(*)` where no row the statement reads can leave the identity null. The
+  results are the same; a test matching the statement's text sees `count(*)` where it saw `count(t.id)`.
+- Under inline value handling, a plain CASE result in an expression is a bind parameter, not an inlined literal, so a
+  statement-text assertion on it sees a placeholder.
+- Where `first(q)` now renders the null precedence, an index may no longer satisfy `ORDER BY ... LIMIT 1`; check the
+  plans of such queries.
 
 ## [0.10.0] - 2026-10-22
 
