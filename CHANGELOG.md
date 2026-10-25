@@ -8,12 +8,33 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
 ## [0.11.0] - 2026-10-23
 
-0.11.0 covers milestones M31 (D-184), M32 (D-185) and M33 (D-193): faster flat reads, with no compiled or cached
-query API; report SQL from RFC 0020 (joined sources, aggregates, null-safe equality and `count(*)`); and RFC 0021's
-entity joins off joined sources and request-bound join filters. Every API addition below is `@Incubating`.
+0.11.0 covers milestones M31 (D-184), M32 (D-185), M33 (D-193) and M34 (D-197 to D-202): faster flat reads, with no
+compiled or cached query API; report SQL from RFC 0020 (joined sources, aggregates, null-safe equality and
+`count(*)`); RFC 0021's entity joins off joined sources and request-bound join filters; and RFC 0022 Parts B to D:
+entity joins anchored on outer columns with a static `when`, request-bound values in expressions, and joined-entity
+row counts. RFC 0022 Part A, the portable entity-join renderer on Jakarta Persistence 3.2, is deferred (D-200). Every
+API addition below is `@Incubating`.
 
 ### Added (incubating)
 
+- Entity joins anchored on outer columns (RFC 0022 Part B, D-197, R-SRC-25, R-PROC-46): `@JoinEntity.On(column = ...)`
+  and `EntityJoin.on(column, idAttribute)` join an entity with no joined source, on the root's columns or a to-one
+  path from it, LEFT or INNER; `@JoinEntity.When(column, value)` and `EntityJoin#when` AND one static equality into
+  the join's `ON`, for a polymorphic reference. `MQ1911` and processor `MQ3046` cover the refusals, an `INNER` join
+  whose anchor or `when` column reads through a join filter is `MQ1912`, and the `MQ4015` CTE gate now applies only to
+  a join anchored on a joined source (AC-SRC-59 to AC-SRC-62, AC-PROC-49). A grouped query counts its groups through
+  the provider's copy, which keeps the join (D-197).
+- Request-bound expression values (RFC 0022 Part C, R-COL-40, D-198, D-201): `QueryParam.of(name, type)` and
+  `Expr.param` read a typed placeholder anywhere an expression goes, and `bind(param, value)` on
+  `ModelQuery.Builder` and `SourceQuery.Builder` holds its value on the built query. A param a rendered expression
+  reads and the query does not bind, or two params sharing a name, are `MQ1512` at build; a null, mistyped or
+  unbindable value is `MQ1502` at bind. Every statement binds what it renders, the builder copies carry the bindings,
+  and a definition bound per request is checked once per definition key (AC-COL-59 to AC-COL-63).
+- Joined-entity aggregates and row counts (RFC 0022 Part D, R-AGG-19, R-PROC-47, D-199, D-202):
+  `@Aggregate(entityJoin = ...)` reads `attribute` and `FIRST_BY`'s `orderBy` relative to a named entity join, and an
+  eligible INNER entity join makes a count of that entity or a join below it `count(*)`; a LEFT one keeps the first
+  basic id attribute. A filtered COUNT over no rows is 0 on every line. A nonempty `entityJoin` combined with
+  `expression` is `MQ3046` (AC-AGG-31, AC-AGG-32, AC-PROC-50).
 - Entity joins off joined sources (RFC 0021, D-193, R-SRC-23, R-SRC-24, R-PROC-46, R-VND-32): `EntityJoin` and
   `ModelQuery.Builder#joinEntity`, plus `@JoinEntity(name, entity, source, type, on = @JoinEntity.On(field, id))`,
   `@Column(entityJoin = ...)` and `@FilterColumn(entityJoin = ...)`, join an entity's full id to one joined source, LEFT or INNER, root-anchored in every read statement
@@ -54,9 +75,13 @@ entity joins off joined sources and request-bound join filters. Every API additi
 
 ### Added (docs)
 
-- [Entity joins off joined sources](docs/site/docs/source-models.md#joining-an-entity-off-a-joined-source):
-  generated and hand-written forms, statement rendering and cost per vendor;
-  [join filters](docs/site/docs/models.md#join-filters): request values in ON, replacement, skipping and refusals.
+- [Entity joins](docs/site/docs/source-models.md#joining-an-entity):
+  generated and hand-written forms off a joined source and off the root's columns, the static `when` term, INNER
+  column anchors, the narrowed vendor gate, statement rendering and cost per vendor;
+  [join filters](docs/site/docs/models.md#join-filters): request values in ON, replacement, skipping and refusals;
+  [request-bound values](docs/site/docs/subqueries-expressions.md#request-bound-values): `QueryParam`, `Expr.param`
+  and `bind`; [aggregating a joined entity](docs/site/docs/grouped-queries.md#aggregating-a-joined-entity):
+  `@Aggregate#entityJoin` and the row-count rule.
 
 - [Joining a source](docs/site/docs/source-models.md#joining-a-source) and the report aggregates in
   [Grouped queries](docs/site/docs/grouped-queries.md): the cost of a joined source, `firstBy` and its portable
@@ -66,6 +91,12 @@ entity joins off joined sources and request-bound join filters. Every API additi
 
 ### Changed
 
+- The `MQ4015` CTE gate on entity joins narrows to joins anchored on a joined source: a column-anchored join needs no
+  database fact and renders on `OTHER` (R-SRC-25, D-197).
+- A filtered COUNT over no rows is 0 on both provider lines: Hibernate 7.4 renders it as `sum(case … else 0 end)`,
+  which is NULL over no rows, so the engine wraps it in `coalesce(..., 0)` (R-AGG-17, R-AGG-19, D-199). Non-count
+  filtered aggregates keep their existing empty-input result. The `agg-20`, `agg-22` and `agg-29` SQL snapshots
+  changed.
 - Entity-join and joined-source columns now carry their join in `identityPath` (`entity(<join>).<attr...>`,
   `source(<name>).<field>`; roots stay unprefixed), so a joined column never shares a root attribute's cursor
   identity (AC-PAG-33, D-196). This changes cursor fingerprints for those columns only. A to-one column below an entity join resolves by its model field name. A `JoinPlan` (fetch plan)

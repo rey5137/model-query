@@ -156,6 +156,14 @@ and `RecursiveTerm` are `@EngineFacing`, so not API. `RecursiveSpec.tree` and `R
 are `@Incubating`; `RecursiveCte` is a record a provider constructs, and a tree needs its `duplicateKey`.
 `SourceFeature.RECURSIVE_COMPOSITE_KEY` (D-149) is also `@Incubating`. See [Source models](source-models.md).
 
+The column-anchored entity-join and request-bound value members are new in 0.11.0 and `@Incubating` (D-197 to D-202),
+and join the list above: `QueryParam`, `Expr.param`, `bind` on `ModelQuery.Builder` and `SourceQuery.Builder`,
+`EntityJoin#when`, the widened `EntityJoin.on(column, idAttribute)`, `@JoinEntity.When` and `@JoinEntity.On#column`,
+and `@Aggregate#entityJoin`. `ModelQuery#definitionKey()` is `@EngineFacing`, so not API. See
+[Joining an entity](source-models.md#joining-an-entity),
+[request-bound values](subqueries-expressions.md#request-bound-values) and
+[aggregating a joined entity](grouped-queries.md#aggregating-a-joined-entity).
+
 The fetch-plan types are new in 0.2.0, `@Incubating`, and not yet placed in the 1.0 freeze list above:
 `FetchPlan`, `ChildField`, `JoinField`, `ChildQuery`, `Enricher` and the `@Child` annotation. The executor-facing
 `ChildLoad` and `JoinPlan` are `@EngineFacing`. See [Fetch plans](fetch-plans.md).

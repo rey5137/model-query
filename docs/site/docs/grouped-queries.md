@@ -110,6 +110,56 @@ the statement has no `customize`. The number is the same as `count(t.id)`; only 
 treated node, a foreign-key read and a statement with a customizer keep counting the identity. A test that matches
 the statement's text sees `count(*)`.
 
+An eligible `INNER` entity join continues the walk to the root it is attached to, so counting the joined entity or a
+to-one join below it is `count(*)` as well. A `LEFT` entity join stops the walk and keeps counting the entity's first
+basic id attribute, so an unmatched or filter-blanked row counts 0. A filtered `COUNT` over no rows is 0 on both
+provider lines.
+
+## Aggregating a joined entity
+
+`@Aggregate(entityJoin = ...)` reads `attribute` (and `FIRST_BY`'s `orderBy`) relative to a named `@JoinEntity` instead
+of the root, with the same to-one paths as `@Column(entityJoin = ...)`. Omitting `entityJoin` keeps the root meaning
+and the generated source, so every existing model is unchanged. This model is adapted from
+`GeneratedEntityJoinExecutionTest`:
+
+```java
+@QueryModel(root = OrderEntity.class)
+@JoinEntity(name = "rep", entity = CustomerEntity.class, type = JoinKind.INNER,
+        on = @JoinEntity.On(column = "REFERRER_ID"))
+@FilterColumn(name = "REFERRER_ID", path = "referrerId")
+@FilterColumn(name = "ID", path = "id")
+public record EntityJoinTotals(
+        @GroupBy @Column(entityJoin = "rep", attribute = "country") String country,
+        @Aggregate(fn = AggregateFunction.COUNT, entityJoin = "rep", attribute = "id") Long reps,
+        @Aggregate(fn = AggregateFunction.COUNT, entityJoin = "rep") Long rows,
+        @Aggregate(fn = AggregateFunction.MAX, entityJoin = "rep", attribute = "createdAt") LocalDateTime lastHire) {}
+```
+
+```java
+var totals = QEntityJoinTotals.query()
+        .select(SelectSet.of(QEntityJoinTotals.COUNTRY, QEntityJoinTotals.REPS,
+                QEntityJoinTotals.ROWS, QEntityJoinTotals.LAST_HIRE))
+        .where(f -> f.gte(QEntityJoinTotals.ID, 990L).lte(QEntityJoinTotals.ID, 1030L))
+        .orderBy(QEntityJoinTotals.COUNTRY.asc()).build();
+```
+
+=== "Plain JPA"
+
+    ```java
+    List<EntityJoinTotals> rows = executor.list(totals, Limit.unlimited());
+    ```
+
+=== "Spring repository"
+
+    ```java
+    List<EntityJoinTotals> rows = orders.findAll(totals, Limit.unlimited());
+    ```
+
+A `COUNT` with no `attribute` counts the joined entity's rows, through its first basic id attribute on a `LEFT` join
+and as `count(*)` on an eligible `INNER` one. Other functions, `distinct`, filters and rounding keep their usual
+semantics. A nonempty `entityJoin` combined with `expression` (including a `@BindExpression`) is `MQ3046` for every
+function (D-202), as is an unknown join name; the other aggregate refusals keep their own codes.
+
 ## First value in a group
 
 `Agg.firstBy(value, order, more...)` returns the value of the first row of each group in the order you give, in the
