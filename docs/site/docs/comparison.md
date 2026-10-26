@@ -129,7 +129,7 @@ List<OrderView> rows = em.createQuery("""
 
 // Model Query: the model declares the columns and the join
 List<OrderView> rows = executor.list(
-        QOrderView.query().select(QOrderView.DEFAULT, QOrderView.CUSTOMER)
+        QOrderView.query().select(QOrderView.DEFAULT.with(QOrderView.CUSTOMER))
                 .where(f -> f.eq(QOrderView.STATUS, Optional.of(status)))
                 .build(),
         Limit.of(100));

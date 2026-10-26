@@ -32,7 +32,6 @@ Typed, projection-first queries on top of JPA.
 
 ```java
 @QueryModel(root = OrderEntity.class)
-@FilterColumn(name = "CUSTOMER_COUNTRY", path = "customer.country")
 public record OrderView(
         @PrimaryKey Long id,
         OrderStatus status,
@@ -42,10 +41,11 @@ public record OrderView(
 ```
 
 ```java
+// from, to (Optional<Instant>) and country (Optional<String>) come from the request: an empty one adds no predicate
 List<OrderView> rows = executor.list(
         QOrderView.query()
-                .select(QOrderView.DEFAULT, QOrderView.CUSTOMER)
-                .where(f -> f.eq(QOrderView.STATUS, Optional.of("PAID"))
+                .select(QOrderView.DEFAULT.with(QOrderView.CUSTOMER))
+                .where(f -> f.eq(QOrderView.STATUS, Optional.of(OrderStatus.PAID))
                              .range(QOrderView.CREATED_AT, from, to)
                              .eq(QOrderView.CUSTOMER_COUNTRY, country))
                 .orderBy(QOrderView.CUSTOMER_NAME.asc().nullsFirst(), QOrderView.CREATED_AT.desc())
@@ -58,6 +58,10 @@ List<OrderView> rows = executor.list(
 Import the BOM and add the modules you need:
 
 ```xml
+<properties>
+    <model-query.version>0.11.1</model-query.version>
+</properties>
+
 <dependencyManagement>
     <dependencies>
         <dependency>
