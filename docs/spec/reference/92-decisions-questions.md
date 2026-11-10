@@ -1179,6 +1179,8 @@ batches undecided, overlaps the caller's cache); `EnrichContext` (an untyped bag
 Measure lock contention on the first-run check set under the service's load before 1.0; it decides whether a cached
 per-parameter plan or a context is needed. Amends D-111's "built" to "a tested recipe" for those three asks.
 → `api/15` R-FCH-08, R-FCH-15 to R-FCH-17; `reference/90`.
+*Amended by D-205:* partitioning by a key part is API for child loads and `byKeys` / `one(q, key)` (key groups,
+R-FCH-18, R-EXE-18); for enricher lookups (R-FCH-16) it stays the recipe.
 
 **D-115 — Expressions (M9.13a review, D-111 items 3 and 4; reverses D-27).**
 `ExpressionField<M, C>`, built only by `Expr`'s factories (`coalesce`, `nullIf`, `cases`, `plus`/`minus`/`times`/
@@ -1975,6 +1977,8 @@ an empty class list) are an `AssertionError` before anything runs, with no `MQ` 
 outcome but `REACHED`, `REFUSED` included; a skipped definition prints one report line with its reason. Decided by the
 user at the M23.3 audit stop point. → INV-5, D-82, D-132, D-133, `api/15` R-FCH-02, R-FCH-04, `engine/21` R-PAG-07,
 `api/16` R-INS-11, R-INS-12, `rfc/0011` §3-§4.
+*Amended by D-204:* the refusals that follow the first statement add a key group's `MQ2607`, a group value's
+`MQ1502`, a group function's exception and a grouping rule's exception; all run before the child's first round.
 
 **D-139 — `model-query-portability` and `jpa.vendor` (2026-10-14).** `model-query-portability` uses the not-API
 `jpa.vendor` members `VendorResolver.productNameOf`, `VendorResolver.resolve`, `VendorResolver.withSupplied` and
@@ -3161,6 +3165,67 @@ or an `INNER` join's condition from it, the check it already makes for a `TABLE_
 reordered `TABLE_PER_CLASS` union): snapshots are kept per major line, so one set can't match both. Earlier
 decisions measured on 7.4.11 stand.
 → `api/12` R-FLT-28, `vendor/40` R-VND-26, AC-FLT-31, AC-VND-19.
+
+**D-204 — Key groups bind `QueryParam`s into the static definition (RFC 0023, 2026-11-10, user decision).** RFC
+0023 is accepted after its acceptance spike (`rfc/0023-spike-results.md`), run on Hibernate 6.6.58 and 7.4.14 against
+H2, PostgreSQL 16 and MySQL 8.0. M35 (0.12.0) builds it; the freeze moves from M35 to M36 and stays last. Every new
+type and member is `@Incubating`. A `KeyGroups` maps a key to a group value (`by`) and binds `QueryParam`s from it (`bind`); the engine forms a child
+load's or a `byKeys` call's rounds per group, splits each group by the bind limits, and binds the group's values into
+the same filter in each round. The filter is part of the definition, so every static check (`MQ1708`, `MQ1512`) runs
+at the plan build or `build()`, before the parent statement (D-138), and there is one statement text per definition
+and `IN` length. The engine runs every group function and value before the child's first round; their refusals
+(`MQ2607`, `MQ1502`, the function's exception) are on D-138's after-the-first-statement list. Rejected: a filter
+built per group at run time (`(G, Filters<C>) -> Filters<C>`), which fails after the parent statement and lets the
+text vary; a per-round hook without grouping, which can only widen to the round's min and max.
+→ `rfc/0023`, `rfc/0023-spike-results.md`, `api/15` R-FCH-18, `engine/20` R-EXE-18, `api/10` R-COL-40, D-138, D-198.
+
+**D-205 — Partitioning by a key part is API for child loads and keyed reads (RFC 0023, 2026-11-10, user
+decision).** D-114's recipe is promoted for child loads and `byKeys` / `one(q, key)` only. D-114 rejected
+`partitionBy` because it invites parallel calls; that doesn't apply, since rounds run one after another on the calling
+thread. Grouping changes how keys are split, never which keys are requested; each distinct key, after R-EXE-13's
+dedupe on the converted value, is in exactly one round, grouped by its first caller key. R-FCH-16 (enricher lookups) is
+unchanged. The library never routes, never runs rounds in parallel and never derives groups itself. Rejected:
+Hibernate's `@PartitionKey` (updates and deletes of loaded entities, not `IN` lookups; INV-7).
+→ `rfc/0023`, `api/15` R-FCH-05, R-FCH-18, `engine/20` R-EXE-13, R-EXE-18, D-114.
+
+**D-206 — Every key-group declaration states how rows outside their key's group are treated (RFC 0023, 2026-11-10,
+user decision).** A row whose range column disagrees with the value its key encodes (clock skew, backfills, imported
+rows, a time-zone edge at a month boundary) is excluded by the bound filter, and its key looks absent. Every
+`KeyGroups` ends in `verifyMissing(all)` (keys with no row are re-read with the catch-all group's values, rows found
+are returned, `MQ2608` logged once per definition) or `assumeInRange()` (the risk is stated in code: such a row may
+not be read, and under `groupWhen` whether it is depends on the branch a call takes); the builder types make the choice
+compulsory. `verifyMissing` is `MQ1708` on a to-many child, where a short list can't be detected; there a group param
+may be read only as a lower bound or with `EQ` (`MQ1708` otherwise), so a list is never cut by an upper bound. Spike:
+`verifyMissing` adds no statement when every key finds a row. Rejected: the range as an ordinary caller filter with
+no ending (an assumed link would silently change the result, INV-5); `verifyMissing` with no opt-out (impossible on a
+to-many child, and paid for every deleted key where the link holds).
+→ `rfc/0023`, `rfc/0023-spike-results.md`, `api/15` R-FCH-18, `engine/20` R-EXE-18, `reference/90` MQ1708, MQ2608,
+INV-5.
+
+**D-207 — A grouped `ModelQuery` is read only by `byKeys` and `one(q, key)` (RFC 0023, 2026-11-10, user decision).**
+Locked or not; `list`, `page`, `count`, `exists`, `one(q)`, `first(q)`, keyset, export and stream are `MQ2215` before
+any statement, since they have no key to group on. A builder without `keyGroups` serves them with explicit `bind`.
+`withLock`, `withFetch` and `orderedBy` copies keep the groups; Spring's `findAllByKeys` and `findByKey` pass a grouped
+definition through unchanged (R-SPR-16 included). Rejected: a typed `KeyedQuery` accepted only by keyed overloads,
+which would make the mistake a compile error but doubles the executor and repository surface.
+→ `rfc/0023`, `engine/20` R-EXE-14, R-EXE-18, `integration/50`, `reference/90` MQ2215.
+
+**D-208 — When to group is the caller's rule (RFC 0023, 2026-11-10, user decision).** The spike measured grouping at
+0.26–0.33× the time on 10 000 keys in one to three groups, and 19–25× slower through Hibernate (3–10× on JDBC) on a
+50-row page spread over 36 months. `KeyGroups.Builder#groupWhen(GroupingRule, G all)` lets the caller decide per call
+from the distinct key and group counts (`GroupingRule.group(int keys, int groups)`, with `minKeysPerGroup(n)` and
+`maxGroups(n)`, `IllegalArgumentException` for `n < 1`); `false` runs the grouped statement text over R-FCH-05's or
+R-EXE-13's ungrouped chunks with `all`'s values bound and no re-read. The rule is asked only when the grouped rounds
+would outnumber the ungrouped chunks (never for one group, one key or no keys), after every group's value has run, so
+no refusal depends on the branch; its exception propagates unwrapped (D-204's list). A definition has one `all`:
+`verifyMissing(all)` must equal `groupWhen`'s (`MQ1708`), its values are evaluated at the `KeyGroups` terminal call
+(`MQ1502` there), and a second `groupWhen` replaces the first. Under `groupWhen` a group param may be read only as a
+`GT`/`GTE`/`LT`/`LTE` compare against a column (`MQ1708` otherwise), since one `all` can't stand for an `EQ` value.
+The rule is part of the definition key by identity (D-201). No default threshold (the break-even moves about tenfold
+between Hibernate and JDBC and between vendors) and no per-call override (`ModelQuery#ungrouped()` can be added later
+without breaking anyone). Rejected: merging small groups into one covering range (non-adjacent months scan everything
+between them); a built-in threshold; a `GroupingRule.and` combinator.
+→ `rfc/0023`, `rfc/0023-spike-results.md`, `api/15` R-FCH-05, R-FCH-18, `engine/20` R-EXE-13, R-EXE-18, D-201.
 
 ## 2. Open questions
 

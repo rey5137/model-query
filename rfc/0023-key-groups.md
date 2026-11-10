@@ -1,25 +1,29 @@
 # RFC 0023 — Key groups: per-group bound values for child loads and `byKeys`
 
-- **Status:** draft (architect review applied)
+- **Status:** accepted as D-204 to D-208 (2026-11-10), after the acceptance spike (`rfc/0023-spike-results.md`);
+  M35 in 0.12.0, `mvp-plan` §35
 - **Affects:**
   - **`api/15`:** new R-FCH-18, `KeyGroups` and `ChildQuery#keyGroups`; R-FCH-05's rounds are formed per group;
-    R-FCH-04's "a child model that reads a param" refusal (via `api/10` R-COL-40) is narrowed to params no key group
-    binds. R-FCH-16 (enricher lookups) is unchanged. New AC-FCH-19 to AC-FCH-24.
+    R-FCH-12's `DEBUG` line adds the groups, the re-read keys and whether the call ran grouped; R-FCH-04's "a child model that reads a param" refusal (via `api/10` R-COL-40) is narrowed to params no key group
+    binds. R-FCH-16 (enricher lookups) is unchanged. New AC-FCH-19 to AC-FCH-25.
   - **`engine/20`:** new R-EXE-18, `ModelQuery.Builder#keyGroups` and `byKeys` / `one(q, key)` over a grouped
     definition; R-EXE-13's chunking is per group, after its dedupe on the converted value. R-EXE-14's locked keyed
-    reads keep their groups. New AC-EXE-25 to AC-EXE-28.
+    reads keep their groups. New AC-EXE-25 to AC-EXE-29.
   - **`api/10`:** R-COL-40's "Checked at `build()`" and "Engine-built queries" bullets name params bound by key
     groups, and say that a `withLock`, `withFetch` or `orderedBy` copy keeps the key groups.
-  - **`api/16`:** R-INS-12's limits list adds the key-group refusals that follow the parent statement.
+  - **`api/16`:** R-INS-12's limits list adds the key-group refusals that follow the parent statement, the grouping
+    rule's exception included.
   - **`integration/50`:** `findAllByKeys` and `findByKey` pass a grouped definition through unchanged, locked ones
     (R-SPR-16) included. No new method.
-  - **`reference/90`:** new `MQ1708` (a key-group definition that doesn't match its query), `MQ2215` (a grouped
+  - **`reference/90`:** new `MQ1708` (a key-group definition that doesn't match its query or child, or whose
+    catch-all values are inconsistent), `MQ2215` (a grouped
     definition read by anything but `byKeys` or `one(q, key)`), `MQ2607` (a group function returning `null`),
     `MQ2608` (a logged `WARNING`: a key's row was found only by the `verifyMissing` re-read). A note says `MQ1708`
     also covers `ModelQuery.Builder` and `MQ2607` / `MQ2608` also cover `byKeys`, though they sit in the fetch-plan
     and child-load families.
-  - **`reference/92`:** D-204 to D-207; D-114's "partitioning by a key part" recipe points to D-205; D-138's list of
-    refusals that follow the first statement adds `MQ2607`, a value's `MQ1502` and a group function's exception.
+  - **`reference/92`:** D-204 to D-208; D-114's "partitioning by a key part" recipe points to D-205; D-138's list of
+    refusals that follow the first statement adds `MQ2607`, a value's `MQ1502`, a group function's exception and a
+    grouping rule's exception.
   - **`docs/site`:** the fetch-plans page (child loads over partitioned tables) and the `byKeys` section.
 - **Discussion:** TBD
 
@@ -35,7 +39,8 @@ same for every group, up to the length of the `IN` list (more, smaller rounds ca
 Grouping changes how keys are split into rounds, never which keys are requested. Because the bound filter relies on a
 link between a key and a column that the database doesn't enforce, every `KeyGroups` declaration ends by stating how
 that link is treated: `verifyMissing(all)` re-reads keys that found no row, `assumeInRange()` accepts the risk in
-code (D-206).
+code (D-206). Grouping costs one statement per group, which loses on small, spread-out loads, so the caller can also
+declare a `GroupingRule` that runs a call as one ungrouped statement set instead (D-208).
 
 The case that prompted it is a child table range-partitioned by month whose ids (Snowflake, ULID, UUIDv7) encode the
 creation time. With the creation month bound per round, the database prunes to one partition instead of probing the
@@ -85,8 +90,17 @@ public final class KeyGroups<K, G> {                      // immutable; may be s
     @Incubating
     public static final class Builder<K, G> {             // immutable, each call returns a copy
         public <T> Builder<K, G> bind(QueryParam<T> param, Function<? super G, ? extends T> value);
+        public Builder<K, G> groupWhen(GroupingRule rule, G all);  // rule false: one ungrouped run with all's values
         public KeyGroups<K, G> verifyMissing(G all);      // re-read keys that found no row, with all's values
-        public KeyGroups<K, G> assumeInRange();           // no re-read: a row outside its key's group is not read
+        public KeyGroups<K, G> assumeInRange();           // no re-read: a row outside its key's group may not be read
+    }
+
+    @Incubating
+    @FunctionalInterface
+    public interface GroupingRule {                       // must be pure
+        boolean group(int keys, int groups);              // a call's distinct keys and groups, after dedupe
+        static GroupingRule minKeysPerGroup(int n);       // keys >= n * groups (long arithmetic); n < 1: IAE
+        static GroupingRule maxGroups(int n);             // groups <= n; n < 1: IAE
     }
 }
 ```
@@ -116,6 +130,7 @@ static final KeyGroups<Long, CreatedRange> BY_MONTH = KeyGroups
         .by(Long.class, CreatedRange::monthOf)
         .bind(FROM, CreatedRange::from)
         .bind(TO, CreatedRange::to)
+        .groupWhen(GroupingRule.minKeysPerGroup(300), ALL)   // the spike's break-even through Hibernate; measure yours
         .verifyMissing(ALL);
 ```
 
@@ -132,13 +147,21 @@ static final KeyGroups<Long, CreatedRange> BY_MONTH = KeyGroups
 - `by` with no `bind` is allowed. It splits the rounds by group and binds nothing. That's useful on its own when a
   caller wants each round to hold keys of one group (the polymorphic case, for plan stability). It ends in
   `assumeInRange()`. `verifyMissing` with no `bind` is `MQ1708`, since nothing can exclude a row.
-- A second `bind` of one param replaces the first, as `ModelQuery.Builder#bind` does.
+- A second `bind` of one param replaces the first, as `ModelQuery.Builder#bind` does. A second `groupWhen` replaces
+  the first.
+- The terminal call (`verifyMissing` or `assumeInRange`) evaluates every `value(all)` once and keeps the results, so
+  a `null` or mistyped catch-all value is `MQ1502` there, and a value function's exception propagates from it, before
+  any plan or query uses the groups. That `all` is bindable on the vendor (the range limits below) is still the
+  caller's to get right; `bind` functions apply to `all` too, so a margin that shifts a limit belongs in the group
+  function (§2's example), not in `bind`.
+- `verifyMissing(all)` after `groupWhen(rule, all2)` with `!all.equals(all2)` is `MQ1708`: one definition has one
+  catch-all, so the ungrouped run and the re-read can't disagree.
 
 **`verifyMissing(all)`.** After a child's or a `byKeys` call's rounds, the keys that found no row are read again,
-split by the bind limits, with `value(all)` bound for every param. The statement text is unchanged. Rows found are
+in R-FCH-05 / R-EXE-13's chunks, with `value(all)` bound for every param. The statement text is unchanged. Rows found are
 returned as if the first round had found them, and `MQ2608` is logged as a `WARNING` once per definition, as
 `MQ2214` is, naming the definition and a sample key (no bound values, D-95). When every key finds a row it costs
-nothing. Otherwise it costs one unpruned statement per bind-limit chunk of the run's missing keys across all groups.
+nothing. Otherwise it costs one unpruned statement per chunk of the run's missing keys across all groups.
 That is today's per-partition index probe, and only for the missing keys. A missing key can be read only on a lookup
 where each key has at most one row (D-206).
 
@@ -146,12 +169,43 @@ where each key has at most one row (D-206).
 `assumeInRange()`, a margin hides edge skew at a cost. A one-day margin on each side of a month overlaps three
 partitions, not one, so each round probes three local indexes instead of one (still well under 36).
 
+**`groupWhen(rule, all)` (D-208).** Grouping costs one statement per group, so it loses when groups are small: in the
+spike a 50-row page whose keys spread over 36 months ran 19–25× slower through Hibernate, and grouping broke even at
+about 300 keys per group. Once per call (a child load's run over one parent page or export batch, a `byKeys` call),
+after dedupe and grouping and after every group's `value` has run (so a bad value fails on either branch), the engine
+calls `rule.group(keys, groups)`, but only when the grouped rounds would outnumber R-FCH-05 / R-EXE-13's ungrouped
+chunks for the same keys. Otherwise grouping costs no extra statement and the call runs grouped without asking: one
+group (so never on `one(q, key)`), or keys enough that the ungrouped run needs as many chunks. With no keys there is no
+call.
+
+- `true`: the call runs per group as below.
+- `false`: the call runs as if every key were in the group `all`, so its rounds are R-FCH-05 / R-EXE-13's chunks with
+  `value(all)` bound for every param. The statement text is the grouped one, so no new SQL shape exists. There is no
+  `verifyMissing` re-read, since `all` already read every key.
+- With no `groupWhen`, every call runs grouped.
+- The rule's exception propagates unwrapped, at the same point as a group function's (D-138's list).
+- `all` must exclude no row: the engine can't check that. It is the same contract as `verifyMissing(all)`, which must
+  pass an equal value.
+- With `groupWhen`, every group-bound param must be read only as one side of a `compare` against a column with `GT`,
+  `GTE`, `LT` or `LTE`. Any other read (`EQ`, `NE`, inside an expression or a `@Computed` column) is `MQ1708` at the
+  plan build or `build()`, naming the param: a single `all` value can't stand for every group of an `EQ` param (the
+  tenant case), so the `false` branch would silently drop the keys of every other group.
+- Under `assumeInRange()`, a row outside its key's group is read on the `false` branch and not on the `true` one, so
+  results agree across branches only for rows inside their group. That is the risk `assumeInRange()` states; the
+  user guide says so.
+- `GroupingRule` is compared by identity in the definition key (D-201), as the group and value functions are, so a
+  `static final` rule is checked once (INV-9).
+- The library sets no default threshold: the break-even varies about tenfold between Hibernate and plain JDBC and
+  between vendors (`rfc/0023-spike-results.md`). The user guide quotes the spike's numbers and says to measure.
+- R-FCH-12's `DEBUG` line says whether the call ran grouped.
+
 ### 2. Child loads (R-FCH-18)
 
 ```java
 static final KeyGroups<Long, Instant> BY_ORDER_MONTH = KeyGroups
-        .by(Long.class, orderId -> CreatedRange.monthOf(orderId).from())
-        .bind(FROM, from -> from.minus(1, ChronoUnit.DAYS))           // a margin for clock skew between nodes
+        .by(Long.class, orderId -> CreatedRange.monthOf(orderId).from().minus(1, ChronoUnit.DAYS)) // skew margin
+        .bind(FROM, from -> from)                                      // all is bound as given, so no margin here
+        .groupWhen(GroupingRule.minKeysPerGroup(300), Instant.parse("1000-01-01T00:00:00Z"))
         .assumeInRange();                                              // to-many: verifyMissing is MQ1708
 
 FetchPlan.of(QOrderView.class)
@@ -162,7 +216,10 @@ FetchPlan.of(QOrderView.class)
 
 A to-many child keyed by the parent's id groups on the parent key. Lines are created no earlier than their order, so
 the order's month bounds them from below only: a line added two months later lives in a later partition, and an
-upper bound would drop it from the list. The pruning comes from excluding every earlier partition.
+upper bound would drop it from the list. The pruning comes from excluding every earlier partition only, so it pays
+off only where children follow their parent closely and the parents read are recent: in the spike, a group in the
+middle of 36 months still scanned 19 partitions. The two-sided range of §1 on a to-one or `byKeys` lookup is the
+main case; this form is the exception.
 
 `ChildQuery#keyGroups(KeyGroups<?, ?>)` is checked when the plan is built, with every other child refusal (R-FCH-04,
 D-138), so it fails before the parent's statement:
@@ -178,12 +235,14 @@ D-138), so it fails before the parent's statement:
   - `verifyMissing` is `MQ1708`: a missing key is normal there, and a short list never shows as one;
   - a group-bound param may be read only as one side of a `compare` against a column, as that column's lower bound
     (`GT` / `GTE` with the param on the right, `LT` / `LTE` with it on the left) or with `EQ`. Any other read (an
-    upper bound, `NE`, inside an expression or a `@Computed` column) is `MQ1708`, naming the param.
+    upper bound, `NE`, inside an expression or a `@Computed` column) is `MQ1708`, naming the param. With `groupWhen`,
+    `EQ` is `MQ1708` too (§1).
 - A `through` child (the parent holds the child's own key, at most one row per key) takes either ending.
 
 Rounds (R-FCH-05 amended): a run's distinct non-null keys are grouped by `group(key)`, with groups in the first-seen
-order of their keys and keys in first-seen order within a group. Each group is split into rounds of at most the
-largest power of two within the vendor's limits, less the round's own binds (the group's params count once each). Each
+order of their keys and keys in first-seen order within a group. Each group is split into R-FCH-05's chunks (8192
+keys at most on every Tier-1 vendor in the spike, below any bind limit), which also count the round's own binds (the
+group's params count once each). Each
 round renders `foreignKey IN (…) AND <ChildQuery filters>` with the group's values bound. The group function sees the
 attribute value before any converter, which is what R-FCH-05 matches on. Each distinct key is in exactly one round.
 There is no cap on the number of groups: refusing many groups would turn a cost into an outage. R-FCH-12's `DEBUG`
@@ -217,6 +276,8 @@ Optional<OrderLineView> line = executor.one(LINES.build(), id);            // on
   read (`list`, `page`, `count`, `exists`, `one(q)`, `first(q)`, keyset, export, stream) is `MQ2215` before any
   statement, naming the params the groups bind.
 - A `withLock`, `withFetch` or `orderedBy` copy keeps the key groups (R-COL-40's "Engine-built queries" bullet).
+- There is no per-call override: the rule sees the call's key and group counts, which is what a caller knowing "this
+  batch is small" knows. A `ModelQuery#ungrouped()` copy can be added later without breaking anything.
 - `byKeys` forms chunks per group as above, inside R-EXE-13's limits, then runs `verifyMissing`'s re-read if
   declared. `MQ2213`, `MQ2003` and `MQ2005` apply per row as before, the map stays in the keys' first-occurrence
   order, and the ignored-`orderBy` warning (D-201) is unchanged.
@@ -239,6 +300,14 @@ None. Rendering goes through R-COL-40's existing param node on both Hibernate li
 needs only `QueryParam` and the JDK (INV-7).
 
 ## Spike plan
+
+Run on PostgreSQL 16, MySQL 8.0 and H2, Hibernate 6.6 and 7.4; results in `rfc/0023-spike-results.md`, data and
+re-run steps in `rfc/0023-spike-data/`. Rendering: as designed, with a group over 8192 keys split within the group.
+Pruning: the two-sided range scans 1 of 36 partitions on PostgreSQL (custom and generic plans) and MySQL (client
+and server prepare; `TO_DAYS` partitioning always adds the first partition); the lower bound alone skips only
+earlier partitions. Cost: grouping wins on large loads (0.26–0.33× the time at 10 000 keys in 1–3 groups) and loses
+on small spread-out ones (a 50-row page over 36 months 19–25× slower through Hibernate, 3–10× on JDBC), hence
+`groupWhen` (D-208). `verifyMissing` is free when every key is found. Not tested: time zones other than UTC.
 
 On each Tier-1 vendor (H2, PostgreSQL, MySQL) and both Hibernate lines:
 
@@ -272,7 +341,9 @@ On each Tier-1 vendor (H2, PostgreSQL, MySQL) and both Hibernate lines:
 | AC-EXE-26 | `engine/20` | `one(q, key)` binds the key's group; locked `byKeys` and `one(q, key)` keep the groups through `withLock`, `withFetch` and `orderedBy` copies; `list`, `page`, `count`, `exists`, `one(q)`, `first(q)`, keyset, export and stream are `MQ2215` before any statement |
 | AC-EXE-27 | `engine/20` | `MQ1708` at `build()` for a key-type mismatch, a param bound by both `bind` and the groups, and an unread group param |
 | AC-EXE-28 | `engine/20` | Two caller keys converting to one value but grouping differently are read once, grouped by the first, with no `MQ2213` |
-| `MQ1708` | `reference/90` | A key-group definition that doesn't match its query or child (fetch-plan family; also `ModelQuery.Builder`) |
+| AC-FCH-25 | `api/15` | With `groupWhen`: a child load whose rule returns `false` runs R-FCH-05's chunks with `all`'s values bound and no re-read, and one whose rule returns `true` runs per group (statement count; children equal for rows inside their group); under `assumeInRange()` a row outside its group is found on the `false` branch only; the rule isn't called for one group, for keys whose ungrouped chunks equal the grouped rounds, or for no keys; a `null` value of any group is `MQ1502` on either branch and the rule's exception propagates unwrapped, both before the child's first round; `MQ1708` at the plan build for a group param read with `EQ` |
+| AC-EXE-29 | `engine/20` | The same branches and rule-call conditions for `byKeys` (same map on both branches when rows lie in their group); `MQ1708` at `build()` for an `EQ`-read group param; at the `KeyGroups` terminal call, `MQ1502` for a `null` or mistyped catch-all value and `MQ1708` for `verifyMissing(all)` unequal to `groupWhen`'s `all`; `minKeysPerGroup(0)` and `maxGroups(0)` throw `IllegalArgumentException` |
+| `MQ1708` | `reference/90` | A key-group definition that doesn't match its query or child, a group param read other than as a range bound under `groupWhen`, or two unequal catch-alls (fetch-plan family; also `ModelQuery.Builder` and `KeyGroups.Builder`) |
 | `MQ2215` | `reference/90` | A grouped definition read by anything but `byKeys` or `one(q, key)` |
 | `MQ2607` | `reference/90` | A key-group function returned `null` (child-load family; also `byKeys`) |
 | `MQ2608` | `reference/90` | Logged `WARNING`, never thrown: a key's row was found only by the `verifyMissing` re-read |
@@ -299,10 +370,14 @@ before, with no SQL snapshot change. D-114's rule stays for every caller that de
   child, and a caller who knows the link holds (a tenant column set from the id) would pay for every deleted key.
 - **A typed `KeyedQuery` accepted only by keyed overloads**, so a grouped definition passed to `list` fails at compile
   time instead of as `MQ2215`. It doubles the executor and repository surface for one feature. See D-207.
+- **Merging small groups into one covering range** instead of `groupWhen`. For months that aren't adjacent the
+  covering range scans everything between them, so it is no better than the catch-all and harder to predict.
+- **A built-in threshold** (always ungrouped below N keys per group). The spike's break-even moves about tenfold
+  between Hibernate and JDBC and between vendors, so any default would be wrong for many users. See D-208.
 - **Hibernate's `@PartitionKey`.** It covers updates and deletes of loaded entities, not `IN` lookups, and `jpa` can't
   import `org.hibernate` (INV-7).
 
-## Resolutions to record
+## Resolutions (recorded as D-204 to D-208)
 
 1. **D-204:** key groups bind `QueryParam`s into the static definition, rather than build a filter per group. This
    keeps D-138's "child refusals before the parent statement" for every static check, and one statement text per
@@ -317,20 +392,30 @@ before, with no SQL snapshot change. D-114's rule stays for every caller that de
    (clock skew, backfills, imported rows, a time-zone edge at a month boundary) would be excluded by the bound filter
    and its key would look absent. Every `KeyGroups` must end in `verifyMissing(all)` (keys with no row are re-read
    with the catch-all group's values, rows found are returned, `MQ2608` logged once per definition) or
-   `assumeInRange()` (the risk is stated in code). The compiler enforces the choice. `verifyMissing` is `MQ1708` on a
+   `assumeInRange()` (the risk is stated in code: such a row may or may not be read, and with `groupWhen` which one
+   depends on the branch a call takes). The compiler enforces the choice. `verifyMissing` is `MQ1708` on a
    to-many child, where a short list can't be detected; there, a group-bound param may be read only as a lower bound
    or with `EQ` (`MQ1708` otherwise), so a list is never cut by an upper bound.
 4. **D-207:** a grouped `ModelQuery` is read only by `byKeys` and `one(q, key)`, locked or not (`MQ2215` otherwise).
    The other reads have no key to group on, and a builder without `keyGroups` serves them with explicit `bind`.
    Rejected: a typed `KeyedQuery` that would make the mistake a compile error, because it doubles the executor and
    repository surface.
+5. **D-208: when to group is the caller's rule.** Grouping costs a statement per group, which the spike measured as
+   a loss on small spread-out loads. `KeyGroups.Builder#groupWhen(GroupingRule, G all)` lets the caller decide per
+   call from the distinct key and group counts; `false` runs the grouped statement text once over all keys with
+   `all`'s values and no re-read. A definition has one `all`: `verifyMissing`'s must equal `groupWhen`'s (`MQ1708`),
+   and its values are evaluated and checked at the `KeyGroups` terminal call. Under `groupWhen` a group param may be
+   read only as a range bound (`MQ1708` otherwise), since one `all` can't stand for an `EQ` value. The rule is asked
+   only when grouping would add statements, after every group's value has run, so refusals don't depend on the
+   branch. No default threshold, and no per-call override (`ungrouped()` can come later). Rejected: merging small
+   groups into a covering range, and a built-in threshold.
 
 ## Milestone sketch
 
-Targets **0.12.0**: one milestone, M35, with the freeze moving to M36. The plan rows are written at acceptance.
+Targets **0.12.0**: one milestone, M35, with the freeze moving to M36. The plan rows are in `mvp-plan` §35.
 
 | Slice | Content | Tier |
 |---|---|---|
-| .1 | `KeyGroups` and its builder in `core`, `ChildQuery#keyGroups`, plan-build checks (`MQ1708` incl. the to-many rules, `MQ1512` narrowed), per-group rounds with groups and values run up front, `verifyMissing` re-read and `MQ2608`, `MQ2607` | `opus` / `high` (child-load correctness, D-138, D-206) |
-| .2 | `ModelQuery.Builder#keyGroups`, `byKeys` (dedupe then group) and `one(q, key)` per group, copies keep groups, `MQ2215`, definition key | `opus` / `high` (public API, R-COL-40 check) |
+| .1 | `KeyGroups` and its builder in `core`, `ChildQuery#keyGroups`, plan-build checks (`MQ1708` incl. the to-many rules, `MQ1512` narrowed), per-group rounds with groups and values run up front, `verifyMissing` re-read and `MQ2608`, `MQ2607`, `groupWhen` / `GroupingRule` (rule-call conditions, range-bound-only check, catch-all checks) | `opus` / `high` (child-load correctness, D-138, D-206) |
+| .2 | `ModelQuery.Builder#keyGroups`, `byKeys` (dedupe then group) and `one(q, key)` per group, copies keep groups, `groupWhen` on `byKeys`, `MQ2215`, definition key | `opus` / `high` (public API, R-COL-40 check) |
 | .3 | TCK partitioned fixtures (PostgreSQL, MySQL), Spring `findAllByKeys` / `findByKey` tests (locked included), docs pages with both tabs, range limits per type | `sonnet` / `medium` |
