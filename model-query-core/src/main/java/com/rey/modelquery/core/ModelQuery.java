@@ -1889,6 +1889,11 @@ public final class ModelQuery<E, K, M> {
                     source, joinedSources, entityJoins, joinFilters, bindings, keyGroups, null);
         }
 
+        /** Whether this builder's key groups, which {@link #forChildren} drops, bind {@code param} (R-FCH-18). */
+        boolean keyGroupsBind(QueryParam<?> param) {
+            return keyGroups != null && keyGroups.params().contains(param);
+        }
+
         /**
          * The builder of a child load's query: {@code plan} as {@link #fetch} attaches one, the child filters as its
          * {@code where} and the child order as its {@code orderBy}, each replacing what was set before (R-FCH-04).

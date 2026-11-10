@@ -80,6 +80,18 @@ var q = QEvent.query().select(QEvent.ALL)
 The map is the one an ungrouped call returns, in the order of the keys' first occurrence. The groups are built from the
 distinct keys after the dedupe, in the order they first appear, and each key is read in exactly one round.
 
+A composite primary key takes its key as a `List<Object>`, one element per key column, built by `byComposite`:
+
+```java
+static final KeyGroups<List<Object>, Month> BY_MONTH = KeyGroups.byComposite(key -> monthOf((Long) key.get(0)))
+        .bind(CREATED_FROM, Month::from)
+        .bind(CREATED_TO, Month::to)
+        .assumeInRange();
+```
+
+A child load's key groups go on `ChildQuery#keyGroups`; the `keyGroups` of a child's own model query apply to that
+model's `byKeys` and `one(q, key)` only.
+
 **Every declaration ends in `verifyMissing(all)` or `assumeInRange()`:**
 
 - `assumeInRange()` is for data where the key always agrees with the row. A row outside its key's range is silently not
@@ -109,8 +121,9 @@ overlapping locked calls that both re-read can deadlock, and the database aborts
   twenty times slower than one; small spread pages do not pay, and an export pays it on every page.
 - `groupWhen(rule, all)` lets each call decide from its distinct keys and groups:
   `.groupWhen(GroupingRule.minKeysPerGroup(300), all)`. When the rule says no, the call runs its ordinary chunks with
-  `all`'s values bound and no re-read. Without `groupWhen`, every call is grouped. Under `groupWhen` a group param may
-  be read only in a `>`, `>=`, `<` or `<=` comparison with a column, and `verifyMissing(all)` must be given the same
+  `all`'s values bound and no re-read. Without `groupWhen`, every call is grouped. Under `groupWhen` or `verifyMissing(all)`
+  a group param may be read only in a `>`, `>=`, `<` or `<=` comparison with a column, in one direction per param
+  (one catch-all value can't widen an `=`, a `<>` or a read under `NOT`), and `verifyMissing(all)` must be given the same
   `all`.
 - Bound values are the attribute's type, an `Instant` for `timestamptz` or `DATETIME`. They reach the driver as a
   `Timestamp`, which prunes on PostgreSQL and MySQL; the JVM and the database session must agree on the time zone.

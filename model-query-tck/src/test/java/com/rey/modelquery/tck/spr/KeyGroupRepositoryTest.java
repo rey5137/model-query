@@ -3,15 +3,24 @@ package com.rey.modelquery.tck.spr;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.rey.modelquery.core.CountMode;
+import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.Expr;
+import com.rey.modelquery.core.InsertColumns;
 import com.rey.modelquery.core.KeyGroups;
+import com.rey.modelquery.core.KeysetSpec;
 import com.rey.modelquery.core.Limit;
+import com.rey.modelquery.core.ModelDelete;
+import com.rey.modelquery.core.ModelPersist;
 import com.rey.modelquery.core.ModelQuery;
+import com.rey.modelquery.core.ModelQueryException;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.Op;
+import com.rey.modelquery.core.ModelUpdate;
 import com.rey.modelquery.core.QueryParam;
 import com.rey.modelquery.core.RowLock;
+import com.rey.modelquery.core.ValuesInsert;
 import com.rey.modelquery.tck.col.OrderEntity;
 import com.rey.modelquery.tck.fch.QStampedOrder;
 import com.rey.modelquery.tck.fch.StampedOrder;
@@ -22,6 +31,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 
 /**
  * {@code findAllByKeys} and {@code findByKey} over a query with key groups, unlocked and locked, return what the
@@ -110,14 +121,54 @@ class KeyGroupRepositoryTest {
     }
 
     @TckTest
-    void ac_exe_26_find_one_find_first_and_find_all_of_a_grouped_query_are_mq2215_before_any_statement(
-            TckDatabase db) {
+    void ac_exe_26_every_repository_read_of_a_grouped_query_is_mq2215_before_any_statement(TckDatabase db) {
+        var grouped = grouped();
+        var columns = InsertColumns.<StampedOrder, OrderEntity>of(QStampedOrder.ROOT)
+                .addKey(QStampedOrder.ID, StampedOrder::id).add(QStampedOrder.PLACED_AT, StampedOrder::placedAt);
+        var update = ModelUpdate.builder(QStampedOrder.ROOT).primaryKey(QStampedOrder.KEY)
+                .set(QStampedOrder.PLACED_AT, BASE).where(f -> f.eq(QStampedOrder.ID, 5L)).build();
+        var delete = ModelDelete.builder(QStampedOrder.ROOT).primaryKey(QStampedOrder.KEY)
+                .where(f -> f.eq(QStampedOrder.ID, 5L)).build();
+        StampedOrder added = new StampedOrder(9_000L, BASE);
+        List<String> sql = SqlSnapshots.capture(db, ds -> ModelQueryRepositoryTest.withRepository(ds,
+                ModelQueryRepositoryTest.DefaultTransactions.class, (repository, context) -> {
+                    assertMq2215(() -> repository.findOne(grouped), "one(query)");
+                    assertMq2215(() -> repository.findFirst(grouped), "first(query)");
+                    assertMq2215(() -> repository.findAll(grouped, Limit.of(5)), "list(query, limit)");
+                    assertMq2215(() -> repository.count(grouped), "count(query)");
+                    assertMq2215(() -> repository.findPage(grouped, PageRequest.of(0, 5), CountMode.COUNT),
+                            "page(query, PageSpec, CountMode)");
+                    assertMq2215(() -> repository.findKeysetPage(grouped, KeysetSpec.first(5), Sort.unsorted()),
+                            "page(query, KeysetSpec)");
+                    assertMq2215(() -> repository.stream(grouped, Limit.of(5), rows -> rows.count()), "stream(...)");
+                    assertMq2215(() -> repository.export(grouped, ExportOptions.of(300), page -> page, row -> {}),
+                            "export(...)");
+                    assertMq2215(() -> repository.updateReturning(update, grouped), "updateReturning(");
+                    assertMq2215(() -> repository.deleteReturning(delete, grouped), "deleteReturning(");
+                    assertMq2215(() -> repository.insertReturning(
+                            ValuesInsert.builder(columns, Long.class, List.of(added)).build(), grouped),
+                            "insertReturning(");
+                    assertMq2215(() -> repository.persist(ModelPersist.of(columns, Long.class, added), grouped),
+                            "persist(persist, returning)");
+                    return null;
+                }));
+        assertThat(sql).isEmpty();
+    }
+
+    @TckTest
+    void ac_exe_26_a_bad_sort_property_is_mq2301_before_mq2215_on_the_paging_reads(TckDatabase db) {
         var grouped = grouped();
         List<String> sql = SqlSnapshots.capture(db, ds -> ModelQueryRepositoryTest.withRepository(ds,
                 ModelQueryRepositoryTest.DefaultTransactions.class, (repository, context) -> {
-                    assertMq2215(() -> repository.findOne(grouped), "one");
-                    assertMq2215(() -> repository.findFirst(grouped), "first");
-                    assertMq2215(() -> repository.findAll(grouped, Limit.of(5)), "list");
+                    // Spring applies the sort to the query before the executor refuses it: both are loud, no SQL.
+                    assertThatThrownBy(() -> repository.findPage(grouped,
+                            PageRequest.of(0, 5, Sort.by("noSuchProperty")), CountMode.COUNT))
+                            .isInstanceOfSatisfying(ModelQueryException.class,
+                                    e -> assertThat(e.code()).isEqualTo(MqCode.MQ2301));
+                    assertThatThrownBy(() -> repository.findKeysetPage(grouped, KeysetSpec.first(5),
+                            Sort.by("noSuchProperty")))
+                            .isInstanceOfSatisfying(ModelQueryException.class,
+                                    e -> assertThat(e.code()).isEqualTo(MqCode.MQ2301));
                     return null;
                 }));
         assertThat(sql).isEmpty();

@@ -75,8 +75,7 @@ class KeyGroupsQueryTest {
         // primaryKey(...) after keyGroups(...) keeps them, and build() checks them against the new key.
         assertCode(() -> ranged().keyGroups(RANGE).primaryKey(PrimaryKey.composite(ID, ORDER_ID)).build(),
                 MqCode.MQ1708).hasMessageContaining("Long").hasMessageContaining("List");
-        @SuppressWarnings({"unchecked", "rawtypes"})
-        KeyGroups<List<Object>, ?> composite = (KeyGroups) KeyGroups.by(List.class, key -> from((Long) key.get(0)))
+        KeyGroups<List<Object>, ?> composite = KeyGroups.byComposite(key -> from((Long) key.get(0)))
                 .bind(FROM, from -> from).bind(TO, from -> from).assumeInRange();
         assertThatCode(() -> ranged().primaryKey(PrimaryKey.composite(ID, ORDER_ID)).keyGroups(composite).build())
                 .doesNotThrowAnyException();
@@ -140,6 +139,45 @@ class KeyGroupsQueryTest {
         var exact = KeyGroups.by(Long.class, KeyGroupsQueryTest::from).bind(FROM, from -> from).assumeInRange();
         assertThatCode(() -> lines().where(f -> f.compare(CREATED, Op.EQ, Expr.param(FROM))).keyGroups(exact)
                 .build()).doesNotThrowAnyException();
+    }
+
+    @Test
+    void ac_exe_27_the_both_directions_check_reads_a_param_on_the_left_of_a_compare_flipped() {
+        var verified = KeyGroups.by(Long.class, KeyGroupsQueryTest::from).bind(FROM, from -> from)
+                .verifyMissing(ALL_FROM);
+        // CREATED >= from is a lower bound; from > CREATED is an upper bound: both ways, also under OR.
+        assertCode(() -> lines().where(f -> f.compare(CREATED, Op.GTE, Expr.param(FROM))
+                .compare(Expr.param(FROM), Op.GT, CREATED)).keyGroups(verified).build(), MqCode.MQ1708)
+                .hasMessageContaining("both directions");
+        assertCode(() -> lines().where(f -> f.or(a -> a.compare(CREATED, Op.GTE, Expr.param(FROM)),
+                b -> b.compare(Expr.param(FROM), Op.GTE, CREATED))).keyGroups(verified).build(), MqCode.MQ1708)
+                .hasMessageContaining("both directions");
+        // from <= CREATED is the same lower bound as CREATED >= from.
+        assertThatCode(() -> lines().where(f -> f.compare(CREATED, Op.GTE, Expr.param(FROM))
+                .compare(Expr.param(FROM), Op.LTE, CREATED)).keyGroups(verified).build()).doesNotThrowAnyException();
+        assertThatThrownBy(() -> KeyGroups.byComposite(null)).isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    void ac_exe_27_under_verify_missing_a_group_param_read_other_than_as_a_range_bound_is_mq1708() {
+        var verified = KeyGroups.by(Long.class, KeyGroupsQueryTest::from).bind(FROM, from -> from)
+                .verifyMissing(ALL_FROM);
+        List<UnaryOperator<Filters<LineView>>> refused = List.of(
+                f -> f.compare(CREATED, Op.EQ, Expr.param(FROM)),
+                f -> f.compare(CREATED, Op.NE, Expr.param(FROM)),
+                f -> f.not(n -> n.compare(CREATED, Op.GTE, Expr.param(FROM))),
+                f -> f.compare(CREATED, Op.GTE, Expr.coalesce(Expr.param(FROM), CREATED)));
+        for (UnaryOperator<Filters<LineView>> where : refused) {
+            assertCode(() -> lines().where(where).keyGroups(verified).build(), MqCode.MQ1708)
+                    .hasMessageContaining("createdFrom: Instant").hasMessageContaining("catch-all");
+        }
+        // One param bounding in both directions: no single catch-all value is the widest bound for both.
+        assertCode(() -> lines().where(f -> f.compare(CREATED, Op.GTE, Expr.param(FROM))
+                .compare(CREATED, Op.LT, Expr.param(FROM))).keyGroups(verified).build(), MqCode.MQ1708)
+                .hasMessageContaining("both directions");
+        // A range bound either way round, one direction per param, passes.
+        assertThatCode(() -> lines().where(f -> f.compare(CREATED, Op.LT, Expr.param(FROM)))
+                .keyGroups(verified).build()).doesNotThrowAnyException();
     }
 
     @Test

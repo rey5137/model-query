@@ -3195,7 +3195,9 @@ rows, a time-zone edge at a month boundary) is excluded by the bound filter, and
 are returned, `MQ2608` logged once per definition) or `assumeInRange()` (the risk is stated in code: such a row may
 not be read, and under `groupWhen` whether it is depends on the branch a call takes); the builder types make the choice
 compulsory. `verifyMissing` is `MQ1708` on a to-many child, where a short list can't be detected; there a group param
-may be read only as a lower bound or with `EQ` (`MQ1708` otherwise), so a list is never cut by an upper bound. Spike:
+may be read only as a lower bound or with `EQ` (`MQ1708` otherwise), so a list is never cut by an upper bound. (`EQ` is
+allowed for a column whose value the child takes from its parent's key, an inherited partition value, which holds by
+construction; for any other column it cuts the list as an upper bound would, the risk `assumeInRange()` states; D-211.) Spike:
 `verifyMissing` adds no statement when every key finds a row. Rejected: the range as an ordinary caller filter with
 no ending (an assumed link would silently change the result, INV-5); `verifyMissing` with no opt-out (impossible on a
 to-many child, and paid for every deleted key where the link holds).
@@ -3255,6 +3257,28 @@ or not. Rejected: keeping per-group rounds and documenting the deadlock risk (R-
 groups); running a locked call ungrouped with the catch-all (no pruning under a lock, and `assumeInRange()` has no
 catch-all).
 → `engine/20` R-EXE-14, R-EXE-18, AC-EXE-26, D-206, D-127.
+
+**D-211 — A catch-all restricts how a group param is read, whichever ending supplies it (M35 gate, 2026-11-10; amends
+D-206 and D-208).** The re-read of `verifyMissing(all)` binds one `all`, as `groupWhen`'s ungrouped run does, and one
+value can't widen an `EQ`, an `NE`, a read under `NOT` or `EXISTS`, a read in a sub-select or inside an expression, or
+one param bounding in both directions. Such a re-read would silently miss the row it exists to recover (INV-5). So
+whenever the key groups have a catch-all (`groupWhen`, or `verifyMissing`), a group param may be read only bare on one
+side of a `GT`, `GTE`, `LT` or `LTE` compare against a column in the `where`, under `AND` and `OR` alone, and in one
+direction per param. Anything else is `MQ1708` at `build()` or at the plan build. With `assumeInRange()` and no
+`groupWhen`, a to-one or keyed read keeps any read, at the risk that ending states. A to-many child's `EQ` applies
+only there and holds for a column the child takes from its parent's key. Rejected: checking at run time (an excluded
+row is invisible); documenting the contract only (statically unsatisfiable for `EQ`).
+→ `api/15` R-FCH-18, `engine/20` R-EXE-18, AC-EXE-27, AC-FCH-21, `reference/90` MQ1708.
+
+**D-212 — `KeyGroups.byComposite` for a composite key, and a hint when a child model's own key groups are dropped (M35
+gate, 2026-11-10, user decision).** A composite primary key is a `PrimaryKey<M, List<Object>>`, but `by(List.class, ...)`
+gives a `KeyGroups<List, G>`, so the only way through was a raw cast that turns off the key-type check. `KeyGroups`
+gains `byComposite(Function<? super List<Object>, ? extends G>)`, a `KeyGroups.Builder<List<Object>, G>` with `List`
+implied. Rejected: widening `by` to `Class<? super K>` (inference subtleties, a stored `Class<?>`). A child model's own
+`ModelQuery.Builder#keyGroups` still doesn't apply to its child loads (R-FCH-18), the code staying `MQ1512` (no new
+refusal, no reroute): when the unbound param is one such groups bind, the message adds that the child model's
+`keyGroups` apply only to `byKeys` and `one(q, key)` and that `ChildQuery#keyGroups` is the one a child load takes.
+→ `api/15` R-FCH-18, `engine/20` R-EXE-18, AC-EXE-27, AC-FCH-21.
 
 ## 2. Open questions
 

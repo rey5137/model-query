@@ -130,7 +130,7 @@ parent's entity. `through` excludes `foreignKey` (`MQ3401`). A `through` path th
 embedded value, or ends at another type than the child's root, a `key` that is not the parent root's single `@Id`, or a
 grouped child model, is `MQ3406`. Grouping, dedupe, bounds and rounds are as R-FCH-04/-05/-11.
 
-**R-FCH-18** *(D-204, D-205, D-206, D-208, D-209, `@Incubating`)* **Key groups.** `ChildQuery#keyGroups(KeyGroups<?,
+**R-FCH-18** *(D-204, D-205, D-206, D-208, D-209, D-212, `@Incubating`)* **Key groups.** `ChildQuery#keyGroups(KeyGroups<?,
 ?>)` reads a child's keys in rounds per group, each round binding its group's values into the same filter. A `KeyGroups`
 is built by `KeyGroups.by(keyType, group)`, then `bind(param, value)` per `QueryParam` (a second `bind` of one param
 replaces the first) and `groupWhen(GroupingRule, all)` (a second replaces the first), and is finished by one of two
@@ -147,15 +147,18 @@ a `static final` constant (INV-9), and is compared by identity, as its functions
   D-138): `MQ1708` when `keyType` isn't the attribute type of the child's `foreignKey`, or of the parent's `key` for
   `through`, naming both; when a param the groups bind is read by nothing the child renders, or is also bound by the
   child model's own `bind`; and when `verifyMissing` binds nothing. A param the child reads that neither its model nor
-  the groups bind stays `MQ1512` (R-COL-40). A to-many child (one matched on its `foreignKey`, or a `List` child loaded
+  the groups bind stays `MQ1512` (R-COL-40). A child model's own `ModelQuery.Builder#keyGroups` doesn't apply to its child loads, only
+  `ChildQuery#keyGroups` does: a param those groups bind and nothing else does is this `MQ1512`, its message saying so
+  (D-212). A to-many child (one matched on its `foreignKey`, or a `List` child loaded
   `through`, D-209) has no key unique per row, so a short list never shows as a missing key: `verifyMissing` there is
   `MQ1708`, and a group param may be read only bare on one side of a `compare` against a column in the child's `where`,
   as that column's lower bound (`GT` / `GTE` with the param on the right, `LT` / `LTE` with it on the left) or with
-  `EQ`. Under `groupWhen` a group param may be read only so with `GT`, `GTE`, `LT` or `LTE`, since one catch-all can't
-  stand for every group of an `EQ`. Under either restriction any other read (an upper bound on a to-many child, `NE`,
+  `EQ`. Under a catch-all (`groupWhen` or `verifyMissing`, D-211) a group param may be read only so with `GT`, `GTE`,
+  `LT` or `LTE`, and in one direction per param (`MQ1708` for one param bounding both ways), since one catch-all value
+  can't stand for every group of an `EQ` or be the widest bound both ways. Under either restriction any other read (an upper bound on a to-many child, `NE`,
   under `NOT` or `EXISTS`, in a sub-select, `having` or join filter, inside an expression or a `@Computed` column) is
-  `MQ1708`, naming the param. A to-one `through` child, with at most one row per key, takes either ending and any read
-  without `groupWhen`.
+  `MQ1708`, naming the param. A to-one `through` child, with at most one row per key, takes either ending, and any read
+  only under `assumeInRange()` without `groupWhen`.
 - **Before the first round.** Per load (a page, a `byKeys` result, an export batch), the engine calls `group` once per
   distinct non-null key and each `value` once per distinct group, all after the parent's statement and before the
   child's first round, so a refusal follows no child statement: a `null` group is `MQ2607` naming the key, a `null` or
@@ -300,7 +303,7 @@ so.
 | AC-FCH-18 | A join plan selecting an expression throws `MQ1705` (R-FCH-07). |
 | AC-FCH-19 | Per vendor and line, a child load over keys of three groups runs one round per group with each group's values bound, one SQL text per `IN` length, children per parent in child order (R-FCH-05, R-FCH-18). |
 | AC-FCH-20 | A group over the bind limit is split within the group; the group's binds count against the budget (R-FCH-05, R-FCH-18). |
-| AC-FCH-21 | At the plan build, before the parent statement, even on an empty page: `MQ1708` for a key-type mismatch, an unread group param, `verifyMissing` with no `bind`, and on a to-many child (a `List` `through` child included, D-209) `verifyMissing` or a group param read as an upper bound; `MQ1512` for a param no group binds (R-FCH-18, D-138). |
+| AC-FCH-21 | At the plan build, before the parent statement, even on an empty page: `MQ1708` for a key-type mismatch, an unread group param, `verifyMissing` with no `bind`, and on a to-many child (a `List` `through` child included, D-209) `verifyMissing` or a group param read as an upper bound, and on a to-one child with `verifyMissing` or `groupWhen` a group param read as `EQ`, `NE`, under `NOT`, inside an expression or bounding both ways (D-211); `MQ1512` for a param no group binds, and for one only the child model's own `keyGroups` bind, whose message says that `ChildQuery#keyGroups` is the one a child load takes, with no such hint for a param they don't bind (R-FCH-18, D-138, D-212). |
 | AC-FCH-22 | `MQ2607` on a `null` group, `MQ1502` on a `null` or mistyped value, and a group function's unwrapped exception all occur after the parent statement and before the child's first round, with no child round run (R-FCH-18, D-204). |
 | AC-FCH-23 | A to-many child with a lower bound only loads a line created in the month after its order's month: the list is complete (R-FCH-18, D-206). |
 | AC-FCH-24 | A to-one `through` child with `verifyMissing` loads a child whose range column lies outside its key's group through the re-read and logs `MQ2608` once per definition; when every key finds a row, no re-read runs (statement count) (R-FCH-18, D-206). |
