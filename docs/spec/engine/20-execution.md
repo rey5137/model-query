@@ -281,18 +281,20 @@ extra row, so none is one (`delivery/61` R-REL-07).
   gets an entry, so keys converting to one value share one model; `afterMap` runs once per row (`api/11` R-QRY-05).
   The fetch plan runs once over every row, in key order (`api/15` R-FCH-05). Memory is the whole result.
 
-**R-EXE-18** *(D-204, D-205, D-206, D-207, D-208, D-210, `@Incubating`)* **Keyed reads over key groups.**
+**R-EXE-18** *(D-204, D-205, D-206, D-207, D-208, D-210, D-212, `@Incubating`)* **Keyed reads over key groups.**
 `ModelQuery.Builder#keyGroups(KeyGroups<K, ?>)` makes `byKeys(q, keys)` and `one(q, key)` read their keys in rounds per
 group, each round binding its group's values into the query's filter. The `KeyGroups` is the one a child load takes
 (`api/15` R-FCH-18: its builder, its two endings, its terminal-call checks, `groupWhen` and the purity of `group` and
 each `value`); a second `keyGroups` replaces the first. The params it binds count as bound at `build()` (`api/10`
 R-COL-40), and `ModelQuery#keyGroups()` (`@EngineFacing`) hands it to the engine.
 
-- **At `build()`**, before any statement: `MQ1708` when `keyType` isn't the primary key's type, naming both (a
-  `primaryKey(...)` set after `keyGroups` is checked too), when the query has no primary key, when a param the groups
+- **At `build()`**, before any statement: `MQ1708` when `keyType` isn't the primary key's type, naming both (`List` for a
+  composite key, built by `KeyGroups.byComposite(group)` (D-212); a `primaryKey(...)` set after `keyGroups` is checked
+  too, which in practice means replacing a primary key, as `keyGroups` before any `primaryKey` takes only a
+  `KeyGroups<Object, ?>`, which is always this `MQ1708`), when the query has no primary key, when a param the groups
   bind is also bound by `bind` or read by nothing the query renders, and when `verifyMissing` binds nothing. Under
-  `groupWhen` a group param may be read only bare on one side of a `GT`, `GTE`, `LT` or `LTE` `compare` against a
-  column in the query's `where`; any other read (`EQ`, `NE`, under `NOT` or `EXISTS`, in a sub-select, `having` or join
+  a catch-all (`groupWhen` or `verifyMissing`, D-211) a group param may be read only bare on one side of a `GT`,
+  `GTE`, `LT` or `LTE` `compare` against a column in the query's `where`, in one direction per param; any other read (`EQ`, `NE`, under `NOT` or `EXISTS`, in a sub-select, `having` or join
   filter, a select column, inside an expression) is `MQ1708`, naming the param. A param the query reads that neither
   `bind` nor the groups bind stays `MQ1512`.
 - **Only keyed reads** (D-207). A query with key groups is read only by `byKeys` and `one(q, key)`, locked or not
@@ -453,6 +455,6 @@ returning clause, compose into one statement.
 | AC-EXE-24 | A grouped query's `sum` over a root column with a filter-only to-many join equals the sum over distinct roots (R-EXE-16, R-EXE-04). |
 | AC-EXE-25 | `byKeys` with `verifyMissing` returns the same map as ungrouped `byKeys`, in key order, including a row outside its key's range, with one round per group, split within a group by the bind limits, then one re-read; when every key finds a row no re-read runs; with `assumeInRange()` it returns that map when every row lies in its key's range; no keys run no SQL (R-EXE-18). |
 | AC-EXE-26 | `one(q, key)` binds the key's group in one statement, and under `verifyMissing` re-reads with the catch-all only when its group finds no row; locked `byKeys` and `one(q, key)` keep the groups through `withLock`, `withFetch` and `orderedBy` copies; a locked `byKeys` over groups that interleave in key order runs one round per run of sorted keys sharing a group, each round's keys above the last's, and an unlocked one a round per group (D-210); `list`, `page`, keyset `page`, `count`, `one(q)`, `first(q)`, `export`, `stream` and the `returning` query of `updateReturning`, `deleteReturning`, `insertReturning` and `persist` are `MQ2215` before any statement (R-EXE-18, R-EXE-14). |
-| AC-EXE-27 | `MQ1708` at `build()` for a key-type mismatch, a query without a primary key, a param bound by both `bind` and the groups, an unread group param and `verifyMissing` with no `bind`; a param no group binds stays `MQ1512` (R-EXE-18, R-COL-40). |
+| AC-EXE-27 | `MQ1708` at `build()` for a key-type mismatch, a query without a primary key, a param bound by both `bind` and the groups, an unread group param, `verifyMissing` with no `bind`, and under `verifyMissing` a group param read as `EQ`, `NE`, under `NOT`, inside an expression or bounding both ways (D-211; with `assumeInRange()` and no `groupWhen` an `EQ` read passes); a param no group binds stays `MQ1512` (R-EXE-18, R-COL-40). |
 | AC-EXE-28 | Two caller keys converting to one value but grouping differently are read once, grouped by the first, with no `MQ2213` (R-EXE-18). |
 | AC-EXE-29 | With `groupWhen`, `byKeys` whose rule returns `false` runs R-EXE-13's chunks with `all`'s values bound and no re-read, and one whose rule returns `true` runs per group, with the same map on both branches when rows lie in their group; the rule isn't called for one group, for keys whose ungrouped chunks equal the grouped rounds, or for no keys; a `null` group value is `MQ1502` and the rule's exception propagates unwrapped, both before any statement; `MQ1708` at `build()` for an `EQ`-read group param; at the `KeyGroups` terminal call, `MQ1502` for a `null` or mistyped catch-all value and `MQ1708` for `verifyMissing(all)` unequal to `groupWhen`'s `all`; `minKeysPerGroup(0)` and `maxGroups(0)` throw `IllegalArgumentException` (R-EXE-18, `api/15` R-FCH-18). |

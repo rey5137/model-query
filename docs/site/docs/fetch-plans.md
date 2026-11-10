@@ -466,7 +466,9 @@ On a to-many child, a group param may be read only as a column's lower bound (`>
 or with `EQ`, since an upper bound would cut a parent's list. A lower bound alone drops the earlier partitions only,
 about half of them on average, and its groups multiply when parents precede their children. Prefer a coarser group.
 A to-one child loaded `through` an association path has at most one row per key, so it takes `verifyMissing` and a
-two-sided range, and prunes to one partition.
+two-sided range, and prunes to one partition. Under `verifyMissing` or `groupWhen` a group param may be read only in a
+`>`, `>=`, `<` or `<=` comparison with a column, in one direction per param, since one catch-all value can't widen an
+`=`, a `<>` or a read under `NOT`; `assumeInRange()` without `groupWhen` keeps any read.
 
 Grouping pays when many keys share a group, and costs when they do not. Measured on PostgreSQL and MySQL:
 

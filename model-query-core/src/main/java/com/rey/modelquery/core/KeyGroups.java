@@ -3,6 +3,7 @@ package com.rey.modelquery.core;
 import com.rey.modelquery.annotations.Incubating;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -66,7 +67,22 @@ public final class KeyGroups<K, G> {
                 Objects.requireNonNull(group, "group"), Map.of(), null, null);
     }
 
-    /** The key type, a wrapper for a primitive; it must equal the matched key column's attribute type. */
+    /**
+     * Starts a definition whose keys are a composite key's {@code List<Object>}, one element per key column in the
+     * order of the {@link PrimaryKey}, and fall in the group {@code group} maps them to; as {@link #by} with
+     * {@code List} as the key type, without the raw cast.
+     */
+    @SuppressWarnings("unchecked")
+    public static <G> Builder<List<Object>, G> byComposite(Function<? super List<Object>, ? extends G> group) {
+        return new Builder<>((Class<List<Object>>) (Class<?>) List.class, Objects.requireNonNull(group, "group"),
+                Map.of(), null, null);
+    }
+
+    /**
+     * The key type, a wrapper for a primitive; for a child load it must equal the matched key column's attribute
+     * type, before any converter, and for {@code byKeys} and {@code one(q, key)} the primary key's type, as the caller
+     * passes it.
+     */
     @EngineFacing
     public Class<K> keyType() {
         return keyType;
@@ -79,7 +95,8 @@ public final class KeyGroups<K, G> {
     }
 
     /**
-     * The group {@code key} falls in; {@code key} is the matched column's attribute value, before any converter.
+     * The group {@code key} falls in; {@code key} is, for a child load, the matched column's attribute value, before any
+     * converter, and for {@code byKeys} and {@code one(q, key)} the key as the caller passes it.
      *
      * @throws ModelQueryExecutionException {@code MQ2607} when the group function returns {@code null}; the function's
      *     own exception propagates unwrapped

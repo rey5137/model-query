@@ -234,6 +234,15 @@ core `FilterDefinition` (`processor/30` R-PROC-44, R-PROC-45).
 `ModelQuery#joinsSource()` and `BuiltQuery#recursionJoin()`, which names a joined walk in its check messages, are
 `@EngineFacing`, so they are not API; they also carry `@Incubating`, which marks a change to them breaking (R-REL-08).
 
+The RFC 0023 members (D-204..D-212, M35) are `@Incubating` through 1.0: `KeyGroups` with `by`, `byComposite`, its
+`Builder` and `GroupingRule` (`minKeysPerGroup`, `maxGroups`), `ModelQuery.Builder#keyGroups`, `ChildQuery#keyGroups`
+(`api/15` R-FCH-18), and `MqCode.MQ1708`, `MQ2215`, `MQ2607` and `MQ2608`. `ModelQuery#keyGroups()`,
+`ModelQuery#buildQuery(cb, phase, options, perRound)`, `KeyGroups#keyType`, `#params`, `#groupOf`, `#values`,
+`#catchAll`, `#verifiesMissing` and `#rule`, and `ChildLoad#keyGroups()` and `#build(cb, options, values)` are
+`@EngineFacing`, so they are not API; `ModelQuery#keyGroups()`, the four-argument `buildQuery`, `ChildLoad` and the
+`KeyGroups` accessors also carry `@Incubating` or sit in an `@Incubating` type, which marks a change to them breaking
+(R-REL-08).
+
 **R-REL-08** Tag → GitHub Actions → Maven Central through the Central Portal
 (`central-publishing-maven-plugin`), GPG-signed, with `-sources` and `-javadoc` jars. The changelog is generated from
 Conventional Commits. A commit that breaks an `@Incubating` type is still marked breaking (`!` and a

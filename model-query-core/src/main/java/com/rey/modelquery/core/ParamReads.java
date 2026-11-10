@@ -175,28 +175,46 @@ final class ParamReads {
                         + "identity, so give each its own name or read one constant");
             }
             if (!bindings.containsKey(param)) {
-                throw new ModelQueryDefinitionException(MqCode.MQ1512, owner + ": " + at + " reads the param "
-                        + param + ", which the query does not bind; bind it with bind(param, value)");
+                throw new Unbound(param, owner + ": " + at + " reads the param " + param
+                        + ", which the query does not bind; bind it with bind(param, value)");
             }
         });
+    }
+
+    /** The {@code MQ1512} of a param read and not bound, which says which, for a caller that can say more. */
+    static final class Unbound extends ModelQueryDefinitionException {
+        private static final long serialVersionUID = 1L;
+
+        private final transient QueryParam<?> param;
+
+        private Unbound(QueryParam<?> param, String detail) {
+            super(MqCode.MQ1512, detail);
+            this.param = param;
+        }
+
+        QueryParam<?> param() {
+            return param;
+        }
     }
 
     /**
      * {@code MQ1708}, naming {@code owner}, when a param {@code groups} binds is also in {@code bindings} or is read by
      * nothing, or, on a child whose key isn't unique per row ({@code toMany}) or under {@code groupWhen}, is read other
-     * than as the child allows: on {@code toMany}, only as a column's lower bound or, without {@code groupWhen}, with
-     * {@code EQ}; under {@code groupWhen}, only as a {@code GT}, {@code GTE}, {@code LT} or {@code LTE} bound of a
-     * column (R-FCH-18, R-EXE-18, D-206, D-208). A query's own key groups, whose key is unique per row, pass
+     * than as the child allows: on {@code toMany}, only as a column's lower bound or, without a catch-all, with
+     * {@code EQ}; under a catch-all ({@code groupWhen} or {@code verifyMissing}), only as a {@code GT}, {@code GTE},
+     * {@code LT} or {@code LTE} bound of a column, in one direction per param (R-FCH-18, R-EXE-18, D-206, D-208,
+     * D-211). A query's own key groups, whose key is unique per row, pass
      * {@code toMany} false. A read counts only bare on one side of a {@code compare} of the {@code where},
      * under {@code AND} and {@code OR} alone; any other read is refused under either restriction.
      */
     void checkKeyGroups(String owner, KeyGroups<?, ?> groups, Map<QueryParam<?>, Object> bindings, boolean toMany) {
-        boolean ruled = groups.rule().isPresent();
+        boolean catchAll = groups.catchAll().isPresent();
         String why = (toMany ? "; on a to-many child, a group param may be read only as a column's "
                 + "lower bound (GT or GTE with the param on the right, LT or LTE with it on the left)"
-                + (ruled ? "" : " or with EQ") + ", since an upper bound would cut a parent's list" : "")
-                + (ruled ? "; under groupWhen, a group param may be read only as a GT, GTE, LT or LTE bound of a "
-                        + "column, since one catch-all value can't stand for every group of an EQ" : "");
+                + (catchAll ? "" : " or with EQ") + ", since an upper bound would cut a parent's list" : "")
+                + (catchAll ? "; under a catch-all (groupWhen or verifyMissing), a group param may be read only as a "
+                        + "GT, GTE, LT or LTE bound of a column, in one direction, since one catch-all value can't "
+                        + "stand for every group of an EQ or be the widest bound both ways" : "");
         for (QueryParam<?> param : groups.params()) {
             if (bindings.containsKey(param)) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1708, owner + ": the param " + param + " is bound "
@@ -207,7 +225,7 @@ final class ParamReads {
                         + param + ", which nothing reads; a group-bound param exists only to filter, so read it in "
                         + "the where(...)");
             }
-            if (!toMany && !ruled) {
+            if (!toMany && !catchAll) {
                 continue;
             }
             String other = otherReads.get(param);
@@ -215,8 +233,15 @@ final class ParamReads {
                 throw new ModelQueryDefinitionException(MqCode.MQ1708, owner + ": " + other + " reads the group param "
                         + param + " other than bare on one side of a compare(...) against a column" + why);
             }
-            compares.getOrDefault(param, Map.of()).forEach((op, at) -> {
-                boolean allowed = op == Op.GT || op == Op.GTE || (op == Op.EQ ? toMany && !ruled
+            Map<Op, String> ops = compares.getOrDefault(param, Map.of());
+            if (catchAll && (ops.containsKey(Op.GT) || ops.containsKey(Op.GTE))
+                    && (ops.containsKey(Op.LT) || ops.containsKey(Op.LTE))) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1708, owner + ": the group param " + param
+                        + " bounds a column both ways (" + ops.values() + "); one catch-all value can't be the "
+                        + "widest bound in both directions");
+            }
+            ops.forEach((op, at) -> {
+                boolean allowed = op == Op.GT || op == Op.GTE || (op == Op.EQ ? toMany && !catchAll
                         : (op == Op.LT || op == Op.LTE) && !toMany);
                 if (!allowed) {
                     throw new ModelQueryDefinitionException(MqCode.MQ1708, owner + ": " + at + " reads the group "

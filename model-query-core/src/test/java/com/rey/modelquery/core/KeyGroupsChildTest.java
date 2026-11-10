@@ -117,6 +117,25 @@ class KeyGroupsChildTest {
     }
 
     @Test
+    void ac_fch_21_on_a_to_one_child_verify_missing_restricts_a_group_param_read_as_group_when_does() {
+        List<UnaryOperator<Filters<LineView>>> refused = List.of(
+                f -> f.compare(CREATED, Op.EQ, Expr.param(FROM)),
+                f -> f.compare(CREATED, Op.NE, Expr.param(FROM)),
+                f -> f.not(n -> n.compare(CREATED, Op.GTE, Expr.param(FROM))),
+                f -> f.compare(CREATED, Op.GTE, Expr.coalesce(Expr.param(FROM), CREATED)),
+                f -> f.compare(CREATED, Op.GTE, Expr.param(FROM)).compare(CREATED, Op.LT, Expr.param(FROM)));
+        for (UnaryOperator<Filters<LineView>> where : refused) {
+            assertCode(() -> plan(ONE, q -> q.where(where).keyGroups(VERIFIED)), MqCode.MQ1708)
+                    .hasMessageContaining("createdFrom: Instant").hasMessageContaining("catch-all");
+        }
+        assertThatCode(() -> plan(ONE, q -> q.where(f -> f.compare(CREATED, Op.LT, Expr.param(FROM)))
+                .keyGroups(VERIFIED))).doesNotThrowAnyException();
+        // assumeInRange() without groupWhen has no catch-all, so any read stays.
+        assertThatCode(() -> plan(ONE, q -> q.where(f -> f.compare(CREATED, Op.EQ, Expr.param(FROM)))
+                .keyGroups(LOWER))).doesNotThrowAnyException();
+    }
+
+    @Test
     void ac_fch_21_on_a_to_many_child_a_group_param_read_as_an_upper_bound_or_otherwise_is_mq1708() {
         List<UnaryOperator<Filters<LineView>>> refused = List.of(
                 f -> f.compare(CREATED, Op.LT, Expr.param(FROM)),
@@ -193,6 +212,24 @@ class KeyGroupsChildTest {
                 .keyGroups(LOWER));
         assertThat(grouped.childLoads().get(0).keyGroups()).containsSame(LOWER);
         assertThat(plan(LINES, q -> q).childLoads().get(0).keyGroups()).isEmpty();
+    }
+
+    @Test
+    void ac_fch_21_a_child_models_own_key_groups_dont_bind_its_child_load_and_the_mq1512_says_so() {
+        ChildField<OrderView, LineView> ownGroups = child(LINE_ORDER, null, true,
+                () -> lineQuery().keyGroups(LOWER));
+        assertCode(() -> plan(ownGroups, q -> q.where(f -> f.compare(CREATED, Op.GTE, Expr.param(FROM)))),
+                MqCode.MQ1512).hasMessageContaining("createdFrom: Instant").hasMessageContaining("ChildQuery#keyGroups");
+        // The hint is for a child model that has key groups: without them the message stays as it was.
+        assertCode(() -> plan(LINES, q -> q.where(f -> f.compare(CREATED, Op.GTE, Expr.param(FROM)))),
+                MqCode.MQ1512).hasMessageNotContaining("ChildQuery#keyGroups");
+        // A param the model's groups don't bind gets no hint, whoever else's groups there are.
+        assertCode(() -> plan(ownGroups, q -> q.where(f -> f.compare(CREATED, Op.LT, Expr.param(TO)))),
+                MqCode.MQ1512).hasMessageContaining("createdTo: Instant")
+                .hasMessageNotContaining("ChildQuery#keyGroups");
+        // ChildQuery#keyGroups does bind it.
+        assertThatCode(() -> plan(ownGroups, q -> q.where(f -> f.compare(CREATED, Op.GTE, Expr.param(FROM)))
+                .keyGroups(LOWER))).doesNotThrowAnyException();
     }
 
     @Test

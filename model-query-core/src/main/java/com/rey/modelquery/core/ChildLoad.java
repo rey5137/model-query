@@ -57,7 +57,18 @@ public final class ChildLoad<M, C> {
             checkKeyGroups();
             builder = builder.perRound(keyGroups, this, toMany());
         }
-        this.query = builder.build();
+        try {
+            this.query = builder.build();
+        } catch (ParamReads.Unbound e) {
+            if (!field.query().keyGroupsBind(e.param())) {
+                throw e;
+            }
+            // The child model's own key groups group its byKeys and one(q, key) only, so the param they bind is
+            // unbound here.
+            throw new ModelQueryDefinitionException(MqCode.MQ1512, e.getMessage().substring(
+                    MqCode.MQ1512.code().length() + 2) + "; the child model's keyGroups apply only to its byKeys and "
+                    + "one(q, key), so set ChildQuery#keyGroups for the child load", e);
+        }
         if (through != null && query.isGrouped()) {
             // The processor refuses it (MQ3406): the parent's key would need a GROUP BY of its own.
             throw new ModelQueryDefinitionException(MqCode.MQ1704, this + ": a child loaded through an association "
