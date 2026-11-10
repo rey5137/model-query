@@ -41,6 +41,15 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+            <!-- Testcontainers at ${testcontainers.version} throughout: Boot's BOM would pin a 1.x core whose
+                 Docker API version current Docker engines reject -->
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>${testcontainers.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
             <!-- Boot's slf4j 2.x, which Testcontainers' 1.7 would otherwise displace (nearest wins) -->
             <dependency>
                 <groupId>org.springframework.boot</groupId>
@@ -128,6 +137,12 @@
             <groupId>com.mysql</groupId>
             <artifactId>mysql-connector-j</artifactId>
             <version>${mysql.version}</version>
+        </dependency>
+        <!-- MockMvc's jsonPath matchers; Testcontainers 1.x used to bring it in through JUnit 4 -->
+        <dependency>
+            <groupId>org.hamcrest</groupId>
+            <artifactId>hamcrest</artifactId>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.testcontainers</groupId>
