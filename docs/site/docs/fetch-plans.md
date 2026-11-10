@@ -401,10 +401,103 @@ FetchPlan<OrderPatrons> plan = FetchPlan.of(QOrderPatrons.ALL)
         .enrich(Enricher.of(page -> noted(page), QOrderPatrons.STATUS));       // 3. reads o.customer() and its tag
 ```
 
+## Child loads over partitioned tables
+
+!!! note "Incubating"
+    Key groups are annotated `@Incubating` (see [API stability](stability.md)).
+
+A child load asks for `key IN (…)`. On a table partitioned by a column the key does not carry, such as a creation
+time, that statement reads every partition. When the key encodes the partition, as a time-ordered id does, group the
+keys: `keyGroups` reads a child's keys in rounds per group and binds each group's range into the same filter, so each
+round reads only its partition.
+
+A `KeyGroups` takes the key type and a function from a key to its group. `bind` gives a `QueryParam` the value of a
+group, and the child's `where` reads that param. Here the parent order's id is a time-ordered id and `monthOf(order)`
+is the month its events are created in:
+
+```java
+record Month(Instant from, Instant to) {}
+
+static final QueryParam<Instant> CREATED_FROM = QueryParam.of("createdFrom", Instant.class);
+
+static final KeyGroups<Long, Month> BY_ORDER_MONTH = KeyGroups.by(Long.class, (Long order) -> monthOf(order))
+        .bind(CREATED_FROM, Month::from)
+        .assumeInRange();
+
+FetchPlan<OrderEvents> plan = FetchPlan.of(QOrderEvents.ALL)
+        .child(QOrderEvents.EVENTS, FetchPlan.of(QEvent.ALL), c -> c
+                .where(f -> f.compare(QEvent.CREATED_AT, Op.GTE, Expr.param(CREATED_FROM)))
+                .keyGroups(BY_ORDER_MONTH));
+
+var q = QOrderEvents.query().fetch(plan).orderBy(QOrderEvents.ID.asc()).build();
+```
+
+The plan is run as any other:
+
+=== "Plain JPA"
+
+    ```java
+    List<OrderEvents> orders = executor.list(q, Limit.of(100));
+    ```
+
+=== "Spring repository"
+
+    ```java
+    List<OrderEvents> orders = orderRepository.findAll(q, Limit.of(100));
+    ```
+
+The page's keys are split by `group`, in the order they first appear, and each group is read in its own round, with
+its own value bound and the same statement text. Each key is in exactly one round, and a group larger than the
+vendor's bind limit is split further. `BY_ORDER_MONTH` is a constant: a `KeyGroups` is immutable, and the engine
+compares it by identity, so build it once.
+
+**Every declaration ends in `verifyMissing(all)` or `assumeInRange()`**, since a child row whose partition column
+disagrees with the value its key encodes (a backfill, clock skew, a time-zone edge at a month boundary) is excluded by
+the bound filter:
+
+- `assumeInRange()` does not look for such rows. A row outside its key's range is silently not read, and the key
+  looks like it has no children.
+- `verifyMissing(all)` reads again, with the values of `all`, the keys that found no row, and returns what that finds.
+  It costs nothing while the keys agree with the data, and one statement over all partitions for the keys that do not.
+  It logs `MQ2608` once per definition when a re-read finds a row. A to-many child cannot use it: a list that came
+  back shorter than it should is not seen, so `verifyMissing` on one is `MQ1708`.
+
+On a to-many child, a group param may be read only as a column's lower bound (`>=` or `>` with the param on the right)
+or with `EQ`, since an upper bound would cut a parent's list. A lower bound alone drops the earlier partitions only,
+about half of them on average, and its groups multiply when parents precede their children. Prefer a coarser group.
+A to-one child loaded `through` an association path has at most one row per key, so it takes `verifyMissing` and a
+two-sided range, and prunes to one partition.
+
+Grouping pays when many keys share a group, and costs when they do not. Measured on PostgreSQL and MySQL:
+
+- Group when each group holds **about 300 keys or more**. Keys that cluster (a time-ordered batch, one tenant's page)
+  group well; keys spread thin over every partition do not.
+- Do not group a small page spread over many partitions. Fifty keys over 36 months are 36 statements, about twenty
+  times slower than one. Key groups apply per child round, so every page of an export pays this. `groupWhen(rule, all)`
+  lets the call decide from the number of keys and groups (`GroupingRule.minKeysPerGroup(300)`,
+  `GroupingRule.maxGroups(n)`): when the rule says no, the load runs its ordinary rounds with `all`'s values bound.
+  `all` is the catch-all value, and `verifyMissing` after `groupWhen` must be given the same one.
+- With `verifyMissing`, **bind the exact range**. A margin widens the scan: a day's margin on a month overlaps three
+  partitions. Past about 10 % misses the re-read is a large share of the ungrouped cost.
+- Bound values are the attribute's type, an `Instant` for `timestamptz` or `DATETIME`. They reach the driver as a
+  `Timestamp`, which prunes on PostgreSQL and MySQL; the JVM and the database session must agree on the time zone, or
+  a value at a boundary lands in the neighbouring partition.
+- PostgreSQL prunes at run time with generic plans and at plan time with custom ones; MySQL prunes at each execution.
+  On MySQL, `PARTITION BY RANGE COLUMNS (created_at)` prunes cleaner than `RANGE (TO_DAYS(created_at))`. MySQL needs
+  the partition column in every unique key, so the table's primary key is `(id, created_at)` while the entity's `@Id`
+  can stay `id`.
+
+A grouped `ModelQuery` (see [Reading many keys](reading-keys.md#key-groups-on-a-partitioned-table)) is a different
+thing from a child's `keyGroups`: it is read only by `byKeys` and `one(q, key)`.
+
 ## Diagnostics
 
 The fetch-plan codes are `MQ1701` to `MQ1705` (checked when the query is built or first run), `MQ2601` to `MQ2605`
-(at execution) and `MQ3401` to `MQ3406` (at compile time); see [Diagnostics](diagnostics.md).
+(at execution) and `MQ3401` to `MQ3406` (at compile time); see [Diagnostics](diagnostics.md). Key groups add
+`MQ1708` (a definition that does not match its child, or a group param read in a way the child does not allow, at the
+plan build, before any statement), `MQ2607` (a group function returned `null`, after the parent's statement and before
+the first child round) and the logged `MQ2608` (a row found only by the `verifyMissing` re-read). A param the child
+reads that neither its model nor the groups bind stays `MQ1512`.
 
 At `DEBUG`, the `com.rey.modelquery.jpa.DefaultModelQueryExecutor` logger logs each child load with its field and the
 number of keys and rounds, for example `child CustomerOrders.orders: 50 keys in 1 round(s)`. At `TRACE`, each round's
