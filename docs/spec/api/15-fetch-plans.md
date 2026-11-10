@@ -108,8 +108,9 @@ the bind limit, are thrown before the parent's statement, even when the page fin
 read from its row when it is mapped, the child's `foreignKey` from the child's row, and the `IN` binds those values.
 Per page, the distinct non-null parent keys are split into rounds of at most the largest power of two within the
 vendor's limits (R-PAG-07, D-32; `primaryKeyFirstBatchSize` does not apply), each round one child query
-`where foreignKey IN keys` with the `ChildQuery` filters and order. A child row whose key equals none of its round's keys
-(a case-insensitive or padding collation) throws `MQ2604` naming the field and the value. The child plan then runs once
+`where foreignKey IN keys` with the `ChildQuery` filters and order; with key groups, within each group (R-FCH-18).
+A child row whose key equals none of its round's keys (a case-insensitive or padding collation) throws `MQ2604` naming
+the field and the value. The child plan then runs once
 over all the page's child rows (its children, joins and enrichers), and the children are grouped by key and set on each
 parent in child order. A page with no keys runs no child query. "Per page" includes the result of `byKeys`, whose
 fetch plan runs once over every row of every chunk (`engine/20` R-EXE-13).
@@ -128,6 +129,55 @@ as the raw key (D-100). A customizer must resolve paths through its `JoinContext
 parent's entity. `through` excludes `foreignKey` (`MQ3401`). A `through` path that crosses a non-association or an
 embedded value, or ends at another type than the child's root, a `key` that is not the parent root's single `@Id`, or a
 grouped child model, is `MQ3406`. Grouping, dedupe, bounds and rounds are as R-FCH-04/-05/-11.
+
+**R-FCH-18** *(D-204, D-205, D-206, D-208, D-209, `@Incubating`)* **Key groups.** `ChildQuery#keyGroups(KeyGroups<?,
+?>)` reads a child's keys in rounds per group, each round binding its group's values into the same filter. A `KeyGroups`
+is built by `KeyGroups.by(keyType, group)`, then `bind(param, value)` per `QueryParam` (a second `bind` of one param
+replaces the first) and `groupWhen(GroupingRule, all)` (a second replaces the first), and is finished by one of two
+endings, which the builder types make compulsory (D-206): `verifyMissing(all)` re-reads the keys that found no row with
+`all`'s values, and `assumeInRange()` doesn't, so a row outside its key's group may not be read. It is immutable, may be
+a `static final` constant (INV-9), and is compared by identity, as its functions and its rule are. `group` and each
+`value` must be pure.
+
+- **The terminal call.** `verifyMissing` or `assumeInRange` evaluates every `value(all)` once and keeps it: a `null` or
+  mistyped catch-all value is `MQ1502` there, and a value function's exception propagates from it. `verifyMissing(all)`
+  after `groupWhen(rule, all2)` with `!all.equals(all2)` is `MQ1708`. `GroupingRule.minKeysPerGroup(n)` (`keys >= n ×
+  groups`, in long arithmetic) and `maxGroups(n)` (`groups <= n`) throw `IllegalArgumentException` for `n < 1`.
+- **At the plan build**, with every other child refusal, before the parent's statement even on an empty page (R-FCH-04,
+  D-138): `MQ1708` when `keyType` isn't the attribute type of the child's `foreignKey`, or of the parent's `key` for
+  `through`, naming both; when a param the groups bind is read by nothing the child renders, or is also bound by the
+  child model's own `bind`; and when `verifyMissing` binds nothing. A param the child reads that neither its model nor
+  the groups bind stays `MQ1512` (R-COL-40). A to-many child (one matched on its `foreignKey`, or a `List` child loaded
+  `through`, D-209) has no key unique per row, so a short list never shows as a missing key: `verifyMissing` there is
+  `MQ1708`, and a group param may be read only bare on one side of a `compare` against a column in the child's `where`,
+  as that column's lower bound (`GT` / `GTE` with the param on the right, `LT` / `LTE` with it on the left) or with
+  `EQ`. Under `groupWhen` a group param may be read only so with `GT`, `GTE`, `LT` or `LTE`, since one catch-all can't
+  stand for every group of an `EQ`. Under either restriction any other read (an upper bound on a to-many child, `NE`,
+  under `NOT` or `EXISTS`, in a sub-select, `having` or join filter, inside an expression or a `@Computed` column) is
+  `MQ1708`, naming the param. A to-one `through` child, with at most one row per key, takes either ending and any read
+  without `groupWhen`.
+- **Before the first round.** Per load (a page, a `byKeys` result, an export batch), the engine calls `group` once per
+  distinct non-null key and each `value` once per distinct group, all after the parent's statement and before the
+  child's first round, so a refusal follows no child statement: a `null` group is `MQ2607` naming the key, a `null` or
+  mistyped value `MQ1502` naming the param and a key of its group, and either function's exception propagates
+  unwrapped (D-138's list). The groups are in the first-seen order of their keys, the keys in first-seen order within a
+  group.
+- **Rounds** (R-FCH-05). Each group is split into R-FCH-05's rounds, whose size counts the statement's own binds, the
+  group's params once each; each round renders `key IN (…)` and the child filters with the group's values bound, so
+  there is one statement text per definition and `IN` length. Each distinct key is in exactly one round, so R-FCH-04's
+  dedupe, `MQ2601`, `MQ2604`, `maxPerParent` and the child order per parent are unchanged, and the child plan still
+  runs once over all the load's rows. There is no cap on the number of groups.
+- **`groupWhen(rule, all)`.** After every group and value ran, and only when the grouped rounds would outnumber
+  R-FCH-05's ungrouped rounds for the same keys (never for one group or no keys), the engine calls
+  `rule.group(keys, groups)` once per load, with the distinct keys and groups. `true` runs per group; `false` runs the
+  ungrouped rounds with `all`'s values bound and no re-read. The rule's exception propagates unwrapped, before the
+  child's first round. Without `groupWhen` every load runs grouped.
+- **`verifyMissing(all)`.** After a grouped load's rounds, the keys that found no row are read again in R-FCH-05's
+  rounds with `all`'s values bound, the statement text unchanged; rows found are returned as if the first round had
+  found them, and `MQ2608` is logged as a `WARNING` once per child load, naming it and a sample key, never a bound
+  value (D-95). When every key finds a row it adds no statement.
+- The engine routes nothing, runs no round in parallel, and derives no group itself (D-205); enricher lookups
+  (R-FCH-16) are not grouped.
 
 ## 3. Joins
 
@@ -222,8 +272,9 @@ row has no single key. An enricher's columns on a grouped query must be group ke
 `MQ2603` naming the key with the most rows read. Without it, a page's children are unbounded, and the user guide says
 so.
 
-**R-FCH-12** At `DEBUG`, each child load logs the child field, the number of keys and of rounds; at `TRACE`, each
-round's statement logs as any statement does (D-95).
+**R-FCH-12** At `DEBUG`, each child load logs the child field, the number of keys and of rounds; with key groups
+(R-FCH-18) also the number of groups and whether it ran grouped, and a second line the number of keys a
+`verifyMissing` re-read takes; at `TRACE`, each round's statement logs as any statement does (D-95).
 
 ## 6. Acceptance criteria
 
@@ -247,3 +298,10 @@ round's statement logs as any statement does (D-95).
 | AC-FCH-16 | `batchSize(n)` over `d` distinct keys makes `ceil(d / n)` lookup calls of at most `n` keys each, in first-seen order, no key in two calls; with recipe 8's lookup split by party type, each type's source is called at most once per chunk (R-FCH-15, R-FCH-16). |
 | AC-FCH-17 | In a plan built per call, a party the movements `@Child` enricher loaded is not looked up again by the order's enricher; applying the per-call plan with `withFetch` adds no statement (R-FCH-13, R-FCH-17). |
 | AC-FCH-18 | A join plan selecting an expression throws `MQ1705` (R-FCH-07). |
+| AC-FCH-19 | Per vendor and line, a child load over keys of three groups runs one round per group with each group's values bound, one SQL text per `IN` length, children per parent in child order (R-FCH-05, R-FCH-18). |
+| AC-FCH-20 | A group over the bind limit is split within the group; the group's binds count against the budget (R-FCH-05, R-FCH-18). |
+| AC-FCH-21 | At the plan build, before the parent statement, even on an empty page: `MQ1708` for a key-type mismatch, an unread group param, `verifyMissing` with no `bind`, and on a to-many child (a `List` `through` child included, D-209) `verifyMissing` or a group param read as an upper bound; `MQ1512` for a param no group binds (R-FCH-18, D-138). |
+| AC-FCH-22 | `MQ2607` on a `null` group, `MQ1502` on a `null` or mistyped value, and a group function's unwrapped exception all occur after the parent statement and before the child's first round, with no child round run (R-FCH-18, D-204). |
+| AC-FCH-23 | A to-many child with a lower bound only loads a line created in the month after its order's month: the list is complete (R-FCH-18, D-206). |
+| AC-FCH-24 | A to-one `through` child with `verifyMissing` loads a child whose range column lies outside its key's group through the re-read and logs `MQ2608` once per definition; when every key finds a row, no re-read runs (statement count) (R-FCH-18, D-206). |
+| AC-FCH-25 | With `groupWhen`: a child load whose rule returns `false` runs R-FCH-05's chunks with `all`'s values bound and no re-read, and one whose rule returns `true` runs per group (statement count; children equal for rows inside their group); under `assumeInRange()` a row outside its group is found on the `false` branch only; the rule isn't called for one group, for keys whose ungrouped chunks equal the grouped rounds, or for no keys; a `null` value of any group is `MQ1502` on either branch and the rule's exception propagates unwrapped, both before the child's first round; `MQ1708` at the plan build for a group param read with `EQ` (R-FCH-18, D-208). |

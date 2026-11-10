@@ -222,12 +222,14 @@ writes and argument-dependent calls need `call`. Holders are explicit; there is 
 `skip(holder, "FIELD", reason)` leaves one definition out; the reason is required.
 
 - **Limits list: first statement only.** The check sees the first statement a call reaches and the refusals before it.
-  What follows a first statement is not checked: a fetch plan's child statements; the second step of
-  primary-key-first paging; the content statement of `page(..., COUNT)`; each round of a chunked, key-first or
+  What follows a first statement is not checked: a fetch plan's child statements, each key-group round and
+  `verifyMissing` re-read among them, and the group, value and rule calls before them (`api/15` R-FCH-18); the
+  second step of primary-key-first paging; the content statement of `page(..., COUNT)`; each round of a chunked, key-first or
   `throughEntities()` write, and their returning or conflict-arbiter translation; a values insert or persist whose id
   is drawn from a sequence or table (the reached statement is the draw); export pages after the first. The library's
   own refusals that depend on the vendor run before the first statement (D-138); what still follows one depends on
-  data (`MQ2201`, `MQ2202`, `MQ2003`, `MQ2005`, `MQ2205`, `MQ2210`, `MQ2601`, `MQ2603`, `MQ2604`, `MQ2002`, `MQ2503`)
+  data (`MQ2201`, `MQ2202`, `MQ2003`, `MQ2005`, `MQ2205`, `MQ2210`, `MQ2601`, `MQ2603`, `MQ2604`, `MQ2607`, a key
+  group's `MQ1502`, `MQ2002`, `MQ2503`)
   or on the provider translating a later statement.
 - **Marks.** The sweep marks a `REACHED` definition "first statement only" from its public facts, per target, erring
   towards marking: a query with a `primaryKeyFirst(...)` or a fetch plan loading a child at any depth; an update or

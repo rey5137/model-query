@@ -287,6 +287,16 @@ public enum MqCode {
     MQ1707("Enricher.Keys.batchSize(n) with n below 1"),
 
     /**
+     * A key-group definition that doesn't match its child or query (its key type, a param it binds that nothing
+     * reads, {@code verifyMissing} with no {@code bind} or on a to-many child), a group param read other than as the
+     * child or {@code groupWhen} allows, or {@code verifyMissing(all)} unequal to {@code groupWhen}'s catch-all
+     * (R-FCH-18, D-206, D-208).
+     */
+    @Incubating
+    MQ1708("A key-group definition doesn't match its child or query, a group param is read as it can't be, or two "
+            + "catch-alls are unequal"),
+
+    /**
      * An insert column not mapped, mapped twice or from a column with another converter, set twice or set though
      * the model has it, or not on the root; {@code lockKeys()} on insert-values; or {@code insertReturningKeys} with
      * {@code commitEachChunk()} (R-WRT-27, R-WRT-29, R-WRT-32, R-WRT-33, D-117).
@@ -510,6 +520,17 @@ public enum MqCode {
 
     /** An {@code Enricher.byKey} or {@code byKeys} lookup returned {@code null} (R-FCH-08, R-FCH-15). */
     MQ2606("An Enricher.byKey or byKeys lookup returned null"),
+
+    /** A key-group function returned {@code null}; the message names the key (R-FCH-18, D-204). */
+    @Incubating
+    MQ2607("A key-group function returned null"),
+
+    /**
+     * Logged {@code WARNING}, never thrown: a key's row was found only by the {@code verifyMissing} re-read, once per
+     * definition, naming it and a sample key (R-FCH-18, D-206).
+     */
+    @Incubating
+    MQ2608("A key's row was found only by the verifyMissing re-read, outside its key's group"),
 
     /**
      * A recursive source's tree is deeper than its {@code maxDepth}, which the statement it was read from found with a

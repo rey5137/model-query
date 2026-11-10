@@ -277,6 +277,11 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
         });
     }
 
+    /** The param this expression is when it is {@code Expr.param(param)} itself, else {@code null} (R-FCH-18). */
+    QueryParam<?> bareParam() {
+        return node instanceof Param read ? read.param() : null;
+    }
+
     /** A correlated value at any depth of this expression (R-COL-33). */
     boolean correlated() {
         return containsCorrelated(this);
@@ -806,7 +811,11 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
 
         @Override
         public Expression<?> render(JoinContext ctx) {
-            return ctx.parameter(param.type(), ctx.bound(param));
+            Object value = ctx.bound(param);
+            // A check build renders a child's statement with no round: a parameter nothing binds, which counts against
+            // the bind limit as the round's value will, and fails loudly if it ever ran unbound (R-FCH-18).
+            return value == KeyGroups.PER_ROUND ? ctx.unboundParameter(param.type())
+                    : ctx.parameter(param.type(), value);
         }
 
         @Override
