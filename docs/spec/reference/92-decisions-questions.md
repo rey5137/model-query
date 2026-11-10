@@ -3227,6 +3227,16 @@ without breaking anyone). Rejected: merging small groups into one covering range
 between them); a built-in threshold; a `GroupingRule.and` combinator.
 → `rfc/0023`, `rfc/0023-spike-results.md`, `api/15` R-FCH-05, R-FCH-18, `engine/20` R-EXE-13, R-EXE-18, D-201.
 
+**D-209 — A `List` child loaded `through` an association path is to-many for key groups (M35.1, 2026-11-10, user
+decision; amends D-206 and `rfc/0023` §2).** RFC 0023 took every `through` child to have at most one row per key, but a
+`through` path crossing a collection (`Order.lines`) loads a `List` child with many rows per parent key, where a short
+list can't be detected either. So a child is to-many when it is matched on its `foreignKey` or is a `List` field loaded
+`through`: `verifyMissing` on it is `MQ1708`, and a group param may be read only as a lower bound or, without
+`groupWhen`, with `EQ` (`MQ1708` otherwise). Only a to-one (`Optional`) `through` child takes either ending and any
+read without `groupWhen`. Rejected: keeping every `through` child to-one (an upper bound would silently cut a `List`
+child's rows, INV-5).
+→ `api/15` R-FCH-18, AC-FCH-21, AC-FCH-24, `reference/90` MQ1708.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

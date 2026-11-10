@@ -472,6 +472,11 @@ public final class JoinContext {
         return parameter;
     }
 
+    /** A statement parameter of {@code type} nothing binds: a key-group param of a check build (R-FCH-18). */
+    ParameterExpression<?> unboundParameter(Class<?> type) {
+        return cb.parameter(type);
+    }
+
     /**
      * The value the query or source body this context renders binds {@code param} to (R-COL-40). {@code build()}
      * refuses a query that reads a param it doesn't bind, so only a statement the engine renders with no query's

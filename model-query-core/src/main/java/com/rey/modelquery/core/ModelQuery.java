@@ -522,10 +522,19 @@ public final class ModelQuery<E, K, M> {
      */
     @EngineFacing
     public BuiltQuery<M> buildQuery(CriteriaBuilder cb, Phase phase, RenderOptions options) {
+        return buildQuery(cb, phase, options, Map.of());
+    }
+
+    /**
+     * As {@link #buildQuery(CriteriaBuilder, Phase, RenderOptions)}, with {@code perRound} the values of a key-group
+     * round, which replace the per-round bindings of a child load's query (R-FCH-18, D-204).
+     */
+    BuiltQuery<M> buildQuery(CriteriaBuilder cb, Phase phase, RenderOptions options,
+            Map<QueryParam<?>, Object> perRound) {
         Objects.requireNonNull(cb, "cb");
         Objects.requireNonNull(phase, "phase");
         Objects.requireNonNull(options, "options");
-        BuiltQuery<M> built = assemble(cb, phase, options);
+        BuiltQuery<M> built = assemble(cb, phase, options, perRound);
         if (customizer != null) {
             customize(built, cb, phase);
         }
@@ -626,10 +635,10 @@ public final class ModelQuery<E, K, M> {
      *     or dropped a source check column
      */
     BuiltQuery<M> buildThroughQuery(CriteriaBuilder cb, RenderOptions options, TableField<?, ?> through,
-            ColumnField<?, ?, ?> parentKey) {
+            ColumnField<?, ?, ?> parentKey, Map<QueryParam<?>, Object> perRound) {
         CriteriaQuery<Tuple> query = cb.createTupleQuery();
         Root<?> from = query.from(through.pathRoot());
-        JoinContext parent = JoinContext.readOf(from, cb, query, bound(options));
+        JoinContext parent = JoinContext.readOf(from, cb, query, bound(options, perRound));
         From<?, ?> join = through.resolve(parent);
         Expression<?> key = parentKey.path(parent);
         JoinContext child = parent.rootedAt(join, root.rootEntity());
@@ -643,7 +652,12 @@ public final class ModelQuery<E, K, M> {
 
     /** Selection, predicate, grouping and ordering of {@code phase}, before any customizer runs. */
     private BuiltQuery<M> assemble(CriteriaBuilder cb, Phase phase, RenderOptions given) {
-        RenderOptions options = bound(given);
+        return assemble(cb, phase, given, Map.of());
+    }
+
+    private BuiltQuery<M> assemble(CriteriaBuilder cb, Phase phase, RenderOptions given,
+            Map<QueryParam<?>, Object> perRound) {
+        RenderOptions options = bound(given, perRound);
         if (phase == Phase.PRIMARY_KEY && primaryKey == null) {
             throw new ModelQueryExecutionException(MqCode.MQ2203, modelName() + ": phase PRIMARY_KEY needs a primary "
                     + "key, and " + (grouped ? "a grouped query has none (R-AGG-09)" : "primaryKey(...) was not set"));
@@ -1437,6 +1451,16 @@ public final class ModelQuery<E, K, M> {
         return options.withBindings(bindings);
     }
 
+    /** As {@link #bound(RenderOptions)}, with {@code perRound} replacing the bindings it names (R-FCH-18). */
+    private RenderOptions bound(RenderOptions options, Map<QueryParam<?>, Object> perRound) {
+        if (perRound.isEmpty()) {
+            return bound(options);
+        }
+        var merged = new LinkedHashMap<>(bindings);
+        merged.putAll(perRound);
+        return options.withBindings(Collections.unmodifiableMap(merged));
+    }
+
     /** The primary-key columns missing from {@code orderBy}, as the executor's keyset and stable order append them. */
     private List<OrderField<M, ?>> keyTieBreakers() {
         if (primaryKey == null || grouped) {
@@ -2198,6 +2222,29 @@ public final class ModelQuery<E, K, M> {
          * {@code having} and join filters (R-COL-40). A joined or rooted source's body binds its own.
          */
         private void checkParams(String model, SelectSet<M> selection, List<ColumnField<M, ?, ?>> needed) {
+            reads(model, selection, needed).checkBound(bindings);
+        }
+
+        /**
+         * This child load's builder with each param {@code groups} binds bound per round, its value given to each
+         * statement by {@link ModelQuery#buildQuery(CriteriaBuilder, Phase, RenderOptions, Map)}, so {@link #build()}
+         * finds it bound (R-FCH-18, D-204).
+         *
+         * @throws ModelQueryDefinitionException {@code MQ1708} as {@link ParamReads#checkKeyGroups} names it
+         */
+        Builder<E, K, M> perRound(KeyGroups<?, ?> groups, Object owner, boolean toMany) {
+            SelectSet<M> selection = selection();
+            reads(modelName(selection, root.rootEntity()), selection, needed())
+                    .checkKeyGroups(String.valueOf(owner), groups, bindings, toMany);
+            var bound = new LinkedHashMap<>(bindings);
+            groups.params().forEach(param -> bound.put(param, KeyGroups.PER_ROUND));
+            return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
+                    finisher, customizer, where, groupBy, having, fetch, lock, source, joinedSources, entityJoins,
+                    joinFilters, Collections.unmodifiableMap(bound), null);
+        }
+
+        /** The params an expression this query renders reads, as {@link #checkParams} checks them. */
+        private ParamReads reads(String model, SelectSet<M> selection, List<ColumnField<M, ?, ?>> needed) {
             var reads = new ParamReads(model);
             selection.fields().forEach(reads::field);
             needed.forEach(reads::field);
@@ -2206,13 +2253,13 @@ public final class ModelQuery<E, K, M> {
             if (primaryKey != null) {
                 primaryKey.columns().forEach(reads::field);
             }
-            ConditionGroup.conditions(where).forEach(reads::condition);
+            ConditionGroup.conditions(where).forEach(reads::whereCondition);
             if (having != null) {
                 ConditionGroup.conditions(having.filters()).forEach(reads::condition);
             }
             joinFilters.values().forEach(binding -> ConditionGroup.conditions(binding.terms())
                     .forEach(reads::condition));
-            reads.checkBound(bindings);
+            return reads;
         }
 
         /** The plan's selection, its join plans' re-rooted under their joins, or else what select(...) was given. */

@@ -477,7 +477,8 @@ stand where `Expr.constant` is required. A declared type R-COL-18 can't bind is 
   sub-select is part of the outer expression and reads the outer query's binding.
 - **Engine-built queries** copy the caller's bindings: the `withLock`, `withFetch` and `orderedBy` copies, and the
   treated root-id count. A fetch plan's child loads are built from the child's static definition, so a child model
-  that reads a param is `MQ1512` when the plan is built.
+  that reads a param neither it nor the child's key groups bind is `MQ1512` when the plan is built; a param the key
+  groups bind takes each round's group value (`api/15` R-FCH-18, D-204).
 - **One definition across bindings** *(D-201)*. The queries one builder builds through `bind` alone share one
   definition key (`ModelQuery#definitionKey()`, `@EngineFacing`), so a definition held in a `static final` builder
   and bound per request is checked and warned of once, not per request: the phase check and its warning (R-QRY-09),

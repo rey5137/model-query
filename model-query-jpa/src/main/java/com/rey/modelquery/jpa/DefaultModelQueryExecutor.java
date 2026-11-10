@@ -20,6 +20,7 @@ import com.rey.modelquery.core.ForeignKeyLookup;
 import com.rey.modelquery.core.JoinContext;
 import com.rey.modelquery.core.JoinField;
 import com.rey.modelquery.core.JoinPlan;
+import com.rey.modelquery.core.KeyGroups;
 import com.rey.modelquery.core.KeysetSlice;
 import com.rey.modelquery.core.KeysetSpec;
 import com.rey.modelquery.core.Limit;
@@ -40,6 +41,7 @@ import com.rey.modelquery.core.ParameterSink;
 import com.rey.modelquery.core.PersistenceContextMode;
 import com.rey.modelquery.core.Phase;
 import com.rey.modelquery.core.PrimaryKey;
+import com.rey.modelquery.core.QueryParam;
 import com.rey.modelquery.core.RecursiveCte;
 import com.rey.modelquery.core.RecursiveSpec;
 import com.rey.modelquery.core.RenderOptions;
@@ -176,6 +178,13 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * whichever executor runs it first (D-21, D-201); weak, so a definition built per request does not stay reachable.
      */
     private static final Set<Object> FIRST_RUN_CHECKED =
+            Collections.newSetFromMap(Collections.synchronizedMap(new WeakHashMap<>()));
+
+    /**
+     * The child loads that logged {@code MQ2608}, so each warns once (R-FCH-18). Static, weak and synchronized: a load
+     * belongs to a fetch plan shared across executors and threads, and holds no state of its own (INV-9).
+     */
+    private static final Set<Object> OUTSIDE_GROUP_WARNED =
             Collections.newSetFromMap(Collections.synchronizedMap(new WeakHashMap<>()));
 
     /**
@@ -3824,43 +3833,166 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * plan then runs once over all the rows read. A {@code through} child's statement is rooted at the parent's
      * entity and matches the parent's key instead, which {@link ChildLoad} builds (R-FCH-04, R-FCH-05, R-FCH-14,
      * D-99, D-100).
+     *
+     * <p>With key groups, every key's group and every group's values are computed first, so their refusals follow
+     * no child statement; each group then runs its own rounds with its values bound, unless the {@code groupWhen}
+     * rule, asked only when grouping adds statements, runs every key with the catch-all's values. Grouped, the keys
+     * that found no row are read again with the catch-all's values under {@code verifyMissing} (R-FCH-18, D-204,
+     * D-206, D-208).
      */
     private <E2, C> Map<Object, List<C>> childrenOf(ChildLoad<?, C> load, ModelQuery<E2, ?, C> q,
             List<Object> keys) {
         checkFirstRun(q);
-        CriteriaBuilder cb = em.getCriteriaBuilder();
-        // The first round takes the most keys any statement could and sizes the rest from its own binds, so no
-        // statement is compiled only to be counted (R-PAG-07, D-32).
-        int round = Math.min(keys.size(), keyLimits.clamp(0, 1, OptionalInt.empty()));
-        boolean sized = false;
-        List<Loaded<C>> loaded = new ArrayList<>();
-        List<Object> parents = new ArrayList<>();
-        for (int from = 0; from < keys.size(); from += round) {
-            List<Object> roundKeys = keys.subList(from, Math.min(keys.size(), from + round));
-            BuiltQuery<C> built = childRound(load, q, cb, roundKeys);
-            TypedQuery<Tuple> query;
-            if (sized) {
-                query = create(load, built);
-            } else {
-                sized = true;
-                TypedQuery<Tuple> probe = em.createQuery(built.query());
-                bindValues(probe, built.joins(), built.query().getParameters());
-                int ownBinds = Math.max(0, probe.getParameters().size() + built.joins().repeatedExpressionBinds()
-                        + (load.maxPerParent() > 0 ? 1 : 0) - roundKeys.size());
-                int sizedRound = keyLimits.clamp(ownBinds, 1, OptionalInt.empty());
-                // Logged before the statement is checked, so a refusal still follows its line.
-                LOG.log(DEBUG, () -> "child " + load + ": " + keys.size() + (keys.size() == 1 ? " key" : " keys")
-                        + " in " + ((keys.size() - 1) / sizedRound + 1) + " round(s)");
-                if (roundKeys.size() <= sizedRound) {
+        KeyGroups<?, ?> groups = load.keyGroups().orElse(null);
+        List<KeyRun> byGroup = groups == null ? List.of(new KeyRun(keys, Map.of())) : keyRuns(load, groups, keys);
+        // The first round takes the most keys any statement could and sizes the rest from its own binds, so it is
+        // compiled once, to be read, not only to be counted (R-PAG-07, D-32); a group's binds are among them. Under
+        // groupWhen with two groups or more, the rule needs that size before the call knows its first run: the
+        // catch-all run, which an ungrouped call reads, sizes it, and a call left grouped drops that one statement.
+        KeyRun ungrouped = groups == null || groups.rule().isEmpty() ? null
+                : new KeyRun(keys, groups.catchAll().orElseThrow()); // groupWhen gives a catch-all
+        var rounds = new ChildRounds<>(load, q, em.getCriteriaBuilder());
+        int size = rounds.size(ungrouped != null && byGroup.size() > 1 ? ungrouped : byGroup.get(0));
+        boolean grouped = groups != null && grouped(groups, byGroup, keys.size(), size);
+        List<KeyRun> runs = groups == null || grouped ? byGroup : List.of(ungrouped);
+        int statements = runs.stream().mapToInt(run -> chunks(run.keys().size(), size)).sum();
+        // Logged before the statement is checked, so a refusal still follows its line.
+        LOG.log(DEBUG, () -> "child " + load + ": " + keys.size() + (keys.size() == 1 ? " key" : " keys")
+                + (groups == null ? "" : " in " + byGroup.size() + " group(s), "
+                        + (grouped ? "grouped," : "ungrouped by groupWhen,"))
+                + " in " + statements + " round(s)");
+        for (KeyRun run : runs) {
+            rounds.read(run);
+        }
+        if (grouped && groups.verifiesMissing()) {
+            List<Object> missing = rounds.missing(keys);
+            if (!missing.isEmpty()) {
+                LOG.log(DEBUG, () -> "child " + load + ": " + missing.size() + " re-read key(s) that found no row in "
+                        + "their group, in " + chunks(missing.size(), size) + " round(s)");
+                rounds.read(new KeyRun(missing, groups.catchAll().orElseThrow())); // verifyMissing gives one
+                rounds.foundAmong(missing).ifPresent(key -> warnOfRowOutsideGroup(load, groups, key));
+            }
+        }
+        return rounds.children();
+    }
+
+    /**
+     * {@code keys} by {@code groups}' group: groups in the first-seen order of their keys, keys in first-seen order
+     * within a group, each group with its values. The group function runs once per key and each value once per
+     * group, all before any round (R-FCH-18, D-204).
+     *
+     * @throws ModelQueryExecutionException {@code MQ2607} when a group is {@code null}
+     * @throws ModelQueryDefinitionException {@code MQ1502} when a value is {@code null} or mistyped
+     */
+    private static List<KeyRun> keyRuns(ChildLoad<?, ?> load, KeyGroups<?, ?> groups, List<Object> keys) {
+        var byGroup = new LinkedHashMap<Object, List<Object>>();
+        for (Object key : keys) {
+            byGroup.computeIfAbsent(groups.groupOf(key, load), group -> new ArrayList<>()).add(key);
+        }
+        var runs = new ArrayList<KeyRun>(byGroup.size());
+        byGroup.forEach((group, groupKeys) -> runs.add(new KeyRun(List.copyOf(groupKeys),
+                groups.values(group, load + ", the group of key " + groupKeys.get(0)))));
+        return runs;
+    }
+
+    /**
+     * Whether a call of {@code keys} keys in {@code runs}, its groups, runs grouped: always without a rule, and
+     * without asking it when the grouped rounds don't outnumber the ungrouped ones, as with one group (D-208). The
+     * rule's exception propagates unwrapped.
+     */
+    private static boolean grouped(KeyGroups<?, ?> groups, List<KeyRun> runs, int keys, int size) {
+        KeyGroups.GroupingRule rule = groups.rule().orElse(null);
+        if (rule == null) {
+            return true;
+        }
+        long groupedRounds = runs.stream().mapToLong(run -> chunks(run.keys().size(), size)).sum();
+        return groupedRounds <= chunks(keys, size) || rule.group(keys, runs.size());
+    }
+
+    /** The rounds of at most {@code size} keys that {@code keys} keys take. */
+    private static int chunks(int keys, int size) {
+        return (keys + size - 1) / size;
+    }
+
+    /**
+     * {@code MQ2608} as a {@code WARNING}, once per child load: {@code key}'s row lies outside its key's group, found
+     * only by the {@code verifyMissing} re-read. It names the load and the key, never a bound value (R-FCH-18, D-95),
+     * the key as a string so that {@code MessageFormat} gives a number no locale grouping.
+     */
+    private static void warnOfRowOutsideGroup(ChildLoad<?, ?> load, KeyGroups<?, ?> groups, Object key) {
+        if (OUTSIDE_GROUP_WARNED.add(load)) {
+            LOG.log(System.Logger.Level.WARNING, "MQ2608: {0} ({1}): the row of key {2} was found only by the "
+                    + "verifyMissing re-read, outside its key group; such a key costs a re-read on every call, so "
+                    + "check the group function or the rows that disagree with it", load, groups, String.valueOf(key));
+        }
+    }
+
+    /** Some keys of a call and the values their rounds bind: one group's, the catch-all's, or none (R-FCH-18). */
+    private record KeyRun(List<Object> keys, Map<QueryParam<?>, Object> values) {
+    }
+
+    /** One child load's rounds over one call's keys, and the children they read (R-FCH-05, R-FCH-11, R-FCH-18). */
+    private final class ChildRounds<C> {
+
+        private final ChildLoad<?, C> load;
+        private final ModelQuery<?, ?, C> q;
+        private final CriteriaBuilder cb;
+        private final PrimaryKey<C, ?> childKey;
+        private final List<Loaded<C>> loaded = new ArrayList<>();
+        private final List<Object> parents = new ArrayList<>();
+        private int size;
+        /** The run whose first round {@link #size} built, its statement and its probe, until that round reads. */
+        private KeyRun probed;
+        private BuiltQuery<C> probeBuilt;
+        private TypedQuery<Tuple> probe;
+
+        ChildRounds(ChildLoad<?, C> load, ModelQuery<?, ?, C> q, CriteriaBuilder cb) {
+            this.load = load;
+            this.q = q;
+            this.cb = cb;
+            this.childKey = q.primaryKey().orElse(null);
+        }
+
+        /**
+         * The most keys a round takes, from {@code first}'s first round, built with the most keys any statement could;
+         * that round is kept to read when it fits, and built again smaller when it doesn't.
+         */
+        int size(KeyRun first) {
+            List<Object> roundKeys = first.keys().subList(0, Math.min(first.keys().size(),
+                    keyLimits.clamp(0, 1, OptionalInt.empty())));
+            BuiltQuery<C> built = childRound(load, q, cb, roundKeys, first.values());
+            TypedQuery<Tuple> query = em.createQuery(built.query());
+            bindValues(query, built.joins(), built.query().getParameters());
+            int ownBinds = Math.max(0, query.getParameters().size() + built.joins().repeatedExpressionBinds()
+                    + (load.maxPerParent() > 0 ? 1 : 0) - roundKeys.size());
+            size = keyLimits.clamp(ownBinds, 1, OptionalInt.empty());
+            if (roundKeys.size() <= size) {
+                probed = first;
+                probeBuilt = built;
+                probe = query;
+            }
+            return size;
+        }
+
+        /** Reads {@code run}'s keys in rounds of {@link #size} keys, each with the run's values bound. */
+        void read(KeyRun run) {
+            for (int from = 0; from < run.keys().size(); from += size) {
+                List<Object> roundKeys = run.keys().subList(from, Math.min(run.keys().size(), from + size));
+                BuiltQuery<C> built;
+                TypedQuery<Tuple> query;
+                if (run == probed && from == 0) {
+                    built = probeBuilt;
                     query = checked(load, probe, null, null, built.joins());
+                    probed = null;
                 } else {
-                    // More keys than the statement's own binds leave room for: the first round is built again, smaller.
-                    roundKeys = keys.subList(from, Math.min(keys.size(), from + sizedRound));
-                    built = childRound(load, q, cb, roundKeys);
+                    built = childRound(load, q, cb, roundKeys, run.values());
                     query = create(load, built);
                 }
-                round = sizedRound;
+                read(roundKeys, built, query);
             }
+        }
+
+        private void read(List<Object> roundKeys, BuiltQuery<C> built, TypedQuery<Tuple> query) {
             long cap = (long) roundKeys.size() * load.maxPerParent() + 1;
             if (load.maxPerParent() > 0) {
                 query.setMaxResults((int) Math.min(cap, Integer.MAX_VALUE));
@@ -3870,7 +4002,6 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             // Per key: the children kept, by primary key, and the rows read, which MQ2603 names the most of.
             Map<Object, Set<Object>> kept = new HashMap<>();
             Map<Object, Integer> read = new HashMap<>();
-            PrimaryKey<C, ?> childKey = q.primaryKey().orElse(null);
             for (Tuple tuple : tuples) {
                 Row row = built.selection().row(tuple);
                 Object parent = load.key(built, tuple, row);
@@ -3901,22 +4032,39 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 checkBound(load, roundKeys.size(), tuples.size() >= cap, kept, read);
             }
         }
-        // Children are deduplicated per parent; a many-to-many child can still belong to several (R-FCH-04).
-        List<C> children = loaded.isEmpty() ? List.of()
-                : q.fetch().map(plan -> run(plan, q.toString(), loaded)).orElseGet(() -> modelsOf(loaded));
-        Map<Object, List<C>> grouped = new HashMap<>();
-        for (int i = 0; i < children.size(); i++) {
-            grouped.computeIfAbsent(parents.get(i), k -> new ArrayList<>()).add(children.get(i));
+
+        /** The keys of {@code keys} no round found a row for, in order. */
+        List<Object> missing(List<Object> keys) {
+            Set<Object> found = new HashSet<>(parents);
+            return keys.stream().filter(key -> !found.contains(key)).toList();
         }
-        return grouped;
+
+        /** The first key of {@code keys} a round found a row for. */
+        Optional<Object> foundAmong(List<Object> keys) {
+            Set<Object> found = new HashSet<>(parents);
+            return keys.stream().filter(found::contains).findFirst();
+        }
+
+        /** The children read, by key in child order, once the child plan ran over all of them (R-FCH-05). */
+        Map<Object, List<C>> children() {
+            // Children are deduplicated per parent; a many-to-many child can still belong to several (R-FCH-04).
+            List<C> children = loaded.isEmpty() ? List.of()
+                    : q.fetch().map(plan -> run(plan, q.toString(), loaded)).orElseGet(() -> modelsOf(loaded));
+            Map<Object, List<C>> grouped = new HashMap<>();
+            for (int i = 0; i < children.size(); i++) {
+                grouped.computeIfAbsent(parents.get(i), k -> new ArrayList<>()).add(children.get(i));
+            }
+            return grouped;
+        }
     }
 
     /**
-     * One round of {@link #childrenOf}: {@code load}'s statement built again, filtered to {@code roundKeys} (R-FCH-04).
+     * One round of {@link #childrenOf}: {@code load}'s statement built again, filtered to {@code roundKeys}, with
+     * {@code values}, a key group's, bound (R-FCH-04, R-FCH-18).
      */
     private <C> BuiltQuery<C> childRound(ChildLoad<?, C> load, ModelQuery<?, ?, C> q, CriteriaBuilder cb,
-            List<Object> roundKeys) {
-        BuiltQuery<C> built = load.build(cb, renderOptions);
+            List<Object> roundKeys, Map<QueryParam<?>, Object> values) {
+        BuiltQuery<C> built = load.build(cb, renderOptions, values);
         Predicate byKey = load.keyIn(built, roundKeys);
         Predicate own = built.query().getRestriction();
         built.query().where(own == null ? byKey : cb.and(own, byKey));
