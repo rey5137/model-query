@@ -84,12 +84,13 @@ throws when it affects no rows (see [Bulk writes](bulk-writes.md)).
 | `MQ1505` | A CASE condition uses `add`, `exists`, a sub-select, a correlated value or `op`. |
 | `MQ1508` | An `Expr.constant` cannot be rendered as a literal: its value is not a `String`, `Number` or `Boolean` after the column's converter, the column is not a basic attribute of a root table, the provider has no constant renderer, or it is used other than as a comparison or `in` operand. The message names the cause. |
 | `MQ1509` | `Expr.nextval` misused: a name that is not a plain, optionally schema-qualified identifier, use in a filter, `having`, order or group key, or a vendor with no sequences (MySQL). |
-| `MQ1512` | A query reads a `QueryParam` it doesn't bind, or two `QueryParam`s share one name, at build; a bulk write, a fetch-plan child model or an engine-built statement reads one no binding covers; see below. |
+| `MQ1512` | A query reads a `QueryParam` it doesn't bind, or two `QueryParam`s share one name, at build; a bulk write, a fetch-plan child model reads one that neither it nor the child's key groups bind, or an engine-built statement reads one no binding covers; see below. |
 | `MQ1701` | A fetch plan's join plan whose join has no column of the query's selection at or below it. |
 | `MQ1702` | A column a fetch plan needs (a child's key, an enricher's column) is read through a to-many join; checked on first execution, and `count` logs a warning instead. |
 | `MQ1703` | A fetch plan names the same child or join twice. |
 | `MQ1704` | A fetch plan with a child, at any join depth, on a grouped query. |
 | `MQ1705` | A join plan selects an aggregate, which cannot be re-rooted under the join. |
+| `MQ1708` | A key-group definition that does not fit its child or query, at the plan build for a child and at `build()` for a query, before any statement: a key type unequal to the key's attribute type, a group param nothing reads or that the model also binds, `verifyMissing` with no `bind` or on a to-many child, or a group param read in a way the child or query does not allow. See [Child loads over partitioned tables](fetch-plans.md#child-loads-over-partitioned-tables) and [Key groups](reading-keys.md#key-groups-on-a-partitioned-table). |
 | `MQ1601` | Bulk write: no predicate left after skipping rows, or a conflict arbiter's `where(...)` whose filters were all skipped. |
 | `MQ1602` | Bulk write: column is assigned twice. |
 | `MQ1603` | Bulk write: `set(column, null)` called; NULL must be written with `setNull`. |
@@ -190,6 +191,7 @@ See [Running queries](queries.md), [Filters](filters.md), [Grouped queries](grou
 | `MQ2206` | A `QueryCustomizer` narrows the phases of a primary-key-first query differently. |
 | `MQ2211` | A lock on a read that refuses one: `page`, `count`, `stream` and `export` refuse any lock, `one(q)` refuses `SKIP_LOCKED`, and a locked query whose statement has a join, such as a to-one id read, is refused. Filter the related rows with `Filters.exists(...)` instead of joining. |
 | `MQ2212` | A read that identifies a row by its key on a query over a non-unique source: `export`, `byKeys`, `one(q, key)`, a fetch plan with a child, a join plan or an enricher, or an offset `page` whose selected column cannot be ordered. |
+| `MQ2215` | A query with key groups read by anything but `byKeys` or `one(q, key)`: `list`, `page`, `count`, `one(q)`, `first(q)`, `export`, `stream`, or as the `returning` query of a write; before any statement, naming the call and the params the groups bind. See [Key groups](reading-keys.md#key-groups-on-a-partitioned-table). |
 | `MQ2301` | A sort property resolves to no column or to several, asks for `ignoreCase`, or names a sort on a query without a primary key. |
 | `MQ2501` | A bulk write ran without an active transaction. |
 | `MQ2502` | A chunk of a chunked write failed; `ChunkedWriteException` says what was committed. |
@@ -199,6 +201,8 @@ See [Running queries](queries.md), [Filters](filters.md), [Grouped queries](grou
 | `MQ2603` | A parent has more children than `maxPerParent`, or one statement of a child load read its row cap. |
 | `MQ2604` | A child row's key equals none of the keys it was matched to: the column's collation is case-insensitive or ignores trailing spaces. |
 | `MQ2605` | `stream` with a fetch plan that loads children, join plans or enrichers; use `export`. |
+| `MQ2607` | A key-group function returned `null`; the message names the key. After the parent's statement and before the child's first round; for `byKeys` and `one(q, key)`, before any statement. |
+| `MQ2608` | A key's row was found only by the `verifyMissing` re-read of a child load, `byKeys` or `one(q, key)`; logged at `WARNING` once per definition, naming it and a sample key, never a bound value, never thrown. |
 | `MQ2701` | A recursive source's tree is deeper than its `maxDepth`. The message names the model, the limit and the key of the first row past it. |
 | `MQ2702` | A recursive source's graph closed a cycle. The message names the model and the first key the cycle clause marked. |
 | `MQ2703` | A [tree](source-models.md#trees) reached a key twice; narrow the seeds or use `recursive(...)`. The message names the model and the first column of the smallest duplicated key. |
