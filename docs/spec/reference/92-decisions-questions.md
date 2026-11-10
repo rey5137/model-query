@@ -3203,11 +3203,13 @@ to-many child, and paid for every deleted key where the link holds).
 INV-5.
 
 **D-207 — A grouped `ModelQuery` is read only by `byKeys` and `one(q, key)` (RFC 0023, 2026-11-10, user decision).**
-Locked or not; `list`, `page`, `count`, `exists`, `one(q)`, `first(q)`, keyset, export and stream are `MQ2215` before
-any statement, since they have no key to group on. A builder without `keyGroups` serves them with explicit `bind`.
-`withLock`, `withFetch` and `orderedBy` copies keep the groups; Spring's `findAllByKeys` and `findByKey` pass a grouped
-definition through unchanged (R-SPR-16 included). Rejected: a typed `KeyedQuery` accepted only by keyed overloads,
-which would make the mistake a compile error but doubles the executor and repository surface.
+Locked or not; `list`, `page`, `count`, `one(q)`, `first(q)`, keyset, export, stream and the `returning` query of a
+returning write or `persist` are `MQ2215` before any statement, since they have no key to group on (the RFC's list
+named `exists`, which the executor doesn't have, and left out the `returning` queries; M35.2). A builder without
+`keyGroups` serves them with explicit `bind`. `withLock`, `withFetch` and `orderedBy` copies keep the groups; Spring's
+`findAllByKeys` and `findByKey` pass a grouped definition through unchanged (R-SPR-16 included). Rejected: a typed
+`KeyedQuery` accepted only by keyed overloads, which would make the mistake a compile error but doubles the executor
+and repository surface.
 → `rfc/0023`, `engine/20` R-EXE-14, R-EXE-18, `integration/50`, `reference/90` MQ2215.
 
 **D-208 — When to group is the caller's rule (RFC 0023, 2026-11-10, user decision).** The spike measured grouping at
@@ -3236,6 +3238,23 @@ list can't be detected either. So a child is to-many when it is matched on its `
 read without `groupWhen`. Rejected: keeping every `through` child to-one (an upper bound would silently cut a `List`
 child's rows, INV-5).
 → `api/15` R-FCH-18, AC-FCH-21, AC-FCH-24, `reference/90` MQ1708.
+
+**D-210 — A locked grouped `byKeys` locks its rounds in sorted key order (M35.2, 2026-11-10, user decision; amends
+D-206's lock note in `engine/20`).** Run one round per group in the order of each group's smallest key, groups that
+interleave in sorted key order lock out of order (odd and even keys: `[1, 2, 3, 4]` locks `{1, 3}` then `{2, 4}`, and
+`[2, 3]` locks `{2}` then `{3}`, a deadlock). So under a lock, with `Comparable` keys, `byKeys` walks the distinct keys
+in sorted order and forms rounds of keys contiguous in that order that share one group, a new round at each change of
+group, each still split within R-EXE-13's limits; every round's keys lie above the previous round's, so R-EXE-14's
+order holds across rounds, and each round still binds one group's values, so partition pruning stays. The
+`verifyMissing` re-read stays after every round and is the one exception: it locks rows found outside their group
+after higher keys are held, so overlapping locked calls can deadlock there and the database aborts one with
+`PessimisticLockException`; a re-read finding no row locks nothing. Keys that are not `Comparable` run per group in
+caller order, with no lock order, as ungrouped chunks keep caller order. Unlocked calls keep one round per group.
+`groupWhen`'s rule and its round comparison keep the per-group counts, so a rule decides the same for a call locked
+or not. Rejected: keeping per-group rounds and documenting the deadlock risk (R-EXE-14's order would hold only without
+groups); running a locked call ungrouped with the catch-all (no pruning under a lock, and `assumeInRange()` has no
+catch-all).
+→ `engine/20` R-EXE-14, R-EXE-18, AC-EXE-26, D-206, D-127.
 
 ## 2. Open questions
 
