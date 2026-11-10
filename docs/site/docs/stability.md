@@ -1,6 +1,6 @@
 # API stability
 
-model-query is at 0.11.1. Until 1.0.0 the public API may change in any minor release, and the commit that does it is
+model-query is at 0.12.0. Until 1.0.0 the public API may change in any minor release, and the commit that does it is
 marked breaking. From 1.0.0 the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Today: everything is `@Incubating`
@@ -172,6 +172,12 @@ applications. See
 [Joining an entity](source-models.md#joining-an-entity),
 [request-bound values](subqueries-expressions.md#request-bound-values) and
 [aggregating a joined entity](grouped-queries.md#aggregating-a-joined-entity).
+
+The key-group members are new in 0.12.0 and `@Incubating` (D-204 to D-212), and join the list above: `KeyGroups`
+with `by`, `byComposite`, `bind`, `groupWhen`, `verifyMissing` and `assumeInRange`, `GroupingRule`,
+`ChildQuery#keyGroups` and `ModelQuery.Builder#keyGroups`. `ModelQuery#buildQuery(cb, phase, options, perRound)` is
+now public and `@EngineFacing`, so not API. See
+[child loads over partitioned tables](fetch-plans.md) and [key groups on a partitioned table](reading-keys.md).
 
 The fetch-plan types are new in 0.2.0, `@Incubating`, and not yet placed in the 1.0 freeze list above:
 `FetchPlan`, `ChildField`, `JoinField`, `ChildQuery`, `Enricher` and the `@Child` annotation. The executor-facing

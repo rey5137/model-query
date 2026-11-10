@@ -23,7 +23,7 @@ Typed, projection-first queries on top of JPA.
   `SelectSet` (`@Incubating`).
 - Vendor-aware behaviour for **H2, PostgreSQL and MySQL**, behind an SPI other databases can implement.
 
-> **Status: 0.11.1.** Every public type is `@Incubating` and may change in a minor release until the 1.0 freeze
+> **Status: 0.12.0.** Every public type is `@Incubating` and may change in a minor release until the 1.0 freeze
 > ([API stability](docs/site/docs/stability.md)). The user guide is at
 > <https://rey5137.github.io/model-query/> (source under [`docs/site/docs/`](docs/site/docs/index.md)); the Javadoc is on
 > [javadoc.io](https://javadoc.io/doc/io.github.rey5137/model-query-core).
@@ -59,7 +59,7 @@ Import the BOM and add the modules you need:
 
 ```xml
 <properties>
-    <model-query.version>0.11.1</model-query.version>
+    <model-query.version>0.12.0</model-query.version>
 </properties>
 
 <dependencyManagement>
