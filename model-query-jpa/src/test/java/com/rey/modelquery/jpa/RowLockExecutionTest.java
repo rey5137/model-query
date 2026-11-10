@@ -8,8 +8,10 @@ import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.Enricher;
 import com.rey.modelquery.core.ExportOptions;
+import com.rey.modelquery.core.Expr;
 import com.rey.modelquery.core.FetchPlan;
 import com.rey.modelquery.core.InsertColumns;
+import com.rey.modelquery.core.KeyGroups;
 import com.rey.modelquery.core.KeysetSpec;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelPersist;
@@ -17,10 +19,15 @@ import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
+import com.rey.modelquery.core.Op;
+import com.rey.modelquery.core.OrderedColumnField;
 import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.PrimaryKey;
+import com.rey.modelquery.core.QueryParam;
 import com.rey.modelquery.core.RowLock;
 import com.rey.modelquery.core.SelectSet;
+import com.rey.modelquery.core.SortSpec;
+import com.rey.modelquery.core.SortSpec.Key;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import com.rey.modelquery.jpa.spi.LockSupport;
@@ -31,6 +38,7 @@ import jakarta.persistence.TypedQuery;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -238,6 +246,85 @@ class RowLockExecutionTest {
             executor.byKeys(ROWS.build(), List.of(2L, 1L));
             assertThat(Locks.KEYS).isEmpty();
         });
+    }
+
+    @Test
+    void ac_exe_26_locked_by_keys_and_one_by_key_keep_the_key_groups_through_copies_sorting_before_grouping() {
+        QueryParam<Integer> from = QueryParam.of("bFrom", Integer.class);
+        QueryParam<Integer> to = QueryParam.of("bTo", Integer.class);
+        ColumnField<Row, KeysetRowEntity, Integer> b = ColumnField.of(Row.class, ROOT, "b", Integer.class);
+        OrderedColumnField<Row, KeysetRowEntity, Long> id = ColumnField.of(Row.class, ROOT, "id", Long.class)
+                .named("id");
+        // Key 1 is group 0, b in [0, 15); key 2 is group 1, b in [15, 100).
+        KeyGroups<Long, Integer> groups = KeyGroups.by(Long.class, (Long key) -> key == 1 ? 0 : 1)
+                .bind(from, group -> group == 0 ? 0 : 15).bind(to, group -> group == 0 ? 15 : 100).assumeInRange();
+        ModelQuery<KeysetRowEntity, Long, Row> copy = ModelQuery.builder(ROOT, row -> new Row(row.get(id), row.get(A)))
+                .select(SelectSet.of(id, A))
+                .primaryKey(PrimaryKey.of(id))
+                .where(f -> f.compare(b, Op.GTE, Expr.param(from)).compare(b, Op.LT, Expr.param(to)))
+                .keyGroups(groups)
+                .build()
+                .withLock(LOCK)
+                .withFetch(FetchPlan.of(SelectSet.of(id, A)))
+                .orderedBy(SortSpec.of(Key.desc("id")));
+        withTransaction(em -> {
+            assertThat(executor(em).byKeys(copy, List.of(2L, 1L)))
+                    .containsExactly(Map.entry(2L, new Row(2L, 2)), Map.entry(1L, new Row(1L, null)));
+            // One locked statement per group, key 1's first: the keys are sorted before they are grouped.
+            assertThat(Locks.APPLIED).hasSize(2).allSatisfy(applied -> assertThat(applied).isEqualTo(LOCK));
+            assertThat(Locks.KEYS).hasSize(2);
+            assertThat(Locks.KEYS.get(0)).contains(1L, 0, 15).doesNotContain(2L, 100);
+            assertThat(Locks.KEYS.get(1)).contains(2L, 15, 100).doesNotContain(1L, 0);
+            Locks.APPLIED.clear();
+            Locks.KEYS.clear();
+            assertThat(executor(em).one(copy, 2L)).contains(new Row(2L, 2));
+            assertThat(Locks.APPLIED).singleElement().isEqualTo(LOCK);
+            assertThat(Locks.KEYS).singleElement().satisfies(values -> assertThat(values).contains(2L, 15, 100));
+        });
+    }
+
+    @Test
+    void ac_exe_26_a_locked_by_keys_over_interleaved_groups_locks_its_rounds_in_ascending_key_order() {
+        QueryParam<Integer> from = QueryParam.of("bFrom", Integer.class);
+        QueryParam<Integer> to = QueryParam.of("bTo", Integer.class);
+        ColumnField<Row, KeysetRowEntity, Integer> b = ColumnField.of(Row.class, ROOT, "b", Integer.class);
+        // Odd keys bind b in [0, 15), row 1's 10; even keys b in [15, 100), row 2's 20; keys 3 and 4 have no row.
+        KeyGroups<Long, Integer> oddEven = KeyGroups.by(Long.class, (Long key) -> (int) (key % 2))
+                .bind(from, group -> group == 1 ? 0 : 15).bind(to, group -> group == 1 ? 15 : 100).assumeInRange();
+        // Keys 1 and 2 are group 0, 3 and 4 group 1, each bound to every b.
+        KeyGroups<Long, Integer> halves = KeyGroups.by(Long.class, (Long key) -> key <= 2 ? 0 : 1)
+                .bind(from, group -> 0).bind(to, group -> 100).assumeInRange();
+        List<Long> keys = List.of(4L, 3L, 2L, 1L);
+        withTransaction(em -> {
+            assertThat(executor(em).byKeys(locked(oddEven, from, to, b), keys))
+                    .containsExactly(Map.entry(2L, new Row(2L, 2)), Map.entry(1L, new Row(1L, null)));
+            // One round per run of one group in sorted key order, so every round's keys lie above the last's.
+            assertThat(Locks.KEYS).hasSize(4).allSatisfy(values -> assertThat(values).hasSize(3));
+            assertThat(Locks.KEYS.stream().map(RowLockExecutionTest::keysOf))
+                    .containsExactly(List.of(1L), List.of(2L), List.of(3L), List.of(4L));
+            assertThat(Locks.KEYS.get(0)).contains(0, 15);
+            assertThat(Locks.KEYS.get(1)).contains(15, 100);
+            Locks.KEYS.clear();
+            executor(em).byKeys(locked(halves, from, to, b), keys);
+            assertThat(Locks.KEYS.stream().map(RowLockExecutionTest::keysOf))
+                    .containsExactly(List.of(1L, 2L), List.of(3L, 4L));
+        });
+    }
+
+    /** {@code groups}' query on {@code b} in {@code [from, to)}, locked. */
+    private static ModelQuery<KeysetRowEntity, Long, Row> locked(KeyGroups<Long, Integer> groups,
+            QueryParam<Integer> from, QueryParam<Integer> to, ColumnField<Row, KeysetRowEntity, Integer> b) {
+        return ModelQuery.builder(ROOT, row -> new Row(row.get(ID), row.get(A))).select(SelectSet.of(ID, A))
+                .primaryKey(PrimaryKey.of(ID))
+                .where(f -> f.compare(b, Op.GTE, Expr.param(from)).compare(b, Op.LT, Expr.param(to)))
+                .keyGroups(groups)
+                .build()
+                .withLock(LOCK);
+    }
+
+    /** The keys a locked statement bound: its {@code Long} values, the group's being {@code Integer}s. */
+    private static List<Object> keysOf(List<Object> values) {
+        return values.stream().filter(Long.class::isInstance).toList();
     }
 
     @Test

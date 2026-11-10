@@ -111,8 +111,10 @@ hatch sets.
 primary-key-first paging return rows the caller filtered out. The engine builds every phase with the same joins,
 predicate, grouping and ordering, and only the SELECT list differs (D-26). A customizer that adds a predicate or an
 INNER join in only some phases logs a warning naming the phases, once per definition, when it is first executed
-(D-21): the queries one builder builds through `bind` alone are one definition (`api/10` R-COL-40, D-201). On a query with `primaryKeyFirst(...)` the mismatch skips rows, so it throws `MQ2206` instead
-(`engine/21` R-PAG-15).
+(D-21): the queries one builder builds through `bind` alone are one definition (`api/10` R-COL-40, D-201), and each
+`keyGroups(...)` call, a builder change as any other but `bind`, makes another, even with the same `KeyGroups`
+instance (`engine/20` R-EXE-18). On a query with
+`primaryKeyFirst(...)` the mismatch skips rows, so it throws `MQ2206` instead (`engine/21` R-PAG-15).
 
 **R-QRY-11** A customizer never changes the ordering or the grouping. Paging and export order, dedupe and read cursors
 by the definition's `orderBy` and `groupBy` (`engine/21` R-PAG-01, R-PAG-04, R-PAG-11), so a group-by the customizer

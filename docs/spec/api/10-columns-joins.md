@@ -476,17 +476,21 @@ stand where `Expr.constant` is required. A declared type R-COL-18 can't bind is 
   (resolving spike C.2's open 7.4 capture), and each branch of a set operation binds its own. A `Correlated`
   sub-select is part of the outer expression and reads the outer query's binding.
 - **Engine-built queries** copy the caller's bindings: the `withLock`, `withFetch` and `orderedBy` copies, and the
-  treated root-id count. A fetch plan's child loads are built from the child's static definition, so a child model
-  that reads a param neither it nor the child's key groups bind is `MQ1512` when the plan is built; a param the key
-  groups bind takes each round's group value (`api/15` R-FCH-18, D-204).
-- **One definition across bindings** *(D-201)*. The queries one builder builds through `bind` alone share one
-  definition key (`ModelQuery#definitionKey()`, `@EngineFacing`), so a definition held in a `static final` builder
-  and bound per request is checked and warned of once, not per request: the phase check and its warning (R-QRY-09),
-  the fetch plan's checks (`api/15` R-FCH-02), the ignored-`orderBy` and `MQ2214` warnings (`engine/20` R-EXE-13,
-  `engine/21` R-PAG-27) and the `INLINE_COUNT` fallback log (`engine/20` R-EXE-15). A `withLock` or `withFetch` copy
-  has a key of its own, which the copies of every binding share for an equal lock or the same plan, so the checks of
-  `build()` run on the first such copy only. Every other builder change, an `orderedBy` copy's order included, makes a
-  new key, so equal queries built apart are checked apart. The key holds no value (INV-9).
+  treated root-id count. The copies also keep a query's key groups (`ModelQuery.Builder#keyGroups`, `engine/20`
+  R-EXE-18), whose params count as bound at `build()` and take each round's group value in `byKeys` and `one(q, key)`; a
+  param bound by both `bind` and the key groups is `MQ1708` there. A fetch plan's child loads are built from the child's
+  static definition, so a child model that reads a param neither it nor the child's key groups bind is `MQ1512` when the
+  plan is built; a param the key groups bind takes each round's group value (`api/15` R-FCH-18, D-204).
+- **One definition across bindings** *(D-201)*. The queries one builder builds through `bind` alone share one definition
+  key (`ModelQuery#definitionKey()`, `@EngineFacing`), so a definition held in a `static final` builder and bound per
+  request is checked and warned of once, not per request: the phase check and its warning (R-QRY-09), the fetch plan's
+  checks (`api/15` R-FCH-02), the ignored-`orderBy` and `MQ2214` warnings (`engine/20` R-EXE-13, `engine/21` R-PAG-27),
+  the `MQ2608` warning of a keyed read (`engine/20` R-EXE-18) and the `INLINE_COUNT` fallback log (`engine/20`
+  R-EXE-15). A `withLock` or `withFetch` copy has a key of its own, which the copies of every binding share for an equal
+  lock or the same plan, so the checks of `build()` run on the first such copy only. Every other builder change, an
+  `orderedBy` copy's order and `keyGroups` included, makes a new key, so equal queries built apart are checked apart:
+  each `keyGroups(...)` call makes a new definition, even with the same `KeyGroups` instance, and the queries built
+  from that builder share it. The key holds no value (INV-9).
 - **Writes.** A bulk update, delete or insert binds no param: a param read by its `where` or its conflict update's
   `where` is `MQ1512` at the write's build, a conflict arbiter's is `MQ1804` there, as any expression value in an
   arbiter is (`api/14` R-WRT-52), and `setExpression` with an expression that reads one is `MQ1613` at the call, as any

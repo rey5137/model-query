@@ -488,6 +488,13 @@ public enum MqCode {
     /** A treated offset page contradicts its total; logged once per query as a WARNING, never thrown (R-PAG-27). */
     MQ2214("A treated offset page returned more rows than its total allows"),
 
+    /**
+     * A query with key groups read by anything but {@code byKeys} or {@code one(q, key)}: its group params have a
+     * value only in a keyed read's rounds. Raised at the executor call, before any statement (R-EXE-18, D-207).
+     */
+    @Incubating
+    MQ2215("A query with key groups is read by anything but byKeys or one(query, key)"),
+
     /** A sort property names no selected column or aggregate, or more than one (R-QRY-14, D-52). */
     MQ2301("A sort property resolves to no selected column or to more than one"),
 

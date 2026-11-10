@@ -186,7 +186,8 @@ final class ParamReads {
      * nothing, or, on a child whose key isn't unique per row ({@code toMany}) or under {@code groupWhen}, is read other
      * than as the child allows: on {@code toMany}, only as a column's lower bound or, without {@code groupWhen}, with
      * {@code EQ}; under {@code groupWhen}, only as a {@code GT}, {@code GTE}, {@code LT} or {@code LTE} bound of a
-     * column (R-FCH-18, D-206, D-208). A read counts only bare on one side of a {@code compare} of the {@code where},
+     * column (R-FCH-18, R-EXE-18, D-206, D-208). A query's own key groups, whose key is unique per row, pass
+     * {@code toMany} false. A read counts only bare on one side of a {@code compare} of the {@code where},
      * under {@code AND} and {@code OR} alone; any other read is refused under either restriction.
      */
     void checkKeyGroups(String owner, KeyGroups<?, ?> groups, Map<QueryParam<?>, Object> bindings, boolean toMany) {
@@ -204,7 +205,7 @@ final class ParamReads {
             if (!reads.containsKey(param)) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1708, owner + ": the key groups bind the param "
                         + param + ", which nothing reads; a group-bound param exists only to filter, so read it in "
-                        + "the child's where(...)");
+                        + "the where(...)");
             }
             if (!toMany && !ruled) {
                 continue;

@@ -181,8 +181,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             Collections.newSetFromMap(Collections.synchronizedMap(new WeakHashMap<>()));
 
     /**
-     * The child loads that logged {@code MQ2608}, so each warns once (R-FCH-18). Static, weak and synchronized: a load
-     * belongs to a fetch plan shared across executors and threads, and holds no state of its own (INV-9).
+     * The child loads and query definition keys that logged {@code MQ2608}, so each warns once (R-FCH-18, R-EXE-18).
+     * Static, weak and synchronized: a load belongs to a fetch plan, and a query to its caller, shared across
+     * executors and threads, and neither holds state of its own (INV-9).
      */
     private static final Set<Object> OUTSIDE_GROUP_WARNED =
             Collections.newSetFromMap(Collections.synchronizedMap(new WeakHashMap<>()));
@@ -501,6 +502,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     public <M> List<M> list(ModelQuery<E, ?, M> q, Limit limit) {
         Objects.requireNonNull(q, "q");
         Objects.requireNonNull(limit, "limit");
+        refuseKeyGroups(q, "list(query, limit)");
         checkFirstRun(q);
         LOG.log(DEBUG, () -> "list " + q + ": " + limit);
         BuiltQuery<M> built = null;
@@ -536,6 +538,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     @Override
     public <M> Optional<M> one(ModelQuery<E, ?, M> q) {
         Objects.requireNonNull(q, "q");
+        refuseKeyGroups(q, "one(query)");
         checkFirstRun(q);
         LOG.log(DEBUG, () -> "one " + q);
         q.lock().filter(lock -> lock.waitPolicy() == RowLock.Wait.SKIP_LOCKED).ifPresent(lock -> {
@@ -555,6 +558,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     @Override
     public <M> Optional<M> first(ModelQuery<E, ?, M> q) {
         Objects.requireNonNull(q, "q");
+        refuseKeyGroups(q, "first(query)");
         checkFirstRun(q);
         LOG.log(DEBUG, () -> "first " + q);
         List<? extends SelectField<M, ?>> tieBreakers = tieBreakers(q);
@@ -598,15 +602,50 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                         ? "a grouped query has none" : "primaryKey(...) was not set")));
         CriteriaBuilder cb = em.getCriteriaBuilder();
         warnOfIgnoredOrder(q, "one(query, key)");
-        BuiltQuery<M> built = q.buildQuery(cb, Phase.MODEL, renderOptions);
-        built.query().orderBy(List.<Order>of()); // at most one row is read, so no order (R-EXE-12)
-        Predicate byKey = primaryKey.equal(key, built.joins(), cb);
-        Predicate own = built.query().getRestriction();
-        built.query().where(own == null ? byKey : cb.and(own, byKey));
+        // The key's group and its values, before any statement; one group, so groupWhen's rule isn't asked (D-208).
+        KeyGroups<K, ?> groups = q.keyGroups().orElse(null);
+        Map<QueryParam<?>, Object> values = groups == null ? Map.of()
+                : groups.values(groups.groupOf(key, q), q + ", the group of key " + key);
+        BuiltQuery<M> built = byKey(q, primaryKey, cb, key, values);
         if (preflights(q)) {
             preflight(q, "one(query, key)", StatementShape.CONTENT, built);
         }
-        return atMostOne(q, built, "one(query, key)", primaryKey);
+        Optional<M> found = atMostOne(q, built, "one(query, key)", primaryKey);
+        if (found.isEmpty() && groups != null && groups.verifiesMissing()) {
+            // The key found no row in its group: read again with the catch-all's values (R-EXE-18, D-206).
+            LOG.log(DEBUG, () -> "one " + q + ": the key found no row in its group, re-read");
+            found = atMostOne(q, byKey(q, primaryKey, cb, key, groups.catchAll().orElseThrow()), "one(query, key)",
+                    primaryKey);
+            found.ifPresent(model -> warnOfRowOutsideGroup(q, q.definitionKey(), groups, key));
+        }
+        return found;
+    }
+
+    /**
+     * The statement of {@code one(q, key)}: {@code q} built with {@code values}, a key group's, bound, filtered to
+     * {@code key} and unordered, as at most one row is read (R-EXE-12, R-EXE-18).
+     */
+    private <K, M> BuiltQuery<M> byKey(ModelQuery<E, K, M> q, PrimaryKey<M, K> primaryKey, CriteriaBuilder cb, K key,
+            Map<QueryParam<?>, Object> values) {
+        BuiltQuery<M> built = q.buildQuery(cb, Phase.MODEL, renderOptions, values);
+        built.query().orderBy(List.<Order>of());
+        Predicate byKey = primaryKey.equal(key, built.joins(), cb);
+        Predicate own = built.query().getRestriction();
+        built.query().where(own == null ? byKey : cb.and(own, byKey));
+        return built;
+    }
+
+    /**
+     * {@code MQ2215} before any statement: {@code q}'s key groups give its group params a value only in the rounds of
+     * {@code byKeys} and {@code one(q, key)}, so {@code call}, any other read, can't run it (R-EXE-18, D-207).
+     */
+    private static void refuseKeyGroups(ModelQuery<?, ?, ?> q, String call) {
+        q.keyGroups().ifPresent(groups -> {
+            throw new ModelQueryExecutionException(MqCode.MQ2215, q + ": " + call + " can't read a query with key "
+                    + "groups, which bind " + groups.params().stream().map(String::valueOf).sorted().toList()
+                    + " only per group of byKeys(query, keys) and one(query, key); read it by key, or build a "
+                    + "query without keyGroups(...) and bind those params");
+        });
     }
 
     /** Warns once per query and call that {@code call} ignores {@code q}'s {@code orderBy} (R-EXE-05, R-EXE-13). */
@@ -731,64 +770,46 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         warnOfIgnoredOrder(q, "byKeys(query, keys)");
         Set<Object> requested = new LinkedHashSet<>(converted.values());
-        List<Object> distinct = lock.isPresent() ? sortedForLocking(requested) : List.copyOf(requested);
-        int keyColumns = primaryKey.columns().size();
-        // The first chunk takes the most keys any statement could and sizes the rest from its own binds, so no
-        // statement is compiled only to be counted (R-EXE-13, R-PAG-07, D-32).
-        int chunk = Math.min(distinct.size(), keyLimits.clamp(0, keyColumns, OptionalInt.empty()));
-        boolean sized = false;
-        Map<Object, ReadRow<M>> found = new HashMap<>();
-        for (int from = 0; from < distinct.size(); from += chunk) {
-            List<Object> chunkKeys = distinct.subList(from, Math.min(distinct.size(), from + chunk));
-            BuiltQuery<M> built = byKeysChunk(q, primaryKey, cb, lock, chunkKeys);
-            if (!sized && preflighted) {
-                // The first chunk, before any statement; the others differ only in how many keys their IN holds.
-                preflight(q, "byKeys(query, keys)", StatementShape.CONTENT, built);
-            }
-            TypedQuery<Tuple> statement;
-            if (sized) {
-                statement = create(q, built);
-            } else {
-                sized = true;
-                TypedQuery<Tuple> probe = em.createQuery(built.query());
-                bindValues(probe, built.joins(), built.query().getParameters());
-                int ownBinds = Math.max(0, probe.getParameters().size() + built.joins().repeatedExpressionBinds()
-                        - chunkKeys.size() * keyColumns);
-                int sizedChunk = keyLimits.clamp(ownBinds, keyColumns, OptionalInt.empty());
-                if (chunkKeys.size() <= sizedChunk) {
-                    statement = checked(q, probe, null, null, built.joins());
-                } else {
-                    // More keys than the statement's own binds leave room for: the first chunk is built again, smaller,
-                    // and that build is the statement that runs, so it is preflighted too.
-                    chunkKeys = distinct.subList(from, Math.min(distinct.size(), from + sizedChunk));
-                    built = byKeysChunk(q, primaryKey, cb, lock, chunkKeys);
-                    if (preflighted) {
-                        preflight(q, "byKeys(query, keys)", StatementShape.CONTENT, built);
-                    }
-                    statement = create(q, built);
-                }
-                chunk = sizedChunk;
-            }
-            applyLock(lock, q, statement);
-            for (Tuple tuple : rows(q, built, statement)) {
-                Row row = built.selection().row(tuple);
-                Object rowKey = Keys.keyOf(q, primaryKey, row);
-                if (!requested.contains(rowKey)) {
-                    throw new ModelQueryExecutionException(MqCode.MQ2005, q + ": byKeys(query, keys) read a row whose "
-                            + "key " + rowKey + " equals none of the requested keys, as a case-insensitive or padding "
-                            + "collation, or a BigDecimal scale, can match; compare the key as the database does");
-                }
-                if (found.putIfAbsent(rowKey, new ReadRow<>(built, row)) != null) {
-                    if (filterOnlyToManyJoin(built).isEmpty()) {
-                        throw duplicateKey(q, rowKey);
-                    }
-                    throw new ModelQueryExecutionException(MqCode.MQ2003, q + ": byKeys(query, keys) found more than "
-                            + "one row for key " + rowKey + filterOnlyToManyJoin(built).map(join -> "; if the to-many "
-                                    + "join " + joinName(join) + ", which no selected column reads, repeats the row "
-                                    + "once per matching child, filter with Filters.exists(...) instead").orElse(""));
-                }
+        // A locked call sorts its Comparable keys, so concurrent callers lock in one order (R-EXE-14).
+        Optional<List<Object>> sorted = lock.isPresent() ? sortedForLocking(requested) : Optional.empty();
+        List<Object> distinct = sorted.orElseGet(() -> List.copyOf(requested));
+        KeyGroups<K, ?> groups = q.keyGroups().orElse(null);
+        // Each value is grouped by the first caller key converting to it, so it is read once (R-EXE-18).
+        Map<Object, K> callers = new HashMap<>();
+        converted.forEach((key, value) -> callers.putIfAbsent(value, key));
+        List<KeyRun> byGroup = groups == null ? List.of(new KeyRun(distinct, Map.of()))
+                : keyRuns(q, groups, distinct, callers::get);
+        // Sorted keys run in runs of one group contiguous in the sorted order, so each round's keys lie above the
+        // previous round's; groupWhen's rule still sees the per-group counts (R-EXE-14, R-EXE-18, D-210).
+        List<KeyRun> lockOrdered = sorted.isPresent() ? lockOrderRuns(byGroup, distinct) : byGroup;
+        // The first round sizes the rest, and under groupWhen with two groups or more the catch-all run sizes it, as
+        // for a child load; the group's binds count against the limits (R-EXE-13, R-EXE-18, R-PAG-07, D-32).
+        KeyRun ungrouped = groups == null || groups.rule().isEmpty() ? null
+                : new KeyRun(distinct, groups.catchAll().orElseThrow()); // groupWhen gives a catch-all
+        var rounds = new KeyedRounds<>(q, primaryKey, cb, lock, preflighted, requested);
+        int size = rounds.size(ungrouped != null && byGroup.size() > 1 ? ungrouped : lockOrdered.get(0));
+        boolean grouped = groups != null && grouped(groups, byGroup, distinct.size(), size);
+        List<KeyRun> runs = groups == null || grouped ? lockOrdered : List.of(ungrouped);
+        if (groups != null) {
+            LOG.log(DEBUG, () -> "byKeys " + q + ": " + distinct.size() + " distinct key(s) in " + byGroup.size()
+                    + " group(s), " + (grouped ? "grouped," : "ungrouped by groupWhen,") + " in "
+                    + runs.stream().mapToInt(run -> chunks(run.keys().size(), size)).sum() + " round(s)");
+        }
+        for (KeyRun run : runs) {
+            rounds.read(run);
+        }
+        // The re-read locks after higher keys are held: the one exception to the lock order (D-210).
+        if (grouped && groups.verifiesMissing()) {
+            List<Object> missing = distinct.stream().filter(value -> !rounds.found.containsKey(value)).toList();
+            if (!missing.isEmpty()) {
+                LOG.log(DEBUG, () -> "byKeys " + q + ": " + missing.size() + " re-read key(s) that found no row in "
+                        + "their group, in " + chunks(missing.size(), size) + " round(s)");
+                rounds.read(new KeyRun(missing, groups.catchAll().orElseThrow())); // verifyMissing gives one
+                missing.stream().filter(rounds.found::containsKey).findFirst().ifPresent(value ->
+                        warnOfRowOutsideGroup(q, q.definitionKey(), groups, callers.get(value)));
             }
         }
+        Map<Object, ReadRow<M>> found = rounds.found;
         // Every chunk is read and checked; only now are rows mapped, in key order, and the fetch plan run once.
         List<Object> foundValues = new ArrayList<>(found.size());
         List<Loaded<M>> rows = new ArrayList<>(found.size());
@@ -815,11 +836,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     }
 
     /**
-     * One chunk of {@code byKeys}: the query built again, filtered to {@code chunkKeys}, ordered for a lock (R-EXE-14).
+     * One chunk of {@code byKeys}: the query built again with {@code values}, a key group's, bound, filtered to
+     * {@code chunkKeys}, ordered for a lock (R-EXE-14, R-EXE-18).
      */
     private <M> BuiltQuery<M> byKeysChunk(ModelQuery<E, ?, M> q, PrimaryKey<M, ?> primaryKey, CriteriaBuilder cb,
-            Optional<LockSupport> lock, List<Object> chunkKeys) {
-        BuiltQuery<M> built = q.buildQuery(cb, Phase.MODEL, renderOptions);
+            Optional<LockSupport> lock, List<Object> chunkKeys, Map<QueryParam<?>, Object> values) {
+        BuiltQuery<M> built = q.buildQuery(cb, Phase.MODEL, renderOptions, values);
         if (lock.isPresent()) {
             // The customizer runs again for each chunk and may join only then (R-EXE-14).
             refuseJoin(q, built, lock, "byKeys(query, keys)");
@@ -831,6 +853,112 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         // chunks cannot be ordered across statements (R-EXE-13, R-EXE-14).
         built.query().orderBy(lock.isPresent() ? primaryKeyOrders(primaryKey, built, cb) : List.<Order>of());
         return built;
+    }
+
+    /**
+     * One {@code byKeys} call's rounds over its distinct key values, and the rows they read by value. Every round is
+     * read and checked before any row is mapped (R-EXE-13, R-EXE-18).
+     */
+    private final class KeyedRounds<M> {
+
+        private final ModelQuery<E, ?, M> q;
+        private final PrimaryKey<M, ?> primaryKey;
+        private final CriteriaBuilder cb;
+        private final Optional<LockSupport> lock;
+        private final Set<Object> requested;
+        private final int keyColumns;
+        /** The rows read, by key value. */
+        final Map<Object, ReadRow<M>> found = new HashMap<>();
+        private int size;
+        /** Whether the next statement built is preflighted: the first after a sizing round that didn't fit. */
+        private boolean preflightNext;
+        /** The run whose first round {@link #size} built, its statement and its probe, until that round reads. */
+        private KeyRun probed;
+        private BuiltQuery<M> probeBuilt;
+        private TypedQuery<Tuple> probe;
+
+        KeyedRounds(ModelQuery<E, ?, M> q, PrimaryKey<M, ?> primaryKey, CriteriaBuilder cb,
+                Optional<LockSupport> lock, boolean preflighted, Set<Object> requested) {
+            this.q = q;
+            this.primaryKey = primaryKey;
+            this.cb = cb;
+            this.lock = lock;
+            this.preflightNext = preflighted;
+            this.requested = requested;
+            this.keyColumns = primaryKey.columns().size();
+        }
+
+        /**
+         * The most keys a round takes, from {@code first}'s first round, built with the most keys any statement
+         * could, so no statement is compiled only to be counted (R-EXE-13, R-PAG-07, D-32); that round is kept to
+         * read when it fits, and built again smaller when it doesn't. The first build is preflighted, before any
+         * statement; the others differ only in how many keys their IN holds and the values they bind.
+         */
+        int size(KeyRun first) {
+            List<Object> roundKeys = first.keys().subList(0, Math.min(first.keys().size(),
+                    keyLimits.clamp(0, keyColumns, OptionalInt.empty())));
+            BuiltQuery<M> built = byKeysChunk(q, primaryKey, cb, lock, roundKeys, first.values());
+            if (preflightNext) {
+                preflight(q, "byKeys(query, keys)", StatementShape.CONTENT, built);
+            }
+            TypedQuery<Tuple> query = em.createQuery(built.query());
+            bindValues(query, built.joins(), built.query().getParameters());
+            int ownBinds = Math.max(0, query.getParameters().size() + built.joins().repeatedExpressionBinds()
+                    - roundKeys.size() * keyColumns);
+            size = keyLimits.clamp(ownBinds, keyColumns, OptionalInt.empty());
+            if (roundKeys.size() <= size) {
+                probed = first;
+                probeBuilt = built;
+                probe = query;
+                preflightNext = false;
+            }
+            return size;
+        }
+
+        /** Reads {@code run}'s keys in rounds of {@link #size} keys, each with the run's values bound. */
+        void read(KeyRun run) {
+            for (int from = 0; from < run.keys().size(); from += size) {
+                List<Object> roundKeys = run.keys().subList(from, Math.min(run.keys().size(), from + size));
+                BuiltQuery<M> built;
+                TypedQuery<Tuple> statement;
+                if (run == probed && from == 0) {
+                    built = probeBuilt;
+                    statement = checked(q, probe, null, null, built.joins());
+                    probed = null;
+                } else {
+                    built = byKeysChunk(q, primaryKey, cb, lock, roundKeys, run.values());
+                    if (preflightNext) {
+                        // The first round that runs, built smaller than the sizing round, is preflighted too.
+                        preflight(q, "byKeys(query, keys)", StatementShape.CONTENT, built);
+                        preflightNext = false;
+                    }
+                    statement = create(q, built);
+                }
+                applyLock(lock, q, statement);
+                read(built, statement);
+            }
+        }
+
+        private void read(BuiltQuery<M> built, TypedQuery<Tuple> statement) {
+            for (Tuple tuple : rows(q, built, statement)) {
+                Row row = built.selection().row(tuple);
+                Object rowKey = Keys.keyOf(q, primaryKey, row);
+                if (!requested.contains(rowKey)) {
+                    throw new ModelQueryExecutionException(MqCode.MQ2005, q + ": byKeys(query, keys) read a row whose "
+                            + "key " + rowKey + " equals none of the requested keys, as a case-insensitive or padding "
+                            + "collation, or a BigDecimal scale, can match; compare the key as the database does");
+                }
+                if (found.putIfAbsent(rowKey, new ReadRow<>(built, row)) != null) {
+                    if (filterOnlyToManyJoin(built).isEmpty()) {
+                        throw duplicateKey(q, rowKey);
+                    }
+                    throw new ModelQueryExecutionException(MqCode.MQ2003, q + ": byKeys(query, keys) found more than "
+                            + "one row for key " + rowKey + filterOnlyToManyJoin(built).map(join -> "; if the to-many "
+                                    + "join " + joinName(join) + ", which no selected column reads, repeats the row "
+                                    + "once per matching child, filter with Filters.exists(...) instead").orElse(""));
+                }
+            }
+        }
     }
 
     /**
@@ -973,16 +1101,39 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /**
      * {@code keys} in their natural order when they are all mutually comparable, so concurrent locked callers lock
-     * their chunks in one order, and as given otherwise. The result keeps the caller's order regardless (R-EXE-13).
+     * their chunks in one order, and empty otherwise: chunks keep the order given. The result keeps the caller's
+     * order regardless (R-EXE-13).
      */
-    private static List<Object> sortedForLocking(Collection<Object> keys) {
+    private static Optional<List<Object>> sortedForLocking(Collection<Object> keys) {
         List<Object> sorted = new ArrayList<>(keys);
         try {
             sorted.sort(null);
         } catch (ClassCastException | NullPointerException e) {
-            return List.copyOf(keys); // not comparable: chunks keep the order given
+            return Optional.empty();
         }
-        return List.copyOf(sorted);
+        return Optional.of(List.copyOf(sorted));
+    }
+
+    /**
+     * {@code sorted}, a locked call's keys in their natural order, in runs of keys contiguous in that order that
+     * share a group of {@code byGroup}, each with its group's values: a new run starts whenever the group changes, so
+     * every run's keys lie above the previous run's (R-EXE-14, R-EXE-18, D-210).
+     */
+    private static List<KeyRun> lockOrderRuns(List<KeyRun> byGroup, List<Object> sorted) {
+        if (byGroup.size() == 1) {
+            return byGroup;
+        }
+        Map<Object, KeyRun> groupOf = new HashMap<>();
+        byGroup.forEach(run -> run.keys().forEach(key -> groupOf.put(key, run)));
+        List<KeyRun> runs = new ArrayList<>();
+        int from = 0;
+        for (int i = 1; i <= sorted.size(); i++) {
+            if (i == sorted.size() || groupOf.get(sorted.get(i)) != groupOf.get(sorted.get(from))) {
+                runs.add(new KeyRun(sorted.subList(from, i), groupOf.get(sorted.get(from)).values()));
+                from = i;
+            }
+        }
+        return runs;
     }
 
     /** {@code primaryKey}'s columns ascending, the order a locked {@code byKeys} chunk locks its rows in. */
@@ -1025,6 +1176,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(q, "q");
         Objects.requireNonNull(limit, "limit");
         Objects.requireNonNull(body, "body");
+        refuseKeyGroups(q, "stream(...)");
         refuseLock(q, "stream(...)");
         if (q.fetch().filter(plan -> !plan.isSelectionOnly()).isPresent()) {
             // A plan runs once per page, and a stream has none (R-FCH-09, D-96).
@@ -1383,6 +1535,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(q, "q");
         Objects.requireNonNull(page, "page");
         Objects.requireNonNull(mode, "mode");
+        refuseKeyGroups(q, "page(query, PageSpec, CountMode)");
         refuseLock(q, "page(query, PageSpec, CountMode)");
         // INLINE_COUNT builds, checks and preflights COUNT's statements as COUNT does, whether or not the window is
         // used, since a page past the end can only be known after the content statement (R-EXE-15).
@@ -1502,6 +1655,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     public <M> KeysetSlice<M> page(ModelQuery<E, ?, M> q, KeysetSpec keyset) {
         Objects.requireNonNull(q, "q");
         Objects.requireNonNull(keyset, "keyset");
+        refuseKeyGroups(q, "page(query, KeysetSpec)");
         refuseLock(q, "page(query, KeysetSpec)");
         if (!q.isKeyset()) {
             // R-PAG-16: a keyset page needs a keyset() query, before any query runs (MQ2207).
@@ -1616,6 +1770,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     @Override
     public long count(ModelQuery<E, ?, ?> q) {
         Objects.requireNonNull(q, "q");
+        refuseKeyGroups(q, "count(query)");
         refuseLock(q, "count(query)");
         Optional<String> clientSide = checkFirstRun(q, false);
         LOG.log(DEBUG, () -> "count " + q);
@@ -1630,6 +1785,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(options, "options");
         Objects.requireNonNull(pageTransformer, "pageTransformer");
         Objects.requireNonNull(sink, "sink");
+        refuseKeyGroups(q, "export(...)");
         refuseLock(q, "export(...)");
         checkFirstRun(q, true, StatementShape.CONTENT, q.isKeyset(), false);
         refuseNonUniqueSource(q, "export(...)");
@@ -2023,6 +2179,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      */
     private <R> Returning<R> returning(Optional<ChunkOptions> chunk, ModelQuery<E, ?, R> returning,
             WriteStatement kind) {
+        refuseKeyGroups(returning, kind.name().toLowerCase(Locale.ROOT) + "Returning(..., returning)");
         if (chunk.map(ChunkOptions::commitsEachChunk).orElse(false)) {
             throw returningRefused(kind, "commitEachChunk()");
         }
@@ -2389,6 +2546,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     public <R> R persist(ModelPersist<E, ?, ?> persist, ModelQuery<E, ?, R> returning) {
         Objects.requireNonNull(persist, "persist");
         Objects.requireNonNull(returning, "returning");
+        refuseKeyGroups(returning, "persist(persist, returning)");
         // Keyed by the query itself, which the caller holds, so the weak set keeps the entry while it lives
         checkWriteOnce(returning, metamodel -> returning.checkReturning(em.getCriteriaBuilder(), renderOptions));
         // Read from the managed entity, a to-one's id without initializing it: through an INNER join field whose
@@ -3844,7 +4002,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             List<Object> keys) {
         checkFirstRun(q);
         KeyGroups<?, ?> groups = load.keyGroups().orElse(null);
-        List<KeyRun> byGroup = groups == null ? List.of(new KeyRun(keys, Map.of())) : keyRuns(load, groups, keys);
+        List<KeyRun> byGroup = groups == null ? List.of(new KeyRun(keys, Map.of()))
+                : keyRuns(load, groups, keys, UnaryOperator.identity());
         // The first round takes the most keys any statement could and sizes the rest from its own binds, so it is
         // compiled once, to be read, not only to be counted (R-PAG-07, D-32); a group's binds are among them. Under
         // groupWhen with two groups or more, the rule needs that size before the call knows its first run: the
@@ -3870,7 +4029,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 LOG.log(DEBUG, () -> "child " + load + ": " + missing.size() + " re-read key(s) that found no row in "
                         + "their group, in " + chunks(missing.size(), size) + " round(s)");
                 rounds.read(new KeyRun(missing, groups.catchAll().orElseThrow())); // verifyMissing gives one
-                rounds.foundAmong(missing).ifPresent(key -> warnOfRowOutsideGroup(load, groups, key));
+                rounds.foundAmong(missing).ifPresent(key -> warnOfRowOutsideGroup(load, load, groups, key));
             }
         }
         return rounds.children();
@@ -3878,20 +4037,22 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /**
      * {@code keys} by {@code groups}' group: groups in the first-seen order of their keys, keys in first-seen order
-     * within a group, each group with its values. The group function runs once per key and each value once per
-     * group, all before any round (R-FCH-18, D-204).
+     * within a group, each group with its values. The group function runs once per key, on {@code callerKey}'s key
+     * for it (for {@code byKeys}, the first caller key converting to it), and each value once per group, all before
+     * any round (R-FCH-18, R-EXE-18, D-204).
      *
      * @throws ModelQueryExecutionException {@code MQ2607} when a group is {@code null}
      * @throws ModelQueryDefinitionException {@code MQ1502} when a value is {@code null} or mistyped
      */
-    private static List<KeyRun> keyRuns(ChildLoad<?, ?> load, KeyGroups<?, ?> groups, List<Object> keys) {
+    private static List<KeyRun> keyRuns(Object owner, KeyGroups<?, ?> groups, List<Object> keys,
+            UnaryOperator<Object> callerKey) {
         var byGroup = new LinkedHashMap<Object, List<Object>>();
         for (Object key : keys) {
-            byGroup.computeIfAbsent(groups.groupOf(key, load), group -> new ArrayList<>()).add(key);
+            byGroup.computeIfAbsent(groups.groupOf(callerKey.apply(key), owner), group -> new ArrayList<>()).add(key);
         }
         var runs = new ArrayList<KeyRun>(byGroup.size());
         byGroup.forEach((group, groupKeys) -> runs.add(new KeyRun(List.copyOf(groupKeys),
-                groups.values(group, load + ", the group of key " + groupKeys.get(0)))));
+                groups.values(group, owner + ", the group of key " + callerKey.apply(groupKeys.get(0))))));
         return runs;
     }
 
@@ -3915,12 +4076,13 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     }
 
     /**
-     * {@code MQ2608} as a {@code WARNING}, once per child load: {@code key}'s row lies outside its key's group, found
-     * only by the {@code verifyMissing} re-read. It names the load and the key, never a bound value (R-FCH-18, D-95),
-     * the key as a string so that {@code MessageFormat} gives a number no locale grouping.
+     * {@code MQ2608} as a {@code WARNING}, once per {@code once}, a child load or a query's definition key:
+     * {@code key}'s row lies outside its key's group, found only by the {@code verifyMissing} re-read. It names
+     * {@code load}, the load or query, and the key, never a bound value (R-FCH-18, R-EXE-18, D-95), the key as a
+     * string so that {@code MessageFormat} gives a number no locale grouping.
      */
-    private static void warnOfRowOutsideGroup(ChildLoad<?, ?> load, KeyGroups<?, ?> groups, Object key) {
-        if (OUTSIDE_GROUP_WARNED.add(load)) {
+    private static void warnOfRowOutsideGroup(Object load, Object once, KeyGroups<?, ?> groups, Object key) {
+        if (OUTSIDE_GROUP_WARNED.add(once)) {
             LOG.log(System.Logger.Level.WARNING, "MQ2608: {0} ({1}): the row of key {2} was found only by the "
                     + "verifyMissing re-read, outside its key group; such a key costs a re-read on every call, so "
                     + "check the group function or the rows that disagree with it", load, groups, String.valueOf(key));
