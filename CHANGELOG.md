@@ -6,9 +6,9 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
 ## [Unreleased]
 
-## [0.12.0] - Unreleased
+## [0.12.0] - 2026-11-10
 
-0.12.0 covers milestone M35 (RFC 0023, D-204 to D-210): key groups, which read the keys of a child load or a `byKeys`
+0.12.0 covers milestone M35 (RFC 0023, D-204 to D-212): key groups, which read the keys of a child load or a `byKeys`
 call in rounds per group so each round binds its group's range and reads one partition of a partitioned table. Every
 API addition below is `@Incubating`.
 
@@ -20,11 +20,14 @@ API addition below is `@Incubating`.
 - `ChildQuery#keyGroups` loads a child's keys in rounds per group, and `ModelQuery.Builder#keyGroups` makes `byKeys` and
   `one(q, key)` read their keys the same way. Spring's `findAllByKeys` and `findByKey` take such a query unchanged. A locked
   grouped `byKeys` forms its rounds in sorted key order (D-210).
+- `KeyGroups.byComposite(group)` groups a composite primary key, read as the list of its columns' values, without a
+  raw cast (D-212).
 - `KeyGroups.Builder#groupWhen(GroupingRule, all)` and `GroupingRule` with `minKeysPerGroup(n)` and `maxGroups(n)` let
   each call decide from its distinct keys and groups whether to group (D-208).
 - New codes: `MQ1708` (a key-group definition that does not fit its child or query, or a group param read in a way
-  the child does not allow, D-209), `MQ2215` (a query with key groups read by anything but `byKeys` or `one(q, key)`,
-  D-207), `MQ2607` (a group function returned `null`) and the logged `MQ2608`.
+  the child does not allow, D-209; under `verifyMissing` or `groupWhen` also a group param read as `EQ`, `NE`, under
+  `NOT`, inside an expression or as a bound in both directions, which the catch-all re-read could miss, D-211),
+  `MQ2215` (a query with key groups read by anything but `byKeys` or `one(q, key)`, D-207), `MQ2607` (a group function returned `null`) and the logged `MQ2608`.
 - `ModelQuery#buildQuery(cb, phase, options, perRound)` is now public, `@EngineFacing`.
 - User guide: [child loads over partitioned tables](docs/site/docs/fetch-plans.md) and
   [key groups on a partitioned table](docs/site/docs/reading-keys.md), with the measured cost guidance.
@@ -32,7 +35,8 @@ API addition below is `@Incubating`.
 ### Changed
 
 - `MQ1512` is narrowed: a param a child model reads that the child's key groups bind is no longer `MQ1512`; one that
-  neither the model nor the groups bind still is.
+  neither the model nor the groups bind still is. When the child model's own `keyGroups` bind it, the `MQ1512` says
+  to set `ChildQuery#keyGroups`: a child load does not use the child model's groups.
 
 ## [0.11.1] - 2026-10-25
 
