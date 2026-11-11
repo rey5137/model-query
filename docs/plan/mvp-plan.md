@@ -965,7 +965,7 @@ model declares its own `@JoinEntity` / `@JoinSource` under `@Join` over an assoc
 with a checked name map; `Row.scoped` stops at joined roots and never falls back to the root's column; the outer `query(...)`
 takes the nested `SourceQuery`s (R-GEN-43); `MQ3044` narrowed, `MQ3039` walks nested joins. Part C: R-SRC-25 relaxed to chained
 column anchors, creation order `MQ1911`, `MQ1912`'s message names the join. Every new type and member is `@Incubating`. Model:
-`architect-review` at the gate (public API, INV-5 name-map failure, R-SRC-25); M36.1, M36.3 and M36.5 run at `opus` / `high`.
+`architect-review` at the gate (public API, INV-5 name-map failure, R-SRC-25); M36.1, M36.3, M36.5 and M36.6 run at `opus` / `high`.
 Ships in 0.13.0; the freeze moves to M37 and stays last.
 
 | Slice | Content | Done when |
@@ -976,8 +976,9 @@ Ships in 0.13.0; the freeze moves to M37 and stays last.
 | M36.3 | Part B core: `Row.scoped` stopping at joined roots with the checked name map, prefixed registration, presence key added | AC rows green; a mis-mapped name fails loudly |
 | M36.4 | Part B generated: the outer factory's nested `SourceQuery` parameters, `MQ3044` narrowed, TCK, docs incl. the FK-anchor note | TCK green on Tier 1 and both lines |
 | M36.5 | Part C: chained column anchors in R-SRC-25, creation order `MQ1911`, `INNER`-under-`LEFT` refusal, `MQ1912` message | AC rows green on both lines; `CHANGELOG.md` 0.13.0 section |
+| M36.6 | Nested `@JoinSource` under `@Join(entityJoin)`: spike first (a joined source whose `ON` reads a root-anchored entity join, both lines), a third rendering phase off the statement root, build-time `MQ1910` anchor checks, `MQ1912` for an `INNER` joined source through a `joinFilter` join (closes an existing gap), D-218 | spike green or the shape refused per D-218; AC rows green on both lines |
 
-M36.2 follows M36.1; M36.4 follows M36.3 and M36.2; M36.5 follows M36.2.
+M36.2 follows M36.1; M36.4 follows M36.3 and M36.2; M36.5 follows M36.2; M36.6 follows M36.5.
 
 **Exit:** the M36 rows' criteria green on Tier 1 and both lines.
 
