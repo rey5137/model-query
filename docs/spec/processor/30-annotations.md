@@ -99,7 +99,9 @@ from a write (Q-23).
 **R-PROC-43** `@Subtype` is an incubating, class-retained field or record-component annotation marking one
 `Class<? extends R>` field, where `R` is the model's root (D-154, Q-25). It maps `Expr.typeOf(ROOT)` (R-GEN-42).
 A second field, another type, combination with `@Column`, `@Computed`, `@Aggregate` or `@PrimaryKey`, or use on a
-source-rooted or write model is `MQ3043`. `@GroupBy @Subtype` is allowed.
+source-rooted or write model is `MQ3043`. `@GroupBy @Subtype` is allowed. In a model reached through a `@Join`, its
+column reads `typeOf` over a joined node, which is `MQ4016` when selected (api/10 R-COL-36, D-158); leave it out of
+the select there.
 
 **R-PROC-44** *(D-189, D-190, `@Incubating`)* `@JoinSource` (repeatable, on a model type) and `@SourceColumn` (on a field
 or component) declare a joined source (`api/17` R-SRC-21). `@JoinSource` has a `name` (a Java identifier, unique in
