@@ -34,6 +34,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 
 /**
@@ -783,7 +784,11 @@ public final class ModelQuery<E, K, M> {
                                 + ", whose filter would blank it and drop the row; declare the source join LEFT");
                     }
                 }
-                outerPaths.add(pair.column().path(joins));
+                Path<?> outerPath = pair.column().path(joins);
+                refuseToManyPath(outerPath, joins, () -> modelName() + ": join '" + join.name() + "' of "
+                        + join.source().getSimpleName() + ": outer column " + pair.column().name(), MqCode.MQ1910,
+                        "the join adds at most one row per outer row");
+                outerPaths.add(outerPath);
             }
             From<?, Tuple> joined = renderer.join(outer, handle, join.kind(), cte -> {
                 var equal = new ArrayList<Predicate>();
@@ -878,21 +883,30 @@ public final class ModelQuery<E, K, M> {
      */
     private static void checkAnchorPath(EntityJoin<?, ?> join, ColumnField<?, ?, ?> anchor, Path<?> path,
             JoinContext joins) {
+        refuseToManyPath(path, joins, () -> join + ": anchor " + anchor.name(), MqCode.MQ1911,
+                "an anchor reads the root or a to-one path from it, so the join adds at most one row per outer row");
+        if (anchor.readsToOneId(joins)) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1911, join + ": anchor " + anchor.name() + " reads a "
+                    + "to-one association by its id (R-COL-29); anchor on the foreign key's basic column instead");
+        }
+    }
+
+    /**
+     * Refuses {@code path} when a segment between it and the context's root is a to-many attribute: the join it
+     * anchors would repeat each outer row (D-197, D-219). The message names {@code what} and gives {@code why}.
+     */
+    private static void refuseToManyPath(Path<?> path, JoinContext joins, Supplier<String> what, MqCode code,
+            String why) {
         for (Path<?> node = path; node != null && node != joins.root(); ) {
             if (node instanceof Join<?, ?> step) {
                 if (step.getAttribute() instanceof PluralAttribute<?, ?, ?>) {
-                    throw new ModelQueryDefinitionException(MqCode.MQ1911, join + ": anchor " + anchor.name()
-                            + " reads through the to-many " + step.getAttribute().getName() + "; an anchor reads "
-                            + "the root or a to-one path from it, so the join adds at most one row per outer row");
+                    throw new ModelQueryDefinitionException(code, what.get() + " reads through the to-many "
+                            + step.getAttribute().getName() + "; " + why);
                 }
                 node = step.getParent();
             } else {
                 node = node.getParentPath();
             }
-        }
-        if (anchor.readsToOneId(joins)) {
-            throw new ModelQueryDefinitionException(MqCode.MQ1911, join + ": anchor " + anchor.name() + " reads a "
-                    + "to-one association by its id (R-COL-29); anchor on the foreign key's basic column instead");
         }
     }
 
@@ -1638,7 +1652,7 @@ public final class ModelQuery<E, K, M> {
             read.addAll(needed);
             for (SelectField<M, ?> column : read) {
                 if (column instanceof ColumnField<M, ?, ?> plain) {
-                    result.addAll(presenceKeys(plain));
+                    result.addAll(presenceKeys(plain, joinedSources, entityJoins));
                 }
             }
         }
@@ -1657,9 +1671,10 @@ public final class ModelQuery<E, K, M> {
      * {@code @Join} (D-216). No join is added by selecting them, since the column's own path, or its join's anchors,
      * already make each.
      */
-    private static <M> List<ColumnField<M, ?, ?>> presenceKeys(ColumnField<M, ?, ?> column) {
+    private static <M> List<ColumnField<M, ?, ?>> presenceKeys(ColumnField<M, ?, ?> column,
+            List<JoinedSource> joinedSources, List<? extends EntityJoin<?, ?>> entityJoins) {
         var keys = new ArrayList<ColumnField<M, ?, ?>>();
-        for (TableField<?, ?> join = column.table(); join != null; join = join.above()) {
+        for (TableField<?, ?> join = column.table(); join != null; join = above(join, joinedSources, entityJoins)) {
             if (join.presenceKey() != null) {
                 for (ColumnField<?, ?, ?> key : join.presenceKey().columns()) {
                     keys.add(key.under(column.model(), join));
@@ -1667,6 +1682,31 @@ public final class ModelQuery<E, K, M> {
             }
         }
         return keys;
+    }
+
+    /**
+     * The node a presence key is read through after {@code node}. A parentless joined root takes its {@code within}
+     * from the join the query binds, found by key, so a column built from the root before {@code within} still
+     * reads the {@code @Join}'s keys (D-220); otherwise the node's own link.
+     */
+    private static TableField<?, ?> above(TableField<?, ?> node, List<JoinedSource> joinedSources,
+            List<? extends EntityJoin<?, ?>> entityJoins) {
+        if (node.parent() == null && node.within() == null) {
+            if (node.isJoinedSource()) {
+                for (JoinedSource bound : joinedSources) {
+                    if (bound.join().root().key().equals(node.key())) {
+                        return bound.join().root().within();
+                    }
+                }
+            } else if (node.isJoinedEntity()) {
+                for (EntityJoin<?, ?> bound : entityJoins) {
+                    if (bound.root().key().equals(node.key())) {
+                        return bound.root().within();
+                    }
+                }
+            }
+        }
+        return node.above();
     }
 
     private M toModel(Row row) {
@@ -2520,7 +2560,7 @@ public final class ModelQuery<E, K, M> {
             read.addAll(needed);
             for (SelectField<M, ?> column : read) {
                 if (column instanceof ColumnField<M, ?, ?> plain) {
-                    for (ColumnField<M, ?, ?> key : presenceKeys(plain)) {
+                    for (ColumnField<M, ?, ?> key : presenceKeys(plain, joinedSources, entityJoins)) {
                         if (!groupBy.contains(key)) {
                             throw new ModelQueryDefinitionException(MqCode.MQ1409, plain + ": selected on a grouped "
                                     + "query under the presentBy " + key.table().describe() + ", whose key column "

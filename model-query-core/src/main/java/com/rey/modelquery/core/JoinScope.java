@@ -185,19 +185,16 @@ public final class JoinScope {
 
     /** Equal when the table has the same join key and the same nested joins map to the same outer ones. */
     @Override
-    @Incubating
     public boolean equals(Object o) {
         return this == o || o instanceof JoinScope other && table.equals(other.table) && roots.equals(other.roots);
     }
 
     @Override
-    @Incubating
     public int hashCode() {
         return 31 * table.hashCode() + roots.hashCode();
     }
 
     @Override
-    @Incubating
     public String toString() {
         var names = new StringBuilder();
         roots.forEach((nested, outer) -> names.append(names.isEmpty() ? "" : ", ").append(nested.alias())

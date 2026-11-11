@@ -2,6 +2,8 @@ package com.rey.modelquery.processor;
 
 import com.rey.modelquery.annotations.Column;
 import com.rey.modelquery.processor.EntityMetamodel.Resolution;
+import com.rey.modelquery.processor.EntityMetamodel.Step;
+import com.rey.modelquery.processor.EntityMetamodel.Walk;
 import com.rey.modelquery.processor.ModelDefinition.JoinOn;
 import com.rey.modelquery.processor.ModelDefinition.JoinSourceDefinition;
 import com.rey.modelquery.processor.ModelDefinition.ModelField;
@@ -113,6 +115,11 @@ final class JoinSourceChecks {
     /** The outer {@code column} of {@code pair} is a basic attribute of the root, of the key field's type (INV-3). */
     private void checkOuter(ModelDefinition model, JoinSourceDefinition join, JoinOn pair, ModelField keyField,
             Diagnostics diagnostics) {
+        String toMany = toMany(metamodel.walk(model.root(), pair.column()), pair.column());
+        if (toMany != null) {
+            error(model, join, toMany, diagnostics);
+            return;
+        }
         Resolution resolution = metamodel.resolve(model.root(), pair.column());
         if (resolution.attribute() == null) {
             error(model, join, "on(column = \"" + pair.column() + "\"): " + resolution.problem(), diagnostics);
@@ -132,6 +139,21 @@ final class JoinSourceChecks {
                     + ModelValidator.display(attribute.type()) + ", the key field " + keyField.name() + " is "
                     + ModelValidator.display(keyField.type()), diagnostics);
         }
+    }
+
+    /**
+     * Why {@code walk}, an outer column's path, reads through a to-many attribute, or {@code null}: the joined source
+     * would repeat an outer row for each element, which R-SRC-21 does not allow (D-219).
+     */
+    static String toMany(Walk walk, String path) {
+        for (Step step : walk.steps()) {
+            if (step.attribute().kind() == EntityAttribute.Kind.COLLECTION) {
+                return "on(column = \"" + path + "\") traverses the to-many attribute '" + step.attribute().name()
+                        + "'; the join would repeat an outer row for each element, so read a basic column of the "
+                        + "root or of a to-one path";
+            }
+        }
+        return null;
     }
 
     private void checkColumn(ModelDefinition model, ModelField field, Diagnostics diagnostics) {

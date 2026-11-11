@@ -345,6 +345,41 @@ class JoinSourceModelTest {
     }
 
     @Test
+    void ac_proc_46_a_to_many_outer_column_is_mq3044() {
+        Compilation compilation = compile(SALE_ENTITY, DAY_SALES, STORE_DAY_SALES, source("shop.LineEntity", """
+                package shop;
+
+                import jakarta.persistence.Entity;
+                import jakarta.persistence.Id;
+                import jakarta.persistence.OneToMany;
+                import java.util.List;
+
+                @Entity
+                public class LineEntity {
+                    @Id
+                    Long id;
+                    @OneToMany
+                    List<SaleEntity> sales;
+                }
+                """), day("""
+                @QueryModel(root = LineEntity.class)
+                @JoinSource(name = "through", source = DaySales.class,
+                        on = @JoinSource.On(column = "sales.businessDate", key = "businessDate"))
+                @JoinSource(name = "leaf", source = DaySales.class,
+                        on = @JoinSource.On(column = "sales", key = "businessDate"))
+                public record UnreconciledDay(@PrimaryKey Long id) {}
+                """));
+
+        assertThat(errors(compilation)).containsExactlyInAnyOrder(
+                message("UnreconciledDay join 'through': on(column = \"sales.businessDate\") traverses the to-many "
+                        + "attribute 'sales'; the join would repeat an outer row for each element, so read a basic "
+                        + "column of the root or of a to-one path"),
+                message("UnreconciledDay join 'leaf': on(column = \"sales\") traverses the to-many attribute 'sales'; "
+                        + "the join would repeat an outer row for each element, so read a basic column of the root "
+                        + "or of a to-one path"));
+    }
+
+    @Test
     void ac_proc_46_a_converted_source_key_in_an_on_pair_is_mq3044() {
         Compilation compilation = compile(DAY_ENTITY, SALE_ENTITY, source("shop.CodeConverter", """
                 package shop;

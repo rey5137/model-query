@@ -115,8 +115,7 @@ final class NestedModels {
         String prefix = join.join().prefix();
         var tables = new ArrayList<JoinedTable>();
         var entityJoin = join.join().entityJoin().isEmpty() ? null
-                : model.entityJoins().stream()
-                        .filter(j -> j.name().equals(join.join().entityJoin())).findFirst().orElse(null);
+                : model.entityJoin(join.join().entityJoin());
         String joinType = entityJoin != null ? entityJoin.kind() : join.join().type();
         TypeElement parentEntity = entityJoin != null ? nested.root()
                 : EntityMetamodel.treatedRoot(model.root(), join.join().treat());

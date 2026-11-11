@@ -1,6 +1,7 @@
 package com.rey.modelquery.core;
 
 import com.rey.modelquery.annotations.Incubating;
+import java.util.Objects;
 
 /**
  * One result row, read by {@link SelectField} and never by position, so adding a selection cannot shift a mapping
@@ -37,7 +38,9 @@ public interface Row {
      *
      * @throws ModelQueryDefinitionException {@code MQ1107} from the view's accessors, for a column on a joined root
      */
-    Row scoped(TableField<?, ?> join);
+    default Row scoped(TableField<?, ?> join) {
+        return scoped(JoinScope.of(Objects.requireNonNull(join, "join")));
+    }
 
     /**
      * A view of a nested model's columns under {@code scope}, as {@link #scoped(TableField)} on its table, that also

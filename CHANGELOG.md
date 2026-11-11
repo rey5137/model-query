@@ -6,7 +6,7 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
 ## [Unreleased]
 
-The coming 0.13.0 covers milestone M36 (RFC 0024, D-213 to D-218): nested models over declared joins. A `@Join` may
+The coming 0.13.0 covers milestone M36 (RFC 0024, D-213 to D-220): nested models over declared joins. A `@Join` may
 nest a model over an entity join, a nested model may declare its own joins, and an entity join or a joined source may
 be anchored on an earlier entity join. Every API addition below is `@Incubating`.
 
@@ -53,6 +53,9 @@ be anchored on an earlier entity join. Every API addition below is `@Incubating`
   with a declared join, an `INNER` nested join below a `LEFT` `@Join`, a nested entity join anchored on a
   `@FilterColumn` or reading its join through an association or `treat`, and a nested `@JoinEntity` or `@JoinSource`
   below a `@Join(entityJoin)` naming a source-anchored join (D-215, D-217, D-218).
+- `MQ1910` also refuses, at first resolution, a joined source whose outer column reads through a to-many path from the
+  root: the join used to repeat each outer row in content and export pages (D-219).
+  `MQ3044` words the compile-time form of an `@On` outer column through a to-many attribute the same way.
 - `MQ3046` accepts an anchor or `when` column over an earlier column-anchored entity join, and refuses one over a join
   declared after it, itself, a source-anchored join, or a `LEFT` join from an `INNER` one (D-215).
 - `MQ3039` walks a child's nested `@Join` models and their own joins. `MQ1104` no longer refuses `presentBy` on a

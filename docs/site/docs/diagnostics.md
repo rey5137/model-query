@@ -48,8 +48,10 @@ throws when it affects no rows (see [Bulk writes](bulk-writes.md)).
 | `MQ1101` | Two TableFields share a join key but carry different `on(...)` conditions. |
 | `MQ1102` | `on(...)` used without `as(...)`. |
 | `MQ1103` | Two `Agg.of` fields share a name with different expressions. |
-| `MQ1104` | `as(...)`, `on(...)` or `presentBy(...)` on a root TableField, which is not a join. |
+| `MQ1104` | `as(...)` or `on(...)` on a root TableField, which is not a join; `presentBy(...)` on a root that is not a joined entity (the query's root, a source root, a joined source's root, a treated root). |
 | `MQ1105` | `FieldIndex.only` names a key the index doesn't hold, or leaves a kept set empty. |
+| `MQ1106` | `treat(...)` misused: not a strict mapped subtype, a treat of a treat or of a source root, `as(...)` or `on(...)` on a treated join, or an `ofType`/`notOfType` type the entity hierarchy doesn't map. |
+| `MQ1107` | A nested model's join is mapped wrongly, or not at all, to the outer join it stands for under a `@Join`: a `JoinScope` pair of another entity, source or kind, mapped twice or not registered `within` the field's own table, or a scoped row asked for a column on a joined root its scope does not map. |
 | `MQ1201` | `keyset()` or `primaryKeyFirst(...)` without a primary key. |
 | `MQ1202` | `build()` without `select(...)` or `fetch(...)`. |
 | `MQ1203` | Builder given a join instead of a root TableField. |
@@ -119,7 +121,7 @@ throws when it affects no rows (see [Bulk writes](bulk-writes.md)).
 | `MQ1904` | Two branches of one set operation fix the same `@Discriminator` value, two combined sources read different shapes or fields in a different order, type or converter, a `discriminator` column is not a key column, or a side of the operation is a recursive source. |
 | `MQ1905` | A hand-written `ColumnField.of` or `TableField.join` over a source root, or `joinSource` on a query rooted at a source; a generated outer column is `ColumnField.over(model, root, sourceConstant)`. |
 | `MQ1906` | A source's `where` predicate whose path crosses a to-many join, which no join inside the CTE can express; use `Filters.exists(path, inner)`. |
-| `MQ1910` | A `joinSource` binding refused when the query is built, before any statement: its `SourceJoin` pairs miss a key field of the source, name a field that is not a key field or pair one twice; the source is not unique (a set operation, a plain `recursive(...)` source or an ungrouped source over one; the message names `tree(...)` when it recurses); one join is bound twice, by name; a source of another model is bound through a raw type; the joined chains walk more than one recursive source; a hand-written `on(...)` pair has a converted source key field or differing attribute types; or an outer column reads an entity join the query does not bind, one anchored on a joined source, another joined source's columns, or, for an `INNER` source, a `LEFT` entity join. See [Joining a source](source-models.md#joining-a-source). |
+| `MQ1910` | A `joinSource` binding refused when the query is built, before any statement: its `SourceJoin` pairs miss a key field of the source, name a field that is not a key field or pair one twice; the source is not unique (a set operation, a plain `recursive(...)` source or an ungrouped source over one; the message names `tree(...)` when it recurses); one join is bound twice, by name; a source of another model is bound through a raw type; the joined chains walk more than one recursive source; a hand-written `on(...)` pair has a converted source key field or differing attribute types; or an outer column reads an entity join the query does not bind, one anchored on a joined source, another joined source's columns, or, for an `INNER` source, a `LEFT` entity join; at first resolution, an outer column read through a to-many path, which would repeat an outer row. See [Joining a source](source-models.md#joining-a-source). |
 | `MQ1911` | Invalid hand-written entity join; see the checks below. |
 | `MQ1912` | Invalid request-bound join filter; see the checks below. |
 

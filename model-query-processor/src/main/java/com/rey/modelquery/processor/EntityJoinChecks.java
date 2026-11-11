@@ -226,8 +226,7 @@ final class EntityJoinChecks {
     }
 
     private boolean checkPath(ModelDefinition model, String name, String path, Diagnostics diagnostics) {
-        var join = model.entityJoins().stream().filter(candidate -> candidate.name().equals(name))
-                .findFirst().orElse(null);
+        var join = model.entityJoin(name);
         if (join == null) {
             error(model, name, "unknown entity join", diagnostics);
             return false;

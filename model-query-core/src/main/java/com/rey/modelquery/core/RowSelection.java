@@ -169,11 +169,6 @@ public final class RowSelection {
         }
 
         @Override
-        public Row scoped(TableField<?, ?> join) {
-            return scoped(JoinScope.of(Objects.requireNonNull(join, "join")));
-        }
-
-        @Override
         public Row scoped(JoinScope scope) {
             // Inside a scope, the new scope's table and outer joins are the nested model's: the chain resolves them.
             return new ValueRow(aliases, byPath, values, new Scopes(Objects.requireNonNull(scope, "scope"), scopes));

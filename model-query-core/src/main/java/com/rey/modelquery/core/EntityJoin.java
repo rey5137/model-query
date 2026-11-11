@@ -155,7 +155,8 @@ public final class EntityJoin<M, E> {
      * {@link JoinScope} maps the nested model's join to this one (D-216). The link is not part of the root's key.
      * Pass the {@code @Join} field's own constant, whose {@code presentBy} the walk reads (a copy with an equal key
      * but no {@code presentBy} selects no key, and a scope refuses it), and build this join's columns from the
-     * {@link #root()} returned here: a column built from the root before {@code within} misses the link.
+     * {@link #root()} returned here (a column built from the root before {@code within} still selects the link's keys,
+     * as the presence walk reads {@code within} from the join the query binds, D-220).
      *
      * @throws ModelQueryDefinitionException {@code MQ1107} for a join already registered under one, or an anchor or
      *     {@link #when} column that is not read at or below {@code join}

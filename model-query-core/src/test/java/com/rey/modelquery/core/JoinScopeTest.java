@@ -354,6 +354,22 @@ class JoinScopeTest {
     }
 
     @Test
+    void ac_col_70_column_built_before_within_still_selects_the_field_key() {
+        var plain = EntityJoin.of("customer_region", Region.class, JoinKind.LEFT,
+                List.of(EntityJoin.on(CUSTOMER_REGION_ID, "id")));
+        var early = B_REGION_NAME.withTable(OrderView.class, plain.root().named("customer"));
+        var linked = plain.within(CUSTOMER);
+        assertThat(ModelQuery.builder(ROOT, row -> new OrderView()).joinEntity(linked)
+                .select(SelectSet.of(ID, early)).build().modelColumns()).containsExactly(ID, early, CUSTOMER_ID);
+        // The same hole in a grouped query: the key is missing from groupBy, so MQ1409 rather than a silent absent.
+        assertThatThrownBy(() -> ModelQuery.builder(ROOT, row -> new OrderView()).joinEntity(linked)
+                .select(SelectSet.of(early, Agg.count(ROOT))).groupBy(early).build())
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1409))
+                .hasMessageContaining("under the presentBy join 'customer' (LEFT), whose key column id");
+    }
+
+    @Test
     void ac_col_70_a_join_registered_within_no_join_field_selects_no_extra_key() {
         var own = EntityJoin.of("own_region", Region.class, JoinKind.LEFT,
                 List.of(EntityJoin.on(CUSTOMER_REGION_ID, "id")));
