@@ -181,6 +181,58 @@ class ColumnEntityJoinTest {
         mq1911(() -> REP.when(ColumnField.<Row, Keys, Long>over(Row.class, SOURCE.root(), K_ID), 1L), "source");
     }
 
+    /** The source of {@link #KEYS}, joined {@code kind} on the id of the employee {@code join} reads. */
+    private static SourceJoin<Row, Keys> onEmployee(String name, JoinKind kind, TableField<?, ?> table) {
+        return SourceJoin.of(name, Keys.class, kind,
+                List.of(SourceJoin.on(ColumnField.of(Row.class, table, "id", Long.class), K_ID)));
+    }
+
+    @Test
+    void ac_src_66_a_source_on_a_column_anchored_join_or_its_to_one_paths_builds_in_any_binding_order() {
+        var inner = EntityJoin.of("innerRep", Employee.class, JoinKind.INNER, List.of(EntityJoin.on(REP_CODE, "code")));
+        var manager = TableField.join(REP.root(), "manager", JoinType.LEFT);
+
+        assertThatCode(() -> base().joinSource(onEmployee("onRep", JoinKind.LEFT, REP.root()), KEYS)
+                .joinEntity(REP).build()).doesNotThrowAnyException();
+        assertThatCode(() -> base().joinEntity(REP).joinSource(onEmployee("onManager", JoinKind.LEFT, manager), KEYS)
+                .build()).doesNotThrowAnyException();
+        assertThatCode(() -> base().joinEntity(REP).joinEntity(inner)
+                .joinSource(onEmployee("onInner", JoinKind.INNER, inner.root()), KEYS).build())
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void ac_src_67_unbound_source_anchored_and_inner_on_left_anchors_are_mq1910_at_build() {
+        mq1910(() -> base().joinSource(onEmployee("onRep", JoinKind.LEFT, REP.root()), KEYS).build(),
+                "reads the entity join 'rep', which this query does not bind");
+        var viaKeys = rep("viaKeys", SOURCE_ID);
+        mq1910(() -> base().joinSource(SOURCE, KEYS).joinEntity(viaKeys)
+                .joinSource(onEmployee("onViaKeys", JoinKind.LEFT, viaKeys.root()), KEYS).build(),
+                "which is anchored on a joined source");
+        mq1910(() -> base().joinEntity(REP).joinSource(onEmployee("onRep", JoinKind.INNER, REP.root()), KEYS).build(),
+                "which is LEFT: this INNER join would drop every row 'rep' misses");
+        // A to-one path below the LEFT join is the same join.
+        var manager = TableField.join(REP.root(), "manager", JoinType.LEFT);
+        mq1910(() -> base().joinEntity(REP).joinSource(onEmployee("onManager", JoinKind.INNER, manager), KEYS)
+                .build(), "which is LEFT");
+    }
+
+    @Test
+    void ac_src_67_a_source_anchored_on_another_joined_source_is_mq1910_at_build() {
+        var onKeys = SourceJoin.of("onKeys", Keys.class, JoinKind.LEFT, List.of(SourceJoin.on(SOURCE_ID, K_ID)));
+
+        mq1910(() -> base().joinSource(SOURCE, KEYS).joinSource(onKeys, KEYS).build(),
+                "reads the joined source 'keys'");
+        mq1910(() -> base().joinSource(onKeys, KEYS).joinSource(SOURCE, KEYS).build(),
+                "reads the joined source 'keys'");
+    }
+
+    private static void mq1910(Runnable action, String detail) {
+        assertThatThrownBy(action::run).isInstanceOf(ModelQueryDefinitionException.class)
+                .hasMessageContaining(detail)
+                .extracting(e -> ((ModelQueryDefinitionException) e).code()).isEqualTo(MqCode.MQ1910);
+    }
+
     private static void mq1911(Runnable action, String detail) {
         assertThatThrownBy(action::run).isInstanceOf(ModelQueryDefinitionException.class)
                 .hasMessageContaining(detail)

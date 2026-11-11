@@ -242,6 +242,57 @@ class GeneratedNestedJoinExecutionTest {
                 .anySatisfy(o -> assertThat(o.customer().orElseThrow().labelledName()).isNull());
     }
 
+    @TckTest
+    void ac_gen_49_a_nested_source_join_below_an_entity_join_reads_it_after_the_join(TckDatabase db)
+            throws SQLException {
+        var query = QOrderWithReferredBuyer.query(low())
+                .select(QOrderWithReferredBuyer.ALL.with(QOrderWithReferredBuyer.REFERRED_SET))
+                .where(f -> f.in(QOrderWithReferredBuyer.ID, SAMPLE)).orderBy(QOrderWithReferredBuyer.ID.asc());
+        var plain = query.build();
+        var keyset = query.keyset().build();
+        List<OrderWithReferredBuyer> rows = new ArrayList<>();
+        List<OrderWithReferredBuyer> paged = new ArrayList<>();
+        List<OrderWithReferredBuyer> exported = new ArrayList<>();
+        long[] count = new long[1];
+        List<String> sql = SqlSnapshots.capture(db, ds -> {
+            try (SessionFactory sf = JoinTestSupport.sessionFactory(ds)) {
+                sf.inSession(em -> {
+                    var x = ModelQueryExecutor.create(em, OrderEntity.class, ModelQueryConfig.defaults());
+                    rows.addAll(x.list(plain, Limit.unlimited()));
+                    count[0] = x.count(plain);
+                    var page = x.page(keyset, KeysetSpec.first(3));
+                    paged.addAll(page.content());
+                    while (page.nextCursor().isPresent()) {
+                        page = x.page(keyset, KeysetSpec.after(page.nextCursor().get(), 3));
+                        paged.addAll(page.content());
+                    }
+                    x.export(plain, ExportOptions.of(3), p -> p, exported::add);
+                });
+            }
+        });
+
+        assertThat(rows.stream().map(o -> SourceJoinExecutionTest.text(o.id(), o.referrerId(),
+                o.referred().map(JoinBuyer::id).orElse(null), o.referred().map(JoinBuyer::name).orElse(null),
+                o.referred().map(JoinBuyer::rows).orElse(null), o.referred().map(JoinBuyer::labelName).orElse(null))))
+                .containsExactlyElementsOf(SourceJoinExecutionTest.rows(db, """
+                        select o.id, o.referrer_id, r.id, r.name, rs.n, rl.name from orders o
+                        left join customers r on r.id = o.referrer_id
+                        left join labels rl on rl.id = r.id
+                        left join (select id, count(id) n from customers where id <= 100 group by id) rs
+                            on rs.id = r.id
+                        where o.id in (1, 2, 3, 273, 546, 819, 946, 973) order by o.id"""));
+        assertThat(count[0]).isEqualTo(rows.size());
+        assertThat(paged).containsExactlyElementsOf(rows);
+        assertThat(exported).containsExactlyElementsOf(rows);
+        // A referrer with its source row, an order without a referrer.
+        assertThat(rows).anySatisfy(o -> assertThat(o.referred())
+                        .hasValueSatisfying(r -> assertThat(r.rows()).isNotNull()))
+                .anySatisfy(o -> assertThat(o.referred()).isEmpty());
+        // The source is created after the entity join it reads and that join's own label join (D-218).
+        assertThat(sql).isNotEmpty().allSatisfy(statement -> assertThat(SourceOnEntityJoinExecutionTest
+                .joined(statement)).as(statement).containsExactly("customers", "labels", "source"));
+    }
+
     private static void orders(TckDatabase db, Consumer<ModelQueryExecutor<OrderEntity>> work) {
         SqlSnapshots.capture(db, ds -> {
             try (SessionFactory sf = JoinTestSupport.sessionFactory(ds)) {

@@ -724,7 +724,7 @@ public final class ModelQuery<E, K, M> {
         }));
         Walk walk = Walk.NONE;
         if (!joinedSources.isEmpty()) {
-            walk = joinedSources(query, joins, outer, statementRoot);
+            walk = joinedSources(query, joins, outer, statementRoot, false);
         }
         // Column-anchored joins come after the joined sources, in registration order; each anchor's to-one joins are
         // made first, so the ON reads only tables before it, an earlier entity join's included (R-SRC-25, D-215).
@@ -733,11 +733,23 @@ public final class ModelQuery<E, K, M> {
                 joinEntity(entityJoin, entityJoinRenderer(options), statementRoot, joins);
             }
         }
+        // Sources anchored on a column-anchored join come last, attached to the statement's root, so even in a
+        // through child they render after the join their ON reads; the build allows one walk (D-218, D-187).
+        if (joinedSources.stream().anyMatch(JoinedSource::onEntityJoin)) {
+            Walk last = joinedSources(query, joins, statementRoot, statementRoot, true);
+            if (walk == Walk.NONE) {
+                walk = last;
+            }
+        }
         return walk;
     }
 
+    /**
+     * Joins to {@code outer} the sources this query binds that read an entity join ({@code onEntityJoin}) or that
+     * don't, in binding order, each followed by the entity joins anchored on it (R-SRC-21, R-SRC-24, D-218).
+     */
     private Walk joinedSources(CriteriaQuery<Tuple> query, JoinContext joins, From<?, ?> outer,
-            Root<?> statementRoot) {
+            Root<?> statementRoot, boolean onEntityJoin) {
         CriteriaBuilder cb = joins.cb();
         RenderOptions options = joins.renderOptions();
         SourceRenderer renderer = options.sourceRenderer()
@@ -746,6 +758,9 @@ public final class ModelQuery<E, K, M> {
                         + "SourceRenderer (ProviderSupport#sources()); model-query-hibernate serves Hibernate"));
         Walk walk = Walk.NONE;
         for (JoinedSource bound : joinedSources) {
+            if (bound.onEntityJoin() != onEntityJoin) {
+                continue;
+            }
             SourceJoin<?, ?> join = bound.join();
             SourceQuery<?> source = bound.source();
             var bodies = new ArrayList<JoinContext>();
@@ -755,9 +770,21 @@ public final class ModelQuery<E, K, M> {
             if (!checks.isEmpty()) {
                 walk = new Walk(checks, source, "join '" + join.name() + "' of " + join.source().getSimpleName());
             }
-            // The outer columns resolve first, so a to-one join they make precedes the join to the CTE.
+            // The outer columns resolve first, so a to-one join they make precedes the join to the CTE. An INNER
+            // join reading through a joinFilter(...) join would drop the row the filter blanks (D-195, D-218).
             var outerPaths = new ArrayList<Expression<?>>();
-            join.on().forEach(pair -> outerPaths.add(pair.column().path(joins)));
+            for (SourceJoin.On<?, ?> pair : join.on()) {
+                if (join.kind() == JoinKind.INNER) {
+                    JoinKey filtered = joins.filteredAtOrAbove(pair.column().table().key());
+                    if (filtered != null) {
+                        throw JoinFilterChecks.refused(modelName() + ": join '" + join.name() + "' of "
+                                + join.source().getSimpleName() + " is INNER, but its outer column "
+                                + pair.column().name() + " reads through the joinFilter(...) " + filtered.describe()
+                                + ", whose filter would blank it and drop the row; declare the source join LEFT");
+                    }
+                }
+                outerPaths.add(pair.column().path(joins));
+            }
             From<?, Tuple> joined = renderer.join(outer, handle, join.kind(), cte -> {
                 var equal = new ArrayList<Predicate>();
                 for (int i = 0; i < outerPaths.size(); i++) {
@@ -947,7 +974,20 @@ public final class ModelQuery<E, K, M> {
     }
 
     /** A {@link SourceJoin} and the {@link SourceQuery} {@code joinSource} bound to it (R-SRC-21). */
-    private record JoinedSource(SourceJoin<?, ?> join, SourceQuery<?> source) {}
+    private record JoinedSource(SourceJoin<?, ?> join, SourceQuery<?> source) {
+
+        /** Whether an outer column of the join reads an entity join or a to-one path below one (D-218). */
+        boolean onEntityJoin() {
+            for (SourceJoin.On<?, ?> pair : join.on()) {
+                for (TableField<?, ?> read = pair.column().table(); read != null; read = read.parent()) {
+                    if (read.isJoinedEntity()) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+    }
 
     /**
      * The joins of {@code query}, a statement over {@link #source}: every CTE in the source chain is registered on it
@@ -2258,6 +2298,7 @@ public final class ModelQuery<E, K, M> {
                             + bound.join().name() + "' is bound twice; bind each join once");
                 }
                 SourceJoin.check(model, bound.join(), bound.source());
+                SourceJoin.checkAnchors(model, bound.join(), entityJoins);
             }
             // A statement selects one walk's checks under fixed aliases, read by the one check site (R-SRC-14, D-187).
             int walks = joinedSources.stream().mapToInt(bound -> bound.source().walks()).sum();

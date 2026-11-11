@@ -243,6 +243,13 @@ The RFC 0023 members (D-204..D-212, M35) are `@Incubating` through 1.0: `KeyGrou
 `KeyGroups` accessors also carry `@Incubating` or sit in an `@Incubating` type, which marks a change to them breaking
 (R-REL-08).
 
+Two narrowings of the `@Incubating` `SourceJoin` in 0.13.0 (D-218, M36.6) turn queries that used to run into
+exceptions. A `SourceJoin` whose outer column reads another joined source is now `MQ1910` at build. Before, it was
+unchecked and worked only when the other source was bound first. No query in the TCK, the samples or the generator's
+output used it. An `INNER` joined source whose outer column reads through a `joinFilter(...)` join, root-anchored ones
+included, is now `MQ1912` when the statement is built. Before, it silently dropped the rows the filter blanked
+(D-195). Declare such a join `LEFT`.
+
 **R-REL-08** Tag → GitHub Actions → Maven Central through the Central Portal
 (`central-publishing-maven-plugin`), GPG-signed, with `-sources` and `-javadoc` jars. The changelog is generated from
 Conventional Commits. A commit that breaks an `@Incubating` type is still marked breaking (`!` and a

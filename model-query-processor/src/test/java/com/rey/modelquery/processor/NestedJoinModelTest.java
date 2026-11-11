@@ -249,17 +249,96 @@ class NestedJoinModelTest {
             """;
 
     @Test
-    void ac_proc_54_a_nested_source_join_below_an_entity_join_is_mq3044() {
+    void ac_proc_54_a_nested_source_join_below_a_source_anchored_entity_join_is_mq3044() {
+        Compilation compilation = compileOrder("""
+                @QueryModel(root = OrderEntity.class)
+                @JoinSource(name = "tally", source = Tally.class,
+                        on = @JoinSource.On(column = "customerId", key = "customerId"))
+                @JoinEntity(name = "buyer", source = "tally", entity = CustomerEntity.class,
+                        on = @JoinEntity.On(field = "customerId"))
+                public record OrderView(@PrimaryKey Long id, Long customerId,
+                        @Join(entityJoin = "buyer") Optional<Buyer> buyer) {}
+                """);
+        // Only a column-anchored entity join anchors a nested source (D-218); a source-anchored one anchors neither.
+        assertThat(errors(compilation)).containsExactly(DiagnosticCode.MQ3044.code() + ": OrderView.buyer: Buyer "
+                + "joins 'spend', 'label' below the entity join 'buyer', which is anchored on a joined source; only a "
+                + "join anchored on the root's columns may anchor another");
+    }
+
+    @Test
+    void ac_proc_61_ac_gen_49_a_nested_source_join_below_a_column_anchored_entity_join_is_generated_on_its_root() {
         Compilation compilation = compileOrder("""
                 @QueryModel(root = OrderEntity.class)
                 @JoinEntity(name = "buyer", entity = CustomerEntity.class, on = @JoinEntity.On(column = "customerId"))
                 public record OrderView(@PrimaryKey Long id, Long customerId,
                         @Join(entityJoin = "buyer") Optional<Buyer> buyer) {}
                 """);
-        // The entity join 'label' alone chains on 'buyer'; the source join can't, as sources are created first.
-        assertThat(errors(compilation)).containsExactly(DiagnosticCode.MQ3044.code() + ": OrderView.buyer: Buyer "
-                + "join 'spend' of buyer is a source join below the entity join 'buyer'; joined sources are created "
-                + "before entity joins, so its anchor can't read one; join it on a @Join over an association");
+        assertThat(compilation).succeededWithoutWarnings();
+        String generated = generatedFlat(compilation, "shop.QOrderView");
+        // Re-rooted onto the entity join's root and registered within its table, after the join it reads.
+        assertThat(generated)
+                .contains("BUYER_SPEND = SourceJoin.of(\"buyerSpend\", Spend.class, JoinKind.LEFT, "
+                        + "List.of(SourceJoin.on(ColumnField.of(OrderView.class, BUYER_TABLE, \"id\", Long.class), "
+                        + "QSpend.CUSTOMER_ID))).within(BUYER_TABLE)")
+                .contains("BUYER_SPENT = QBuyer.SPENT.withTable(OrderView.class, "
+                        + "BUYER_SPEND.root().named(\"buyer\"))")
+                .contains("BUYER_SCOPE = JoinScope.of(BUYER_TABLE).source(QBuyer.SPEND, BUYER_SPEND)"
+                        + ".entity(QBuyer.LABEL, BUYER_LABEL)")
+                // The outer model's sources first, then the nested ones depth-first (D-214): here only 'buyerSpend'.
+                .contains("ModelQuery.Builder<OrderEntity, Long, OrderView> query( SourceQuery<Spend> buyerSpend)")
+                .contains(".joinSource(BUYER_SPEND, buyerSpend).joinEntity(BUYER).joinEntity(BUYER_LABEL)");
+        assertThat(java.util.List.of(generated.indexOf(" BUYER ="), generated.indexOf(" BUYER_TABLE ="),
+                generated.indexOf(" BUYER_SPEND ="), generated.indexOf(" BUYER_SPENT ="),
+                generated.indexOf(" BUYER_SCOPE =")))
+                .doesNotContain(-1).isSortedAccordingTo(Integer::compare);
+    }
+
+    @Test
+    void ac_proc_61_an_inner_nested_source_join_below_a_left_entity_join_is_mq3044() {
+        Compilation compilation = compileOrder("""
+                @QueryModel(root = OrderEntity.class)
+                @JoinEntity(name = "buyer", entity = CustomerEntity.class, on = @JoinEntity.On(column = "customerId"))
+                public record OrderView(@PrimaryKey Long id, Long customerId,
+                        @Join(entityJoin = "buyer") Optional<InnerBuyer> buyer) {}
+                """, source("shop.InnerBuyer", INNER_BUYER));
+        assertThat(errors(compilation)).containsExactly(DiagnosticCode.MQ3044.code() + ": OrderView.buyer: "
+                + "InnerBuyer join 'spend' is INNER below the LEFT @Join 'buyer', which would drop the outer row "
+                + "when it misses; make it LEFT, or the @Join INNER");
+    }
+
+    @Test
+    void ac_proc_61_an_inner_nested_source_join_below_an_inner_entity_join_is_generated() {
+        Compilation compilation = compileOrder("""
+                @QueryModel(root = OrderEntity.class)
+                @JoinEntity(name = "buyer", entity = CustomerEntity.class, type = JoinKind.INNER,
+                        on = @JoinEntity.On(column = "customerId"))
+                public record OrderView(@PrimaryKey Long id, Long customerId,
+                        @Join(entityJoin = "buyer") Optional<InnerBuyer> buyer) {}
+                """, source("shop.InnerBuyer", INNER_BUYER));
+        assertThat(compilation).succeededWithoutWarnings();
+        assertThat(generatedFlat(compilation, "shop.QOrderView"))
+                .contains("BUYER_SPEND = SourceJoin.of(\"buyerSpend\", Spend.class, JoinKind.INNER, ");
+    }
+
+    @Test
+    void ac_proc_61_a_child_over_a_model_with_a_nested_source_join_below_an_entity_join_is_mq3039() {
+        Compilation compilation = compileOrder("""
+                @QueryModel(root = CustomerEntity.class)
+                public record OrderView(@PrimaryKey Long id,
+                        @Child(foreignKey = "customerId") java.util.List<Wrapper> orders) {}
+                """, source("shop.Wrapper", """
+                package shop;
+                import com.rey.modelquery.annotations.*;
+                import java.util.Optional;
+                @QueryModel(root = OrderEntity.class)
+                @JoinEntity(name = "buyer", entity = CustomerEntity.class, on = @JoinEntity.On(column = "customerId"))
+                public record Wrapper(@PrimaryKey Long id, Long customerId,
+                        @Join(entityJoin = "buyer") Optional<Buyer> buyer) {}
+                """));
+        // Wrapper itself compiles; a fetch plan's through load has no entity join and no source to pass.
+        assertThat(errors(compilation)).noneMatch(error -> error.startsWith(DiagnosticCode.MQ3044.code()))
+                .anySatisfy(error -> assertThat(error)
+                        .startsWith(DiagnosticCode.MQ3039.code() + ": OrderView.orders: "));
     }
 
     @Test

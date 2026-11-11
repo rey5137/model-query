@@ -169,6 +169,53 @@ public final class SourceJoin<M, S> {
         }
     }
 
+    /**
+     * {@code MQ1910} unless each outer column of {@code join} reads the root or a to-one path from it, or an entity
+     * join of {@code entityJoins} anchored on the root's columns and its to-one paths, which, under an {@code INNER}
+     * {@code join}, is {@code INNER} too (R-SRC-21, D-218). Such a source is created after every column-anchored join,
+     * so binding order doesn't matter; a source-anchored join is created after the sources it reads, and another
+     * joined source's columns are no anchor; an {@code INNER} source on a {@code LEFT} join would drop the outer row
+     * the {@code LEFT} join keeps.
+     */
+    static void checkAnchors(String model, SourceJoin<?, ?> join, List<? extends EntityJoin<?, ?>> entityJoins) {
+        String where = model + ": join '" + join.name + "' of " + join.source.getSimpleName();
+        for (On<?, ?> pair : join.on) {
+            TableField<?, ?> read = pair.column.table();
+            while (read != null && !read.isJoinedEntity() && !read.isJoinedSource()) {
+                read = read.parent();
+            }
+            if (read == null) {
+                continue;
+            }
+            String reads = where + ": on(" + pair.column.name() + ", ...) reads the "
+                    + (read.isJoinedSource() ? "joined source '" : "entity join '") + read.key().alias() + "'";
+            if (read.isJoinedSource()) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1910, reads + "; a joined source is anchored on the "
+                        + "root, its to-one paths, or an entity join anchored on the root's columns, never on another "
+                        + "joined source");
+            }
+            EntityJoin<?, ?> anchor = null;
+            for (EntityJoin<?, ?> entityJoin : entityJoins) {
+                if (entityJoin.root().key().equals(read.key())) {
+                    anchor = entityJoin;
+                }
+            }
+            if (anchor == null) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1910, reads + ", which this query does not bind; "
+                        + "bind it with joinEntity(...)");
+            }
+            if (anchor.anchoredOnSource()) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1910, reads + ", which is anchored on a joined "
+                        + "source; only an entity join anchored on the root's columns may anchor a source");
+            }
+            if (join.kind == JoinKind.INNER && anchor.kind() == JoinKind.LEFT) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1910, reads + ", which is LEFT: this INNER join "
+                        + "would drop every row '" + anchor.name() + "' misses; declare '" + join.name + "' LEFT, or '"
+                        + anchor.name() + "' INNER");
+            }
+        }
+    }
+
     private static List<String> sorted(Set<String> names) {
         var list = new ArrayList<>(names);
         list.sort(null);

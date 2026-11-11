@@ -581,8 +581,8 @@ and index advice.
 
 ## 9. Joining a source to an entity-rooted query
 
-**R-SRC-21** *(D-185, D-187; `@Incubating`)* **A unique source, on its full key.** A query rooted at an entity joins a
-source with `ModelQuery.Builder#joinSource(SourceJoin<M, S>, SourceQuery<S>)` (RFC 0020 A.1, A.2). `@JoinSource`
+**R-SRC-21** *(D-185, D-187, D-218; `@Incubating`)* **A unique source, on its full key.** A query rooted at an entity
+joins a source with `ModelQuery.Builder#joinSource(SourceJoin<M, S>, SourceQuery<S>)` (RFC 0020 A.1, A.2). `@JoinSource`
 and `@SourceColumn` (`processor/30` R-PROC-44) generate a `query(...)` that takes each joined source; this rule is the
 runtime API they generate against.
 
@@ -596,6 +596,10 @@ runtime API they generate against.
   bindings, as it carries a source.
 - **The full key, once.** The pairs name every key field of the source once (R-SRC-02), so the join adds at most one
   row per outer row: the outer key, cursors, counts and export pages keep R-PAG-*'s guarantees.
+- **What an outer column reads** *(D-218)*. Each pair's outer column reads the root or a to-one path from it, or a
+  column-anchored entity join the query binds (R-SRC-25) and its to-one paths; pairs may span several of them.
+  Binding order doesn't matter: such a source is created after every column-anchored entity join (R-SRC-24). It is
+  never anchored on another joined source's columns, nor on a source-anchored entity join.
 - **A unique source.** The join is allowed exactly when `SourceQuery#unique()` holds (R-SRC-09, R-SRC-13): a plain or
   grouped source, a `tree(...)` source, an ungrouped source over a tree and a grouped source over any walk. A set
   operation R-SRC-09 treats as non-unique, a plain `recursive(...)` source and an ungrouped source over one are not
@@ -608,13 +612,19 @@ runtime API they generate against.
   of another model bound through a raw type; a second walk; a hand-written `on(column, key)` pair whose source key
   field has a converter or whose outer column and key differ in boxed attribute type (a converted outer column, `Long`
   against `Integer`; `int` against `Integer` is the same type), since the join compares database values (D-191, as the
-  processor's `MQ3044`). `joinSource` on a query rooted at a source is `MQ1905`:
+  processor's `MQ3044`); an outer column reading an entity join the query does not bind (not the run-time `MQ1003`),
+  one anchored on a joined source, another joined source's columns, or, for an `INNER` source, a `LEFT` entity join
+  (directly or through a to-one path below it), which would drop every outer row that join misses (D-218).
+  `joinSource` on a query rooted at a source is `MQ1905`:
   joining a source to a source-rooted model is not supported, and `MQ3035` (a `@Join` on such a model) is unchanged.
   A `join.root()` passed as the root of `ModelQuery.builder` or `SourceQuery.builder` is `MQ1203`. A query that joins
   a source, `INNER` or `LEFT`, is no returning query: `MQ1809` before any statement (`api/14` R-WRT-48). A fetch plan
   may key a child or an enricher by a joined column, which R-FCH-02's to-many check passes, since it is read through
   no join. A column over the root of a join the query does not bind is `MQ1003`, raised at first resolution; the
   generated `query(...)` takes every joined source, so only hand-written code reaches it.
+- **`MQ1912`** at statement build, before any SQL: an `INNER` source whose outer column reads through a
+  `joinFilter(...)` join (R-COL-39), root-anchored or entity-anchored, since the filter would blank the anchor and the
+  `INNER` join would drop the row instead of reading the source as absent (D-195 extended, D-218); declare it `LEFT`.
 - **`Agg.count` over a joined source.** Over a `LEFT` join it renders `count(x.mq_<first key field>)`, so an outer row
   the source does not match counts `0`; over an `INNER` join it is the row count where R-AGG-19's eligibility holds,
   an `INNER` join reached through a `LEFT` one excluded (R-AGG-19). A filtered count uses `1` when eligible, else the
@@ -679,13 +689,22 @@ else that identity, wrapped in `coalesce(<count>, 0)` so empty input returns 0 o
 `firstBy` may read a joined-entity column and returns one value per group. Nullable joined order keys follow the
 existing keyset rules, including `nullsLast`.
 
-**R-SRC-24** *(D-193, `@Incubating`)* **Entity-join rendering.** On every statement R-SRC-22 names, the engine
+**R-SRC-24** *(D-193, D-218, `@Incubating`)* **Entity-join rendering.** On every statement R-SRC-22 names, the engine
 creates each entity join immediately after its anchor source join, including joins no selected column reads.
 The provider attaches it to the statement's ROOT, never to the CTE join. Content, count, both primary-key-first
 steps, keyset pages, `byKeys`, both `one` calls, every export page, streams, fetch-parent reads and through-child
 loads all retain it. An INNER entity join therefore filters rows in content and totals alike. A grouped query
 that joins a source and an entity takes D-192's client-side group count, with no warning; R-SRC-25 covers a
 column-anchored join.
+
+- **Three phases** *(D-218)*. Each statement creates its joins in three phases, each in registration order: (1) the
+  joined sources read only through the root and its to-one paths, each followed by the entity joins anchored on it;
+  (2) the column-anchored entity joins (R-SRC-25); (3) the joined sources whose outer column reads a column-anchored
+  entity join (R-SRC-21), each followed by its own source-anchored entity joins. A query without phase-3 sources
+  renders as before D-218. A phase-3 source's CTE join attaches to the statement's root, as entity joins do, so in a
+  `through` child statement (R-SRC-15) it renders after the path's joins and the entity join it reads, never under
+  the path's last join; the row count of R-AGG-19 follows it from that root. A statement walks once (R-SRC-21) over
+  all three phases.
 
 `EntityJoinRenderer`, exposed by `ProviderSupport#entityJoins()` (R-VND-32), receives the root, entity, join kind
 and engine predicate factory. The engine builds the full equality predicate with standard Criteria; the provider
@@ -697,13 +716,12 @@ renderer that does not call `on` exactly once, returns a join other than the one
 no `ON` is also `MQ4014` naming the renderer class (R-VND-32, AC-VND-22).
 Lock `MQ1903`, child-model `MQ3039` and the source-query write restrictions remain unchanged.
 
-**R-SRC-25** *(D-197, D-215, `@Incubating`)* **Entity joins anchored on outer columns.** An `EntityJoin` whose pairs
-read columns of the root, of a column-anchored entity join bound before it, or of a to-one path from either (R-COL-25),
-joins with no joined source: `EntityJoin.on(anchor,
-idAttribute)` takes such a column, and `Builder#joinEntity` registers it with no `SourceQuery`. R-SRC-23's id rule
-holds unchanged (the full basic id, each attribute once, boxed types equal), so the join adds at most one row per
-outer row. All pairs of one join read one joined source, or all read the root, earlier entity joins and their to-one
-paths; pairs may span several of them.
+**R-SRC-25** *(D-197, D-215, D-218, `@Incubating`)* **Entity joins anchored on outer columns.** An `EntityJoin` whose
+pairs read columns of the root, of a column-anchored entity join bound before it, or of a to-one path from either
+(R-COL-25), joins with no joined source: `EntityJoin.on(anchor, idAttribute)` takes such a column, and
+`Builder#joinEntity` registers it with no `SourceQuery`. R-SRC-23's id rule holds unchanged (the full basic id, each
+attribute once, boxed types equal), so the join adds at most one row per outer row. All pairs of one join read one
+joined source, or all read the root, earlier entity joins and their to-one paths; pairs may span several of them.
 
 - **Anchor rule.** `MQ1911` at build, without a metamodel: pairs mixing a joined source's columns with the root's, an
   anchor over a treated node (R-COL-35), over a source, an `Outer` lift, a converted anchor, and any entity join on a
@@ -725,7 +743,8 @@ paths; pairs may span several of them.
   not of the column's boxed attribute type, or of a type R-COL-18 does not bind (an enum, `Optional`, a collection, an
   array, `Date`, `Calendar`, an entity), is `MQ1911`.
 - **Rendering.** On every statement R-SRC-24 names, after the joined sources and their entity joins, the engine
-  creates each column-anchored join in registration order. Each anchor's and the `when` column's own to-one joins
+  creates each column-anchored join in registration order (R-SRC-24 phase 2); the joined sources anchored on one
+  follow in phase 3 (D-218). Each anchor's and the `when` column's own to-one joins
   resolve first, so the `ON` reads only tables before it, a chained join's earlier entity join included; a `count`
   keeps every join of a chain. Hibernate may read a to-one path's id as the foreign key and
   leave that path's join out. The join goes through `EntityJoinRenderer` as R-SRC-24 says (`MQ4014` unchanged).
@@ -820,3 +839,7 @@ paths; pairs may span several of them.
 | AC-SRC-63 | Two- and three-join chains, each join column-anchored on the one before, in every allowed `LEFT` / `INNER` mix (`LL`, `IL`, `II`, `LLL`, `ILL`, `IIL`, `III`), read the native SQL's rows and `count` equals them, on every Tier-1 vendor and both Hibernate lines; the joins render in creation order with each `ON` reading the join before it, in content and count; a `joinFilter` on the first join renders in its `ON` and the joins after it miss with it; keyset pages over a chain lose and repeat no row; an anchor on a to-one path below an earlier entity join reads the native SQL's rows (R-SRC-25, D-215). |
 | AC-SRC-64 | `MQ1911` at build, before any statement and naming both joins: a chain bound in reverse order (not `MQ1003`), an anchor or `when` column reading a later, unbound or its own join, an `INNER` join reading a `LEFT` one directly or through a to-one path below it (`LI`, `LLI`, `LIL`), a join anchored on a source-anchored entity join, and a treated node below an entity join; `MQ1911` at `when` for a source-anchored join's `when` column reading an entity join (R-SRC-25, D-215). |
 | AC-SRC-65 | `MQ1912`'s and the other join-filter messages name the join (`join 'referrer' (LEFT)`, `joined entity 'first'`, `joined source 'sales'`, `root Day`, a `.treat(...)` suffix), never a `JoinKey[...]` record (R-SRC-25, D-215). |
+| AC-SRC-66 | A joined source anchored on a column-anchored entity join reads the native SQL's rows on every Tier-1 vendor and both Hibernate lines: `LEFT` on `LEFT`; `INNER` on `INNER` in content, count, page total and export; an anchor on a to-one path below a two-join chain; an entity join anchored on that source after it; a `tree(...)` source walking once with its guards in its `ON`; grouped by a source column with `Agg.count` over it and a client-side group count; a `LEFT` source that misses where a `joinFilter` on the entity join blanks its anchor. Content, count, offset, primary-key-first and keyset pages, `byKeys`, `one` and every export page create the entity join before the source, whatever the binding order, and no existing SQL snapshot changes (R-SRC-21, R-SRC-24, R-SRC-25, D-218). |
+| AC-SRC-67 | `MQ1910` at build, before any statement and never the run-time `MQ1003`: a source anchored on an entity join the query does not bind, on a source-anchored entity join, on another joined source's columns (in either binding order), and an `INNER` source on a `LEFT` entity join, directly or through a to-one path below it (R-SRC-21, D-218). |
+| AC-SRC-68 | An `INNER` joined source whose outer column reads through a `joinFilter` join is `MQ1912` before any statement, root-anchored and entity-anchored, on `list` and `count` (R-SRC-21, D-195, D-218). |
+| AC-SRC-69 | A `through` child statement whose child query joins a source anchored on a column-anchored entity join attaches the source to the statement's root and renders it after the path's joins and the entity join, reading the native SQL's rows (R-SRC-24, D-218). |
