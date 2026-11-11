@@ -16,7 +16,7 @@
 | `@InsertModel(root = X.class, prefix = "Q")` | class or record | The attributes an insert writes, one instance per row; generates columns, `INSERT_COLUMNS` and the insert builders (§8) |
 | `@PrimaryKey` | field or record component | Primary-key column(s); composite keys supported |
 | `@Column(attribute = "...", converter = Foo.class, treat = void.class, entityJoin = "")` | field or component | Rename the attribute or convert the value (`ColumnConverter<C, F>`); the incubating `entityJoin` member selects a named entity join (R-PROC-46) |
-| `@Join(attribute = "...", type = LEFT, prefix = "CUSTOMER", alias = "", treat = void.class)` | `Optional<NestedModel>` field or component | Join the association and reuse the nested model's QModel columns |
+| `@Join(attribute = "...", type = LEFT, prefix = "CUSTOMER", alias = "", treat = void.class, entityJoin = "")` | `Optional<NestedModel>` field or component | Join the association and reuse the nested model's QModel columns; the incubating `entityJoin` member nests over an entity join (R-PROC-48) |
 | `@Child(key = {}, foreignKey = {})` | `List<ChildModel>` or `Optional<ChildModel>` field or component | Filled from another model's rows when a fetch plan names it (`api/15`) |
 | `@FilterColumn(name = "...", path = "...", joinType = LEFT, alias = "", converter = Foo.class, treat = void.class, entityJoin = "")` | model type (repeatable) | A filter-only column: a `ColumnField` constant with no model field, left out of every generated `SelectSet` and of `map(Row)`; the incubating `entityJoin` member selects a named entity join (R-PROC-46) |
 | `@FilterColumns` | model type | The container that makes `@FilterColumn` repeatable; never written by hand |
@@ -116,7 +116,8 @@ annotation that makes the field no column (`@Aggregate`, `@Computed`, `@Window`,
 `@Selected`), and so is an `@On` key field with a converter (the join would compare the database value, not the model
 value, INV-3). A `@SourceColumn` field is no column of the root: `generateInserts` and `generateChanges` leave it out.
 A `@SourceColumn` of another type than its source field is `MQ3002`, and one
-beside `@Column` is `MQ3014`. A child model that joins a source is `MQ3039`. Whether the source is unique (a set
+beside `@Column` is `MQ3014`. A child model that declares an entity join or joins a source, directly or through a
+nested `@Join`, is `MQ3039`. Whether the source is unique (a set
 operation, a plain `recursive(...)` against `tree(...)`) is not checked here: the generated `query(...)` takes the
 caller's `SourceQuery`, so `MQ1910` at build time covers it (D-190).
 
@@ -220,6 +221,24 @@ model's root to the child's root entity for a many-to-many mapped on the parent'
 (both is `MQ3401`); `key` is then matched on the parent's single `@Id` along that path, and a path or key that
 cannot be is `MQ3406` (`api/15` R-FCH-14). The child model may be a source of the compilation or a
 class on its classpath, as a nested model may (D-45).
+
+**R-PROC-48** *(D-213, `@Incubating`)* `@Join(entityJoin = "name")` nests a `@QueryModel` over an entity join declared
+on the same model (`api/17` R-SRC-23, R-SRC-25). `entityJoin` names a `@JoinEntity` of the model and cannot be combined
+with `attribute` or `treat` (a non-empty combination is `MQ3047`).
+1. The named `@JoinEntity` exists on the model and its `entity` matches the nested model's root (`MQ3047`).
+2. `type` is not explicitly written on `@Join`: the join kind is the `@JoinEntity`'s (`MQ3047`).
+3. The nested model has a `@PrimaryKey` (`MQ3006`); its key columns decide presence.
+4. A nested `@Join` with `type = INNER` at any depth below a `LEFT` entity join is refused (`MQ3047`).
+5. A nested model under `@Join(entityJoin)` may not declare its own `@JoinEntity` or `@JoinSource` (`MQ3044`). To-one
+`@Join`s below it are allowed.
+6. Two `@Join(entityJoin = ...)` fields may name the same join; each maps through the same joined table.
+7. Flat `@Column(entityJoin = ...)` fields and `@Join(entityJoin = ...)` fields may coexist on one model.
+8. When a `@Join(entityJoin = ...)` field's prefix equals its entity-join constant (for example,
+`@Join(entityJoin = "buyer") ... buyer`), its `SelectSet` constant is suffixed with `_SET` (e.g. `BUYER_SET`) to
+avoid colliding with the entity join's `BUYER` constant.
+9. In a grouped model, `@Join(entityJoin)` behaves like an association `@Join`: the processor does not add the nested
+presence key to `GROUP_KEYS`, and the runtime check `MQ1409` (`api/10` AC-COL-12, D-213) refuses a query whose group
+keys lack it.
 
 ## 5. `@FilterColumn`
 
@@ -552,7 +571,8 @@ an entity root when `X` is `@Entity`, a source root when `X` is `@SourceModel`. 
 On a model rooted at a source the processor checks every field against the source model's fields by name and
 then by type (INV-3), a `@Column` path being a single segment and taking the converter of the source's field, so an
 outer `@Column(converter = ...)` is `MQ3014` and an outer `@FilterColumn` is `MQ3011`; a `@Join` is `MQ3035`, a
-`@Child` whose child model is rooted at a source is `MQ3039` (on a parent rooted at a source its parent-side key
+`@Child` whose child model is rooted at a source, or declares an entity join or joins a source, directly or through a
+nested `@Join`, is `MQ3039` (on a parent rooted at a source its parent-side key
 names a source field), and an outer `@PrimaryKey` that is not exactly the source's key is `MQ3036`.
 `@BindQueryModel.root` may name a source model, as a model's own `root` does (`api/17` R-SRC-10).
 

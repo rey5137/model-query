@@ -140,7 +140,9 @@ final class QModelWriter {
         }
         List<JoinedTable> joined = writeOnly ? List.of() : nestedModels.tables(model);
         for (JoinedTable table : joined) {
-            type.addField(joinedTable(table));
+            if (table.join().join().entityJoin().isEmpty()) {
+                type.addField(joinedTable(table));
+            }
         }
         FilterLayout filters = FilterLayout.of(model, joined, metamodel);
         for (FilterLayout.Table table : filters.tables()) {
@@ -183,6 +185,9 @@ final class QModelWriter {
             }
         }
         for (JoinedTable table : joined) {
+            if (!table.join().join().entityJoin().isEmpty()) {
+                continue;
+            }
             ClassName nested = generatedName(table.nested());
             for (JoinedColumn column : table.columns()) {
                 ModelField field = column.field();
@@ -226,6 +231,35 @@ final class QModelWriter {
                 type.addField(filterColumn(modelName, model, column));
             }
         }
+        for (JoinedTable table : joined) {
+            if (!table.join().join().entityJoin().isEmpty()) {
+                type.addField(joinedTable(table));
+            }
+        }
+        for (JoinedTable table : joined) {
+            if (table.join().join().entityJoin().isEmpty()) {
+                continue;
+            }
+            ClassName nested = generatedName(table.nested());
+            for (JoinedColumn column : table.columns()) {
+                ModelField field = column.field();
+                if (field.subtype()) {
+                    type.addField(subtype(modelName, column.constant(), table.table(), column.path(), field));
+                    continue;
+                }
+                ClassName kind = ConverterType.ordered(types, converter(column.owner(), field))
+                        ? ORDERED_COLUMN_FIELD : COLUMN_FIELD;
+                CodeBlock columnTable = field.treat() == null ? CodeBlock.of("$L", table.table())
+                        : CodeBlock.of("$T.$L.withParent($L)", generatedName(column.owner()),
+                                TreatTables.root(field.treat()), table.table());
+                type.addField(FieldSpec.builder(ParameterizedTypeName.get(kind, modelName,
+                                ClassName.get(EntityMetamodel.treatedRoot(table.entity(), field.treat())),
+                                column(column.type())), column.constant(), CONSTANT)
+                        .initializer("$T.$L.withTable($T.class,$W$L)",
+                                nested, table.inNested(column.constant()), modelName, columnTable)
+                        .build());
+            }
+        }
         // A computed constant comes after every column constant, so a definition reading Q<Model> columns finds them
         // already set when the generated class initialises it (R-GEN-27).
         for (ModelField field : writeOnly ? List.<ModelField>of() : model.computed()) {
@@ -254,7 +288,7 @@ final class QModelWriter {
                     .build());
             // Derived from the nested model's own fields, so a column added there is selected here too (R-GEN-04).
             for (JoinedTable table : joined) {
-                type.addField(FieldSpec.builder(selectSet, table.prefix(), CONSTANT)
+                type.addField(FieldSpec.builder(selectSet, table.selectSet(), CONSTANT)
                         .initializer("$T.of($L)", SELECT_SET, table.columns().stream()
                                 .map(column -> CodeBlock.of("$L", column.constant()))
                                 .collect(CodeBlock.joining(",$W")))
@@ -357,7 +391,7 @@ final class QModelWriter {
         indexCall(init, "filterOnly", filters.kept().stream().map(column -> column.definition().name()).toList());
         if (model.selectSets()) {
             init.add("\n.set($S, ALL)\n.set($S, DEFAULT)", "ALL", "DEFAULT");
-            joined.forEach(table -> init.add("\n.joinSet($L, $L)", table.table(), table.prefix()));
+            joined.forEach(table -> init.add("\n.joinSet($L, $L)", table.table(), table.selectSet()));
         }
         indexCall(init, "child", model.children().stream().map(ModelField::constant).toList());
         init.add("\n.build()$<$<");
@@ -1179,6 +1213,14 @@ final class QModelWriter {
         ClassName parentEntity = ClassName.get(table.parentEntity());
         ClassName entity = ClassName.get(table.entity());
         JoinDefinition join = table.declaration().join();
+        if (table.parent() == null && !join.entityJoin().isEmpty()) {
+            String entityJoin = QueryModelReader.constantName(join.entityJoin());
+            return FieldSpec.builder(ParameterizedTypeName.get(TABLE_FIELD, entity, entity),
+                            table.table(), CONSTANT)
+                    .initializer("$L.root().named($S).presentBy($T.KEY)",
+                            entityJoin, table.declaration().name(), nested)
+                    .build();
+        }
         TypeElement target = (TypeElement) metamodel.resolve(table.parentEntity(), join.attribute())
                 .attribute().target().asElement();
         boolean downcast = metamodel.strictEntitySubtype(table.entity().asType(), target);

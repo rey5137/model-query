@@ -396,9 +396,13 @@ record ModelDefinition(
      *     (R-PROC-09); {@code ""} for none
      * @param nested {@code X} of a field declared {@code Optional<X>}, or {@code null} for any other type
      * @param treat the subtype that declares the association, or {@code null} for none (R-PROC-41)
+     * @param entityJoin the named entity join this nested model reads (R-PROC-48), or {@code ""} for none
+     * @param typeWritten whether {@code type} was explicitly written on the annotation
+     * @param attributeWritten whether {@code attribute} was explicitly written on the annotation
      */
     record JoinDefinition(
-            String attribute, String type, String prefix, String alias, TypeMirror nested, TypeMirror treat) {}
+            String attribute, String type, String prefix, String alias, TypeMirror nested, TypeMirror treat,
+            String entityJoin, boolean typeWritten, boolean attributeWritten) {}
 
     /**
      * A {@code @Child} as written on its field.

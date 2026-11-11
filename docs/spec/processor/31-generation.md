@@ -162,6 +162,11 @@ its other selected columns are `NULL`.
 When the nested root is a strict subtype of the association target, `treat` precedes `presentBy` on the generated
 join. A nested root identical to or a supertype of the target uses a plain join (R-PROC-42, R-GEN-41, D-154).
 
+For `@Join(entityJoin = "...")`, generation emits
+`<PREFIX>_TABLE = <JOIN>.root().named("<joinFieldName>").presentBy(<Nested>.KEY)`, re-roots nested columns through
+`withTable(Outer.class, <PREFIX>_TABLE)`, to-one joins below through `withParent(<PREFIX>_TABLE)`, and maps through
+`row.scoped(<PREFIX>_TABLE)` (R-PROC-48, D-213).
+
 **R-GEN-14** Nesting composes. `OrderView.customer → CustomerView.address` yields `Optional<CustomerView>` containing
 `Optional<AddressView>`; classes and records may be nested in each other freely, because each QModel's `map(Row)` builds
 its own model. The outer QModel declares the joins below its `@Join` too, each with its columns and
@@ -559,3 +564,4 @@ no mapper or write method (R-GEN-37); the two vocabularies are checked at `build
 | AC-GEN-33 | A `generateChanges` and `generateInserts` query model with a to-one column of the target's id, one converted from it and a whole-entity to-one matches its golden files `IdFormRowChanges` and `QIdFormRow`: the id forms have a setter, a `from` branch and an `INSERT_COLUMNS` entry, the whole-entity one is named in both Javadocs; on every Tier-1 vendor the change set and the insert write the foreign key (a `NULL` one too), a returning write returns it, and a `NULL`-foreign-key row reads back (R-PROC-33, R-GEN-19, R-GEN-21, D-136). |
 | AC-GEN-34 | Generated `<SUBTYPE>_TREAT` constants, columns over them and downcast `.treat(...).presentBy(...)` joins follow R-GEN-41; a generated name clash is `MQ3015` (D-154). |
 | AC-GEN-35 | The `@Subtype` constant is generated through `Expr.typeOf`, included in the default sets and mapped as a `Class` (R-GEN-42, D-154). |
+| AC-GEN-36 | `@Join(entityJoin)` generates `<PREFIX>_TABLE` as the entity join constant's `root().named(...).presentBy(KEY)`, nested columns re-rooted with `withTable` and joins below with `withParent`, mapped through `row.scoped(<PREFIX>_TABLE)`. Empty means key columns are `NULL`, presence follows the key (even when all other selected columns are `NULL`), an `INNER` entity join drops misses, nested to-one `@Join`s map correctly, and `buyer.name` resolves for sorts and filters (R-GEN-12, R-GEN-13, R-PROC-48, D-213). Tested by `JoinEntityModelTest.ac_gen_36_*` (`ac_gen_36_table_constant_nested_columns_and_mapper`, `ac_gen_36_nested_model_with_to_one_join_below`, `ac_gen_36_repeated_entity_joins_keep_separate_table_constants_rule_6`, `ac_gen_36_coexisting_flat_and_nested_entity_join_fields_rule_7`, `ac_gen_36_filter_column_over_association_alongside_nested_entity_join`, `ac_gen_36_filter_column_over_association_without_alias_collides_with_nested_entity_join_table`, `ac_gen_36_column_anchored_late_entity_join_places_table_constant_after_join_constant`, `ac_gen_36_inner_nested_join_two_levels_below_inner_entity_join_generates_without_refusal`, `ac_gen_36_grouped_model_with_entity_join_throws_mq1409_when_group_keys_lack_presence_key`) and `GeneratedEntityJoinExecutionTest.ac_gen_36_generated_entity_joins_run_nested_reads_and_presence_semantics`. |

@@ -465,6 +465,7 @@ final class QueryModelReader {
     }
 
     private static JoinDefinition join(VariableElement field, boolean sharesAttribute) {
+        AnnotationMirror mirror = mirror(field, Join.class);
         Join join = field.getAnnotation(Join.class);
         String name = field.getSimpleName().toString();
         String alias = join.alias().isEmpty() && sharesAttribute ? name : join.alias();
@@ -474,8 +475,12 @@ final class QueryModelReader {
                 && optional.getTypeArguments().get(0).getKind() == TypeKind.DECLARED) {
             nested = optional.getTypeArguments().get(0);
         }
+        String entityJoin = explicit(mirror, "entityJoin") instanceof String written ? written : "";
+        boolean typeWritten = explicit(mirror, "type") != null;
+        boolean attributeWritten = explicit(mirror, "attribute") != null;
         return new JoinDefinition(joinAttribute(field), join.type().name(),
-                join.prefix().isEmpty() ? constantName(name) : join.prefix(), alias, nested, treat(field, Join.class));
+                join.prefix().isEmpty() ? constantName(name) : join.prefix(), alias, nested, treat(field, Join.class),
+                entityJoin, typeWritten, attributeWritten);
     }
 
     /** The subtype named by an annotation's {@code treat} member, or {@code null} for none. */

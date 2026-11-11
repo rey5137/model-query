@@ -7,6 +7,7 @@ import com.rey.modelquery.annotations.Transient;
 import com.rey.modelquery.processor.ModelDefinition.ChildDefinition;
 import com.rey.modelquery.processor.ModelDefinition.ModelField;
 import java.lang.annotation.Annotation;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -62,19 +63,7 @@ final class ChildChecks {
                     + child.source().name() + ", a @SourceModel; a fetch plan has no source to pass it");
             return;
         }
-        if (child != null && !child.joinSources().isEmpty()) {
-            diagnostics.error(field.element(), DiagnosticCode.MQ3039, where + child.name() + " joins "
-                    + child.joinSources().stream().map(join -> "'" + join.name() + "'")
-                            .collect(Collectors.joining(", "))
-                    + ", a @SourceModel; a fetch plan has no source to pass it");
-            return;
-        }
-        // A fetch plan's through load has no entity join for a column-anchored one (R-SRC-25).
-        if (child != null && !child.entityJoins().isEmpty()) {
-            diagnostics.error(field.element(), DiagnosticCode.MQ3039, where + child.name() + " joins "
-                    + child.entityJoins().stream().map(join -> "'" + join.name() + "'")
-                            .collect(Collectors.joining(", "))
-                    + ", an entity join; a fetch plan's through load has no entity join for it");
+        if (child != null && checkChildJoins(field, child, where, new HashSet<>(), diagnostics)) {
             return;
         }
         if (child == null && model.origin() != model.type() && field.child().model() != null
@@ -194,5 +183,34 @@ final class ChildChecks {
             return null;
         }
         return laid.code() == null ? laid : null;
+    }
+
+    private boolean checkChildJoins(
+            ModelField field, ModelDefinition current, String where, Set<TypeElement> seen,
+            Diagnostics diagnostics) {
+        if (current == null || !seen.add(current.type())) {
+            return false;
+        }
+        if (!current.joinSources().isEmpty()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3039, where + current.name() + " joins "
+                    + current.joinSources().stream().map(join -> "'" + join.name() + "'")
+                            .collect(Collectors.joining(", "))
+                    + ", a @SourceModel; a fetch plan has no source to pass it");
+            return true;
+        }
+        if (!current.entityJoins().isEmpty()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3039, where + current.name() + " joins "
+                    + current.entityJoins().stream().map(join -> "'" + join.name() + "'")
+                            .collect(Collectors.joining(", "))
+                    + ", an entity join; a fetch plan's through load has no entity join for it");
+            return true;
+        }
+        for (ModelField join : current.joins()) {
+            ModelDefinition nested = nestedModels.of(join);
+            if (nested != null && checkChildJoins(field, nested, where, seen, diagnostics)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

@@ -37,7 +37,14 @@ final class TreatChecks {
             // Read even a @Join suppressed by @Transient or @Child: a write must never silently drop a treat.
             TypeMirror joinTreat = QueryModelReader.treat(field.element(), Join.class);
             if (joinTreat != null) {
-                String attribute = field.element().getAnnotation(Join.class).attribute();
+                Join join = field.element().getAnnotation(Join.class);
+                if (!join.entityJoin().isEmpty()) {
+                    diagnostics.error(field.element(), DiagnosticCode.MQ3047,
+                            where + "@Join treat cannot be combined with entityJoin");
+                    valid = false;
+                    continue;
+                }
+                String attribute = join.attribute();
                 valid &= checkTreat(model, field.element(), joinTreat,
                         attribute.isEmpty() ? field.name() : attribute, field, where, diagnostics);
             }

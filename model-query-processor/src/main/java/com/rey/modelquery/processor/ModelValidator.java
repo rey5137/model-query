@@ -237,7 +237,7 @@ final class ModelValidator {
             }
             if (nested != null) {
                 List<JoinedTable> tables = nestedModels.tables(model, join, nested);
-                claimJoined(tables, constants, reserved, where, diagnostics);
+                claimJoined(model, tables, constants, reserved, where, diagnostics);
                 joined.addAll(tables);
             }
         }
@@ -1413,20 +1413,58 @@ final class ModelValidator {
                     + QueryModelReader.constantName(field.name()));
             joinable = false;
         }
-        TypeElement target = checkAssociation(model, field, where, diagnostics);
-        if (target == null) {
-            joinable = false;
-        } else if (nested != null && !metamodel.related(target.asType(), nested.root().asType())) {
-            diagnostics.error(field.element(), DiagnosticCode.MQ3003, where + nested.name() + ".root is "
-                    + nested.root().getSimpleName() + ", association targets " + target.getSimpleName());
-            joinable = false;
+        if (!join.entityJoin().isEmpty()) {
+            if (join.attributeWritten()) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3047,
+                        where + "@Join attribute cannot be combined with entityJoin");
+                joinable = false;
+            }
+            if (join.treat() != null) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3047,
+                        where + "@Join treat cannot be combined with entityJoin");
+                joinable = false;
+            }
+            if (join.typeWritten()) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3047,
+                        where + "@Join type cannot be combined with entityJoin; the join kind is the @JoinEntity's");
+                joinable = false;
+            }
+            var entityJoin = model.entityJoins().stream()
+                    .filter(j -> j.name().equals(join.entityJoin())).findFirst().orElse(null);
+            if (entityJoin == null) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3047,
+                        where + "unknown entity join '" + join.entityJoin() + "'");
+                joinable = false;
+            } else if (nested != null && !types.isSameType(entityJoin.entity(), nested.root().asType())) {
+                TypeElement entityTarget = entityJoin.entity() instanceof DeclaredType declared
+                        ? (TypeElement) declared.asElement() : null;
+                String targetName = entityTarget == null
+                        ? display(entityJoin.entity()) : entityTarget.getSimpleName().toString();
+                diagnostics.error(field.element(), DiagnosticCode.MQ3047,
+                        where + "entity join '" + join.entityJoin() + "' targets " + targetName
+                                + ", " + nested.name() + ".root is " + nested.root().getSimpleName());
+                joinable = false;
+            } else if (nested != null && entityJoin.kind().equals("LEFT") && hasInnerJoin(nested, new HashSet<>())) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3047,
+                        where + "nested @Join with type = INNER below a LEFT entity join is forbidden");
+                joinable = false;
+            }
+        } else {
+            TypeElement target = checkAssociation(model, field, where, diagnostics);
+            if (target == null) {
+                joinable = false;
+            } else if (nested != null && !metamodel.related(target.asType(), nested.root().asType())) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3003, where + nested.name() + ".root is "
+                        + nested.root().getSimpleName() + ", association targets " + target.getSimpleName());
+                joinable = false;
+            }
+            if (target != null && nested != null && !checkNestedTreats(nested, target, field.element(), where,
+                    new HashSet<>(), diagnostics)) {
+                joinable = false;
+            }
         }
         if (nested == null) {
             return null;
-        }
-        if (target != null && !checkNestedTreats(nested, target, field.element(), where,
-                new HashSet<>(), diagnostics)) {
-            joinable = false;
         }
         if (!nested.aggregates().isEmpty()) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3005, where + "@Join model " + nested.name()
@@ -1547,13 +1585,35 @@ final class ModelValidator {
         return null;
     }
 
+    private boolean hasInnerJoin(ModelDefinition model, Set<TypeElement> visiting) {
+        if (!visiting.add(model.type())) {
+            return false;
+        }
+        for (ModelField field : model.joins()) {
+            if (!field.join().entityJoin().isEmpty()) {
+                var ej = model.entityJoins().stream()
+                        .filter(j -> j.name().equals(field.join().entityJoin())).findFirst().orElse(null);
+                if (ej != null && "INNER".equals(ej.kind())) {
+                    return true;
+                }
+            } else if ("INNER".equals(field.join().type())) {
+                return true;
+            }
+            ModelDefinition nested = nestedModels.of(field);
+            if (nested != null && hasInnerJoin(nested, visiting)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** {@code MQ3015} for a join one of whose constants is reserved, or already generated for an earlier join. */
-    private static void claimJoined(List<JoinedTable> tables, Map<String, String> constants, Set<String> reserved,
-            String where, Diagnostics diagnostics) {
+    private static void claimJoined(ModelDefinition model, List<JoinedTable> tables, Map<String, String> constants,
+            Set<String> reserved, String where, Diagnostics diagnostics) {
         for (JoinedTable table : tables) {
             var generated = new LinkedHashMap<String, String>();
             generated.put(table.table(), "the join " + table.path());
-            generated.put(table.prefix(), "the columns of " + table.path());
+            generated.put(table.selectSet(), "the columns of " + table.path());
             if (table.parent() == null) {
                 // A @Join of the model itself also has its JoinField (R-FCH-07).
                 generated.put(table.prefix() + "_JOIN", "the join field of " + table.path());

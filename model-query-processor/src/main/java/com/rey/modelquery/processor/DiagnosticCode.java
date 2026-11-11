@@ -163,6 +163,9 @@ enum DiagnosticCode {
     MQ3045("Invalid @Aggregate orderBy, filter or scale"),
     MQ3046("Invalid @JoinEntity or joined-entity column declaration"),
 
+    /** An invalid {@code @Join(entityJoin)}, including an {@code INNER} join below a {@code LEFT} one (R-PROC-48). */
+    MQ3047("Invalid @Join(entityJoin) declaration"),
+
     /** An {@code @Aggregate} field is primitive, though an aggregate can be {@code NULL}. */
     MQ3201("@Aggregate field is primitive"),
 
