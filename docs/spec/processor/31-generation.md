@@ -80,6 +80,28 @@ field. It is in the default sets, and the mapper reads a `Class` through that co
 requires no additional nullness handling (`R-GEN-36`). The key, mapper, query builder and source otherwise keep their
 existing shape (D-154).
 
+**R-GEN-43** *(D-214, D-216, D-217, `@Incubating`)* **Nested joins are registered under the `@Join` prefix.** A nested
+model's own `@JoinSource` and `@JoinEntity` are declared again by every model that nests it under a `@Join` over an
+association, at any depth, as fresh constants (INV-9). Per `@Join` field with prefix `P` the outer QModel emits, in
+this order: the nested model's plain columns, then each of its source joins and entity joins as `P_<JOIN>`
+(`SourceJoin.of("customerTotals", ...)`, `EntityJoin.of("customerRegion", ...)`) declared with `.within(P_TABLE)` and
+anchored on the outer's own columns of the `@Join` (`ColumnField.of(Outer.class, P_TABLE, "id", ...)` for a source,
+`P_<ANCHOR>` for an entity join), then the columns read through them,
+`<Nested>.X.withTable(Outer.class, P_<JOIN>.root().named("<field path>"))`: built from the `root()` after `within`, named
+by the field path (`customer.address` below two levels). A model below another `@Join` is registered by the same
+rule with the inner prefix (`CUSTOMER_ADDRESS_TOTALS`), so a two-level map lists the inner joins too. When a `@Join`
+field's nested model, or one below it, has joins, the QModel also generates `P_SCOPE = JoinScope.of(P_TABLE)
+.source(<Nested>.<JOIN>, P_<JOIN>)...entity(...)` (per table in depth-first order: that table's sources, then its entities) and the mapper reads
+`row.scoped(P_SCOPE)`; without joins it reads `row.scoped(P_TABLE)` as before. `JoinScope` checks the anchors, so a
+generated map that would read another join's row is refused when the class loads, never read as a wrong value
+(INV-5). A subtype adapter composes a scope with a name map onto the view it wraps. The outer `query(...)` takes the
+model's own `SourceQuery` parameters first, then one per nested source join in the order above, named like the join
+(`query(SourceQuery<Spend> customerSpend, SourceQuery<Spend> referrerSpend)`), and registers every source before every
+entity join; a missing or mistyped source is a compile error. Every new generated public member is `@Incubating`.
+A re-rooted anchor renders as the FK column, so a dangling FK still matches its source or entity row for filters, sorts
+and groups on the prefixed column while the nested read is empty (the FK-anchor note, `docs/site/docs/models.md`).
+Under `@Join(entityJoin)` nested joins are refused (R-PROC-48 rule 5, D-217).
+
 **R-GEN-04** A joined `SelectSet` is derived from the nested model (`CustomerView`), so a column added to
 `CustomerView` appears in `QOrderView.CUSTOMER` with no list to update by hand. The processor reads the nested model's
 own fields and refers to its QModel by name only, so the order in which models are processed does not matter (D-39).
@@ -565,3 +587,13 @@ no mapper or write method (R-GEN-37); the two vocabularies are checked at `build
 | AC-GEN-34 | Generated `<SUBTYPE>_TREAT` constants, columns over them and downcast `.treat(...).presentBy(...)` joins follow R-GEN-41; a generated name clash is `MQ3015` (D-154). |
 | AC-GEN-35 | The `@Subtype` constant is generated through `Expr.typeOf`, included in the default sets and mapped as a `Class` (R-GEN-42, D-154). |
 | AC-GEN-36 | `@Join(entityJoin)` generates `<PREFIX>_TABLE` as the entity join constant's `root().named(...).presentBy(KEY)`, nested columns re-rooted with `withTable` and joins below with `withParent`, mapped through `row.scoped(<PREFIX>_TABLE)`. Empty means key columns are `NULL`, presence follows the key (even when all other selected columns are `NULL`), an `INNER` entity join drops misses, nested to-one `@Join`s map correctly, and `buyer.name` resolves for sorts and filters (R-GEN-12, R-GEN-13, R-PROC-48, D-213). Tested by `JoinEntityModelTest.ac_gen_36_*` (`ac_gen_36_table_constant_nested_columns_and_mapper`, `ac_gen_36_nested_model_with_to_one_join_below`, `ac_gen_36_repeated_entity_joins_keep_separate_table_constants_rule_6`, `ac_gen_36_coexisting_flat_and_nested_entity_join_fields_rule_7`, `ac_gen_36_filter_column_over_association_alongside_nested_entity_join`, `ac_gen_36_filter_column_over_association_without_alias_collides_with_nested_entity_join_table`, `ac_gen_36_column_anchored_late_entity_join_places_table_constant_after_join_constant`, `ac_gen_36_inner_nested_join_two_levels_below_inner_entity_join_generates_without_refusal`, `ac_gen_36_grouped_model_with_entity_join_throws_mq1409_when_group_keys_lack_presence_key`) and `GeneratedEntityJoinExecutionTest.ac_gen_36_generated_entity_joins_run_nested_reads_and_presence_semantics`. |
+| AC-GEN-37 | Two `@Join` fields of one nested type that declares a `@JoinSource` and a `@JoinEntity` generate `<PREFIX>_<JOIN>` constants `.within(<PREFIX>_TABLE)` with columns built from their `root()`, a `<PREFIX>_SCOPE` per field, `row.scoped(<PREFIX>_SCOPE)`, and `query(...)` parameters `customerSpend`, `referrerSpend` with the sources registered before the entity joins (R-GEN-43, D-214). Tested by `NestedJoinModelTest.ac_gen_37_*` and `JoinSourceModelTest.ac_gen_37_*`. |
+| AC-GEN-38 | A nested model with no joins of its own generates no scope and no parameter, and maps through `row.scoped(<PREFIX>_TABLE)` (R-GEN-43). Tested by `NestedJoinModelTest.ac_gen_38_*`. |
+| AC-GEN-39 | Two levels: the middle model declares the inner join as `ADDRESS_TALLY` in its own QModel, and the outer registers it as `CUSTOMER_ADDRESS_TALLY` `.within(CUSTOMER_ADDRESS_TABLE)`, mapped by `CUSTOMER_SCOPE` (R-GEN-43). Tested by `NestedJoinModelTest.ac_gen_39_*`. |
+| AC-GEN-40 | A grouped outer model keeps its `GROUP_KEYS` and `.groupBy(...)` and takes the nested `SourceQuery` parameters (R-GEN-43). Tested by `NestedJoinModelTest.ac_gen_40_*`. |
+| AC-GEN-41 | On H2, PostgreSQL and MySQL, two `@Join` fields of one nested type, each with its own entity and source join, read their own rows: an entity-join hit and miss, a source hit and miss with a different `SourceQuery` per field, and an absent referrer, equal to native SQL (R-GEN-43, AC-COL-68). Tested by `GeneratedNestedJoinExecutionTest.ac_gen_41_*`. |
+| AC-GEN-42 | Two-level nesting executes: the inner customer's joins are read through `ORDER_CUSTOMER_*`, resolve for `fields()` as `order.customer.labelName`, and sort and filter by those paths, equal to native SQL (R-GEN-43). Tested by `GeneratedNestedJoinExecutionTest.ac_gen_42_*`. |
+| AC-GEN-43 | A column set of only nested joined columns keeps each `@Join` field present (R-GEN-43, AC-COL-70). Tested by `GeneratedNestedJoinExecutionTest.ac_gen_43_*`. |
+| AC-GEN-44 | Keyset paging, `list` and `export` over the outer root agree row for row with each other and with native SQL (R-GEN-43). Tested by `GeneratedNestedJoinExecutionTest.ac_gen_44_*`. |
+| AC-GEN-45 | A nested `@Subtype` column two levels down, in a model with a source join, compiles with the subtype adapter composing the scope instead of refusing a name map (`NestedJoinModelTest.ac_gen_45_*`), and on H2, PostgreSQL and MySQL, with the subtype column left out of the select (a selected `typeOf` over a joined node is `MQ4016`, R-COL-36), the composed scope reads the registered source rows, a missing source row and an absent holder, equal to native SQL (R-GEN-43). Tested by `GeneratedNestedSubtypeJoinTest.ac_gen_45_*`. |
+| AC-GEN-46 | A nested entity join anchored on a column of the nested model's own source join is generated with the anchor built in place on the registered source's `root()`, and executes equal to native SQL, following the source row (R-GEN-43). Tested by `NestedJoinModelTest.ac_gen_46_*` and `GeneratedNestedJoinExecutionTest.ac_gen_46_*`. |

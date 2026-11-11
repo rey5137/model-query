@@ -277,15 +277,14 @@ class TreatModelTest {
         assertThat(scoped.raw(kind)).isSameAs(card);
         assertThat(scoped.isSelected(kind)).isTrue();
         // scoped(JoinScope) on a subtype-mapped @Join: a scope with no name map reads as scoped(TableField), a scope
-        // with one is refused rather than read without it (INV-5).
+        // with one is applied (D-216, M36.4).
         Class<?> paymentView = loader.loadClass("treatgen.QPaymentView");
         TableField<?, ?> issuerTable = (TableField<?, ?>) paymentView.getField("ISSUER_TABLE").get(null);
         SelectField<?, ?> issuerKind = field(loader.loadClass("treatgen.QIssuerView"), "KIND");
         assertThat(scoped.scoped(JoinScope.of(issuerTable)).raw(issuerKind)).isSameAs(premium);
         assertThat(scoped.scoped(issuerTable).raw(issuerKind)).isSameAs(premium);
         JoinScope mapped = mappedIssuerScope(loader, issuerTable);
-        assertThatThrownBy(() -> scoped.scoped(mapped)).isInstanceOf(UnsupportedOperationException.class)
-                .hasMessage("a subtype-mapped @Join reads no name map: " + mapped);
+        assertThat(scoped.scoped(mapped).raw(issuerKind)).isSameAs(premium);
         Row absent = (Row) scope.invoke(null, row(List.of(field(q, "PAYMENT_ID")), Arrays.asList((Object) null)));
         assertThat(absent.get(kind)).isNull();
         assertThat(absent.raw(kind)).isNull();

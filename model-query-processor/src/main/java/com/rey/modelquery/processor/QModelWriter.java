@@ -69,6 +69,7 @@ final class QModelWriter {
     private static final ClassName SOURCE_QUERY = ClassName.get(CORE, "SourceQuery");
     private static final ClassName ENTITY_JOIN = ClassName.get(CORE, "EntityJoin");
     private static final ClassName SOURCE_JOIN = ClassName.get(CORE, "SourceJoin");
+    private static final ClassName JOIN_SCOPE = ClassName.get(CORE, "JoinScope");
     private static final ClassName JOIN_KIND = ClassName.get("com.rey.modelquery.annotations", "JoinKind");
     private static final ClassName MODEL_UPDATE = ClassName.get(CORE, "ModelUpdate");
     private static final ClassName MODEL_DELETE = ClassName.get(CORE, "ModelDelete");
@@ -188,26 +189,7 @@ final class QModelWriter {
             if (!table.join().join().entityJoin().isEmpty()) {
                 continue;
             }
-            ClassName nested = generatedName(table.nested());
-            for (JoinedColumn column : table.columns()) {
-                ModelField field = column.field();
-                if (field.subtype()) {
-                    type.addField(subtype(modelName, column.constant(), table.table(), column.path(), field));
-                    continue;
-                }
-                // Typed as the nested QModel types it, OrderedColumnField when its converter is ordered (D-93).
-                ClassName kind = ConverterType.ordered(types, converter(column.owner(), field))
-                        ? ORDERED_COLUMN_FIELD : COLUMN_FIELD;
-                CodeBlock columnTable = field.treat() == null ? CodeBlock.of("$L", table.table())
-                        : CodeBlock.of("$T.$L.withParent($L)", generatedName(column.owner()),
-                                TreatTables.root(field.treat()), table.table());
-                type.addField(FieldSpec.builder(ParameterizedTypeName.get(kind, modelName,
-                                ClassName.get(EntityMetamodel.treatedRoot(table.entity(), field.treat())),
-                                column(column.type())), column.constant(), CONSTANT)
-                        .initializer("$T.$L.withTable($T.class,$W$L)",
-                                nested, table.inNested(column.constant()), modelName, columnTable)
-                        .build());
-            }
+            joinedConstants(type, modelName, table);
         }
         // A filter-only column has no field to map: it is in no SelectSet and not in map(Row) (R-PROC-10).
         for (FilterLayout.Column column : filters.columns()) {
@@ -240,24 +222,12 @@ final class QModelWriter {
             if (table.join().join().entityJoin().isEmpty()) {
                 continue;
             }
-            ClassName nested = generatedName(table.nested());
-            for (JoinedColumn column : table.columns()) {
-                ModelField field = column.field();
-                if (field.subtype()) {
-                    type.addField(subtype(modelName, column.constant(), table.table(), column.path(), field));
-                    continue;
-                }
-                ClassName kind = ConverterType.ordered(types, converter(column.owner(), field))
-                        ? ORDERED_COLUMN_FIELD : COLUMN_FIELD;
-                CodeBlock columnTable = field.treat() == null ? CodeBlock.of("$L", table.table())
-                        : CodeBlock.of("$T.$L.withParent($L)", generatedName(column.owner()),
-                                TreatTables.root(field.treat()), table.table());
-                type.addField(FieldSpec.builder(ParameterizedTypeName.get(kind, modelName,
-                                ClassName.get(EntityMetamodel.treatedRoot(table.entity(), field.treat())),
-                                column(column.type())), column.constant(), CONSTANT)
-                        .initializer("$T.$L.withTable($T.class,$W$L)",
-                                nested, table.inNested(column.constant()), modelName, columnTable)
-                        .build());
+            joinedConstants(type, modelName, table);
+        }
+        // A scope per @Join field whose nested model has joins of its own, after the joins it maps (R-GEN-43).
+        for (ModelField field : joined.stream().map(JoinedTable::join).distinct().toList()) {
+            if (NestedJoins.any(field, joined, nestedModels)) {
+                type.addField(scopeField(field, joined));
             }
         }
         // A computed constant comes after every column constant, so a definition reading Q<Model> columns finds them
@@ -341,7 +311,7 @@ final class QModelWriter {
                 .initializer("$T::map", generated)
                 .build());
         type.addMethod(MethodSpec.constructorBuilder().addModifiers(Modifier.PRIVATE).build());
-        type.addMethod(query(model, modelName, entity, keyed, keyType, grouped));
+        type.addMethod(query(model, modelName, entity, keyed, keyType, grouped, NestedJoins.all(joined, nestedModels)));
         MethodSpec.Builder map = MethodSpec.methodBuilder("map")
                 .addModifiers(Modifier.PRIVATE, Modifier.STATIC)
                 .returns(modelName)
@@ -354,7 +324,8 @@ final class QModelWriter {
         type.addMethod(nullness.unmarked(map).build());
         for (JoinedTable table : joined) {
             if (SubtypeScopes.needed(table, joined)) {
-                type.addMethod(nullness.unmarked(SubtypeScopes.method(table, joined, nestedModels)).build());
+                SubtypeScopes.method(table, joined, nestedModels)
+                        .forEach(method -> type.addMethod(nullness.unmarked(method).build()));
             }
         }
         // After the mapper, whose constants it names; the holder is read on the first call, not when this class loads.
@@ -579,7 +550,7 @@ final class QModelWriter {
      */
     private static MethodSpec query(
             ModelDefinition model, ClassName modelName, ClassName entity, boolean keyed, TypeName keyType,
-            boolean grouped) {
+            boolean grouped, List<NestedJoins> nested) {
         String key = keyed ? ".primaryKey(KEY)" : "";
         String group = grouped ? ".groupBy(GROUP_KEYS)" : "";
         MethodSpec.Builder method = MethodSpec.methodBuilder("query")
@@ -596,8 +567,22 @@ final class QModelWriter {
                 joins.append(".joinSource(").append(QueryModelReader.constantName(join.name())).append(", ")
                         .append(join.name()).append(")");
             }
+            // A nested model's sources follow, depth-first under their prefixes: a parameter per source (R-GEN-43).
+            for (NestedJoins join : nested) {
+                if (join.source() != null) {
+                    method.addParameter(ParameterizedTypeName.get(SOURCE_QUERY,
+                            ClassName.get(join.source().sourceModel().type())), join.name());
+                    joins.append(".joinSource(").append(join.constant()).append(", ").append(join.name())
+                            .append(")");
+                }
+            }
             for (ModelDefinition.EntityJoinDefinition join : model.entityJoins()) {
                 joins.append(".joinEntity(").append(QueryModelReader.constantName(join.name())).append(")");
+            }
+            for (NestedJoins join : nested) {
+                if (join.entity() != null) {
+                    joins.append(".joinEntity(").append(join.constant()).append(")");
+                }
             }
             return method.addStatement("return $T.builder(ROOT, MAPPER)$L$L$L", MODEL_QUERY, key, group, joins)
                     .build();
@@ -773,13 +758,25 @@ final class QModelWriter {
      */
     private FieldSpec entityJoin(
             ClassName modelName, ModelDefinition model, ModelDefinition.EntityJoinDefinition join) {
+        return entityJoin(modelName, model, join, null);
+    }
+
+    /**
+     * The {@code EntityJoin} constant of a join of {@code model}, or of a join a nested model declares when {@code
+     * under} is set: named and registered within the {@code @Join}'s table, its anchors the nested model's columns
+     * as the outer model declares them (R-GEN-43).
+     */
+    private FieldSpec entityJoin(
+            ClassName modelName, ModelDefinition model, ModelDefinition.EntityJoinDefinition join,
+            NestedJoins under) {
+        String prefix = under == null ? "" : under.table().prefix() + "_";
         var pairs = new ArrayList<CodeBlock>();
         for (ModelDefinition.EntityJoinOn pair : join.on()) {
             String id = pair.id().isEmpty() ? metamodel.id(model.entityRoot(join.name())).attributes().iterator().next()
                     : pair.id();
             if (join.source().isEmpty()) {
                 var anchor = EntityJoinAnchors.resolve(model, metamodel, builtIns, pair.column()).anchor();
-                pairs.add(CodeBlock.of("$T.on($L, $S)", ENTITY_JOIN, anchor.constant(), id));
+                pairs.add(CodeBlock.of("$T.on($L, $S)", ENTITY_JOIN, prefix + anchor.constant(), id));
                 continue;
             }
             JoinSourceDefinition source = model.joinSources().stream()
@@ -789,23 +786,29 @@ final class QModelWriter {
             ModelField exposed = model.columns().stream().filter(each -> each.sourceColumn() != null
                     && each.sourceColumn().join().equals(join.source())
                     && each.sourceColumn().field().equals(pair.field())).findFirst().orElse(null);
-            CodeBlock anchor = exposed == null
+            // Built in place under a nested model: the exposed column is declared after the joins.
+            CodeBlock anchor = exposed == null || under != null
                     ? CodeBlock.of("$T.over($T.class, $L.root(), $T.$L)", COLUMN_FIELD, modelName,
-                            QueryModelReader.constantName(source.name()), generatedName(source.sourceModel()),
-                            field.constant())
+                            prefix + QueryModelReader.constantName(source.name()),
+                            generatedName(source.sourceModel()), field.constant())
                     : CodeBlock.of("$L", exposed.constant());
             pairs.add(CodeBlock.of("$T.on($L, $S)", ENTITY_JOIN, anchor, id));
         }
-        CodeBlock initializer = CodeBlock.of("$T.of($S, $T.class, $T.$L, $L)", ENTITY_JOIN, join.name(),
-                TypeName.get(join.entity()), JOIN_KIND, join.kind(), listOf(pairs));
+        CodeBlock initializer = CodeBlock.of("$T.of($S, $T.class, $T.$L, $L)", ENTITY_JOIN,
+                under == null ? join.name() : under.name(), TypeName.get(join.entity()), JOIN_KIND, join.kind(),
+                listOf(pairs));
         for (ModelDefinition.EntityJoinWhen term : join.when()) {
             var anchor = EntityJoinAnchors.resolve(model, metamodel, builtIns, term.column()).anchor();
             var value = EntityJoinAnchors.whenValue(types, anchor.type(), term.value());
-            initializer = CodeBlock.of("$L.when($L, $L)", initializer, anchor.constant(), value.literal());
+            initializer = CodeBlock.of("$L.when($L, $L)", initializer, prefix + anchor.constant(), value.literal());
         }
-        return FieldSpec.builder(ParameterizedTypeName.get(ENTITY_JOIN, modelName, TypeName.get(join.entity())),
-                        QueryModelReader.constantName(join.name()), CONSTANT)
-                .initializer("$L", initializer).build();
+        if (under != null) {
+            initializer = CodeBlock.of("$L.within($L)", initializer, under.table().table());
+        }
+        FieldSpec.Builder constant = FieldSpec.builder(
+                ParameterizedTypeName.get(ENTITY_JOIN, modelName, TypeName.get(join.entity())),
+                under == null ? QueryModelReader.constantName(join.name()) : under.constant(), CONSTANT);
+        return (under == null ? constant : constant.addAnnotation(INCUBATING)).initializer("$L", initializer).build();
     }
 
     /** Whether a join reads a filter column or the root's own constants, which are declared after the source joins. */
@@ -839,21 +842,30 @@ final class QModelWriter {
     }
 
     private FieldSpec sourceJoin(ClassName modelName, ModelDefinition model, JoinSourceDefinition join) {
+        return sourceJoin(modelName, model, join, null);
+    }
+
+    /** As {@link #entityJoin(ClassName, ModelDefinition, ModelDefinition.EntityJoinDefinition, NestedJoins)}. */
+    private FieldSpec sourceJoin(
+            ClassName modelName, ModelDefinition model, JoinSourceDefinition join, NestedJoins under) {
+        String table = under == null ? "ROOT" : under.table().table();
         ModelDefinition source = join.sourceModel();
         var pairs = new ArrayList<CodeBlock>();
         for (JoinOn pair : join.on()) {
             TypeMirror attribute = metamodel.resolve(model.root(), pair.column()).attribute().type();
             ModelField key = source.readable().stream().filter(field -> field.name().equals(pair.key()))
                     .findFirst().orElseThrow();
-            pairs.add(CodeBlock.of("$T.on($T.of($T.class,$WROOT,$W$S,$W$L),$W$T.$L)", SOURCE_JOIN, COLUMN_FIELD,
-                    modelName, pair.column(), classOf(column(attribute)), generatedName(source), key.constant()));
+            pairs.add(CodeBlock.of("$T.on($T.of($T.class,$W$L,$W$S,$W$L),$W$T.$L)", SOURCE_JOIN, COLUMN_FIELD,
+                    modelName, table, pair.column(), classOf(column(attribute)), generatedName(source),
+                    key.constant()));
         }
         ClassName sourceType = ClassName.get(source.type());
-        return FieldSpec.builder(ParameterizedTypeName.get(SOURCE_JOIN, modelName, sourceType),
-                        QueryModelReader.constantName(join.name()), CONSTANT)
-                .initializer("$T.of($S, $T.class, $T.$L,$W$L)", SOURCE_JOIN, join.name(), sourceType, JOIN_KIND,
-                        join.kind(), listOf(pairs))
-                .build();
+        FieldSpec.Builder constant = FieldSpec.builder(ParameterizedTypeName.get(SOURCE_JOIN, modelName, sourceType),
+                under == null ? QueryModelReader.constantName(join.name()) : under.constant(), CONSTANT);
+        CodeBlock initializer = CodeBlock.of("$T.of($S, $T.class, $T.$L,$W$L)", SOURCE_JOIN,
+                under == null ? join.name() : under.name(), sourceType, JOIN_KIND, join.kind(), listOf(pairs));
+        return under == null ? constant.initializer(initializer).build()
+                : constant.addAnnotation(INCUBATING).initializer("$L.within($L)", initializer, table).build();
     }
 
     /**
@@ -1179,9 +1191,35 @@ final class QModelWriter {
             if (SubtypeScopes.needed(table, joined)) {
                 map.addStatement("$T $L = $L(row)", ROW, scope(field), SubtypeScopes.name(table));
             } else {
-                map.addStatement("$T $L = row.scoped($L_TABLE)", ROW, scope(field), field.join().prefix());
+                map.addStatement("$T $L = row.scoped($L)", ROW, scope(field), scopeOf(field, joined));
             }
         }
+    }
+
+    /** What a {@code @Join} field's nested model is read through: its scope if that has joins, else its table. */
+    private CodeBlock scopeOf(ModelField field, List<JoinedTable> joined) {
+        return CodeBlock.of(NestedJoins.any(field, joined, nestedModels) ? "$L_SCOPE" : "$L_TABLE",
+                field.join().prefix());
+    }
+
+    /**
+     * {@code <PREFIX>_SCOPE}: the field's table and the name map from every join its nested model declares, and
+     * every join below them, to the outer join registered for it. A nested model's mapper reads through it, so a
+     * joined column reads this field's row and never the root's column of that attribute (D-214, D-216).
+     */
+    private FieldSpec scopeField(ModelField field, List<JoinedTable> joined) {
+        var scope = CodeBlock.builder().add("$T.of($L_TABLE)", JOIN_SCOPE, field.join().prefix());
+        for (JoinedTable table : joined) {
+            if (!table.join().equals(field)) {
+                continue;
+            }
+            for (NestedJoins join : NestedJoins.of(table, nestedModels)) {
+                scope.add("$Z.$L($T.$L,$W$L)", join.source() != null ? "source" : "entity",
+                        generatedName(table.nested()), join.inNested(), join.constant());
+            }
+        }
+        return FieldSpec.builder(JOIN_SCOPE, field.join().prefix() + "_SCOPE", CONSTANT)
+                .addAnnotation(INCUBATING).initializer(scope.build()).build();
     }
 
     /** The local holding a join's scoped row: the field's name, unless the mapper already uses that name. */
@@ -1202,6 +1240,67 @@ final class QModelWriter {
                 .collect(CodeBlock.joining("$W&& "));
         return CodeBlock.of("$L$W? $T.empty()$W: $T.of($T.MAPPER.map($L))",
                 absent, OPTIONAL, OPTIONAL, qModel, scope(field));
+    }
+
+    /**
+     * What one join of the model declares for its nested model: the columns on the nested root, then the source and
+     * entity joins the nested model declares, registered within the join's table, then the columns read through
+     * those, built from the roots returned after {@code within} (R-GEN-43, D-216).
+     */
+    private void joinedConstants(TypeSpec.Builder type, ClassName modelName, JoinedTable table) {
+        for (JoinedColumn column : table.columns()) {
+            if (column.field().sourceColumn() == null && column.field().entityJoin().isEmpty()) {
+                type.addField(joinedColumn(modelName, table, column));
+            }
+        }
+        ModelDefinition declared = nestedModels.of(table.declaration());
+        for (NestedJoins join : NestedJoins.of(table, nestedModels)) {
+            type.addField(join.source() != null ? sourceJoin(modelName, declared, join.source(), join)
+                    : entityJoin(modelName, declared, join.entity(), join));
+        }
+        for (JoinedColumn column : table.columns()) {
+            if (column.field().sourceColumn() != null || !column.field().entityJoin().isEmpty()) {
+                type.addField(joinedColumn(modelName, table, column));
+            }
+        }
+    }
+
+    /** A column of a nested model as the outer model declares it, on the join's table or on a join it registered. */
+    private FieldSpec joinedColumn(ClassName modelName, JoinedTable table, JoinedColumn column) {
+        ModelField field = column.field();
+        if (field.subtype()) {
+            return subtype(modelName, column.constant(), table.table(), column.path(), field);
+        }
+        ModelDefinition owner = column.owner();
+        TypeName entity = ClassName.get(EntityMetamodel.treatedRoot(table.entity(), field.treat()));
+        TypeMirror converter = converter(owner, field);
+        CodeBlock columnTable;
+        if (field.sourceColumn() != null || !field.entityJoin().isEmpty()) {
+            String declared = field.sourceColumn() != null ? field.sourceColumn().join() : field.entityJoin();
+            NestedJoins join = NestedJoins.of(table, nestedModels).stream()
+                    .filter(each -> each.declared().equals(declared)).findFirst().orElseThrow();
+            columnTable = CodeBlock.of("$L.root().named($S)", join.constant(), table.path());
+            if (field.sourceColumn() != null) {
+                ModelDefinition source = join.source().sourceModel();
+                ModelField read = source.readable().stream()
+                        .filter(each -> each.name().equals(field.sourceColumn().field())).findFirst().orElseThrow();
+                entity = ClassName.get(source.type());
+                converter = converter(source, read);
+            } else {
+                entity = ClassName.get(EntityMetamodel.treatedRoot(owner.entityRoot(declared), field.treat()));
+            }
+        } else {
+            columnTable = field.treat() == null ? CodeBlock.of("$L", table.table())
+                    : CodeBlock.of("$T.$L.withParent($L)", generatedName(owner), TreatTables.root(field.treat()),
+                            table.table());
+        }
+        // Typed as the nested QModel types it, OrderedColumnField when its converter is ordered (D-93).
+        ClassName kind = ConverterType.ordered(types, converter) ? ORDERED_COLUMN_FIELD : COLUMN_FIELD;
+        return FieldSpec.builder(ParameterizedTypeName.get(kind, modelName, entity, column(column.type())),
+                        column.constant(), CONSTANT)
+                .initializer("$T.$L.withTable($T.class,$W$L)", generatedName(table.nested()),
+                        table.inNested(column.constant()), modelName, columnTable)
+                .build();
     }
 
     /**

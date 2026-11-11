@@ -361,8 +361,63 @@ uniqueness, cost and the runtime rules.
   `BigDecimal` is the exact average (`Agg.avgExact`).
 
 The processor refuses a misdeclared `@JoinSource` or `@SourceColumn` with `MQ3044` (a mismatched type is `MQ3002`, a `@Column` beside it `MQ3014`; including a `@SourceColumn` beside
-`@PrimaryKey`, and a nested `@Join` model that joins a source), a `@Child` model that joins a source with `MQ3039`, and a
+`@PrimaryKey`, and a nested model's own joins that cannot be re-registered), a `@Child` model that joins a source with `MQ3039`, and a
 misdeclared `orderBy`, `filter` or `scale` with `MQ3045`; see [Diagnostics](diagnostics.md).
+
+### Nested models with their own joins
+
+A model nested under `@Join` may declare its own `@JoinSource` and `@JoinEntity`. The outer model registers them again
+under the `@Join` field's prefix, so two fields of one nested type never share a join. It is `@Incubating`.
+
+```java
+@QueryModel(root = CustomerEntity.class)
+@JoinSource(name = "tally", source = CustomerOrderCount.class, on = @JoinSource.On(column = "id", key = "id"))
+@JoinEntity(name = "label", entity = LabelEntity.class, on = @JoinEntity.On(column = "id"))
+public record JoinBuyer(
+        @PrimaryKey Long id, String name,
+        @SourceColumn(join = "tally", field = "rows") Long rows,
+        @Column(entityJoin = "label", attribute = "name") String labelName) {}
+
+@QueryModel(root = OrderEntity.class)
+public record JoinBuyerOrder(
+        @PrimaryKey Long id,
+        @Join Optional<JoinBuyer> customer,
+        @Join Optional<JoinBuyer> referrer) {}
+```
+
+`QJoinBuyerOrder.query(...)` takes one `SourceQuery` for each nested source join, after the model's own, named after
+the field path and the join (`customerTally`, `referrerTally`; two levels give `customerAddressTally`). A missing or
+mistyped source does not compile. Each field reads its own rows through `CUSTOMER_SCOPE` and `REFERRER_SCOPE`, and a
+column such as `CUSTOMER_LABEL_NAME` sorts and filters as `customer.labelName`.
+
+=== "Plain JPA"
+
+    ```java
+    var query = QJoinBuyerOrder.query(allCustomers, recentCustomers)
+            .select(SelectSet.of(QJoinBuyerOrder.ID, QJoinBuyerOrder.CUSTOMER_LABEL_NAME,
+                    QJoinBuyerOrder.REFERRER_ROWS))
+            .where(f -> f.in(QJoinBuyerOrder.ID, ids)).build();
+    List<JoinBuyerOrder> rows = executor.list(query, Limit.unlimited());
+    ```
+
+=== "Spring repository"
+
+    ```java
+    var query = QJoinBuyerOrder.query(allCustomers, recentCustomers)
+            .select(SelectSet.of(QJoinBuyerOrder.ID, QJoinBuyerOrder.CUSTOMER_LABEL_NAME,
+                    QJoinBuyerOrder.REFERRER_ROWS))
+            .where(f -> f.in(QJoinBuyerOrder.ID, ids)).build();
+    List<JoinBuyerOrder> rows = orderRows.findAll(query, Limit.unlimited());
+    ```
+
+A column set that selects only joined columns of a nested model still reads that field as present. Nesting composes to
+any depth. Nested joins are refused under `@Join(entityJoin)` (`MQ3044`) until chained anchors are supported, and an `INNER` nested join below a `LEFT` `@Join` is `MQ3044` too (make it `LEFT`, or the `@Join` `INNER`).
+A nested entity join must be anchored on a column of the model, not a `@FilterColumn`, and an `@Column(entityJoin)`
+may not reach through an association or a `treat`. A `@Child` over such a model is `MQ3039`.
+
+!!! note "A dangling foreign key"
+    A re-rooted anchor renders as the foreign key column. If a foreign key points at no row, filters, sorts and groups
+    on the prefixed column still match that source or entity row, while the nested value reads as empty.
 
 ## Shared accessors across models
 

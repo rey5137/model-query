@@ -31,7 +31,12 @@ final class SubtypeScopes {
         return "scope$" + table.prefix();
     }
 
-    static MethodSpec.Builder method(JoinedTable table, List<JoinedTable> joined, NestedModels nestedModels) {
+    /**
+     * The adapter of {@code table}, as {@code name(table)(Row row)} reads a row through the scope the mapper gives it,
+     * and {@code name(table)(Row row, Row scoped)} over a view already scoped, which a nested model's own scope with
+     * a name map composes onto (R-GEN-43).
+     */
+    static List<MethodSpec.Builder> method(JoinedTable table, List<JoinedTable> joined, NestedModels nestedModels) {
         ClassName nested = QModelWriter.generatedName(nestedModels.of(table.declaration()));
         var adapter = TypeSpec.anonymousClassBuilder("").addSuperinterface(ROW);
         TypeVariableName value = TypeVariableName.get("C");
@@ -70,8 +75,8 @@ final class SubtypeScopes {
             }
         }
         adapter.addMethod(scope.addStatement("return scoped.scoped(join)").build());
-        // A scope with no name map reads as scoped(TableField); one with a map over a subtype adapter is refused,
-        // since the adapter reads its table plainly and would drop the map (INV-5).
+        // A scope with no name map reads as scoped(TableField); one with a map composes onto the view the adapter
+        // wraps, so the nested model's joined columns still resolve through the outer joins (INV-5, D-216).
         MethodSpec.Builder mapped = MethodSpec.methodBuilder("scoped").addAnnotation(Override.class)
                 .addModifiers(Modifier.PUBLIC).returns(ROW).addParameter(JOIN_SCOPE, "scope");
         for (JoinedTable child : children(table, joined)) {
@@ -79,16 +84,19 @@ final class SubtypeScopes {
                 mapped.beginControlFlow("if (scope.table().equals($T.$L_TABLE))", nested,
                                 child.declaration().join().prefix())
                         .beginControlFlow("if (!scope.equals($T.of(scope.table())))", JOIN_SCOPE)
-                        .addStatement("throw new $T($S + scope)", UnsupportedOperationException.class,
-                                "a subtype-mapped @Join reads no name map: ")
-                        .endControlFlow()
+                        .addStatement("return $L(row, scoped.scoped(scope))", name(child)).endControlFlow()
                         .addStatement("return $L(row)", name(child)).endControlFlow();
             }
         }
         adapter.addMethod(mapped.addStatement("return scoped.scoped(scope)").build());
-        return MethodSpec.methodBuilder(name(table)).addModifiers(Modifier.PRIVATE, Modifier.STATIC).returns(ROW)
-                .addParameter(ROW, "row").addStatement("$T scoped = row.scoped($L)", ROW, table.table())
-                .addStatement("return $L", adapter.build());
+        String through = table.parent() == null && NestedJoins.any(table.join(), joined, nestedModels)
+                ? table.prefix() + "_SCOPE" : table.table();
+        return List.of(
+                MethodSpec.methodBuilder(name(table)).addModifiers(Modifier.PRIVATE, Modifier.STATIC).returns(ROW)
+                        .addParameter(ROW, "row").addStatement("return $L(row, row.scoped($L))", name(table), through),
+                MethodSpec.methodBuilder(name(table)).addModifiers(Modifier.PRIVATE, Modifier.STATIC).returns(ROW)
+                        .addParameter(ROW, "row").addParameter(ROW, "scoped")
+                        .addStatement("return $L", adapter.build()));
     }
 
     private static List<JoinedTable> children(JoinedTable table, List<JoinedTable> joined) {

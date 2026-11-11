@@ -385,7 +385,7 @@ class JoinSourceModelTest {
     }
 
     @Test
-    void ac_src_45_a_nested_join_model_that_joins_a_source_is_mq3044() {
+    void ac_gen_37_a_nested_join_model_that_joins_a_source_is_registered_under_the_prefix() {
         Compilation compilation = compile(DAY_ENTITY, SALE_ENTITY, DAY_SALES, source("shop.NoteEntity", """
                 package shop;
 
@@ -418,12 +418,14 @@ class JoinSourceModelTest {
                 public record Note(@PrimaryKey Long id, @Join(attribute = "day") Optional<UnreconciledDay> day) {}
                 """));
 
-        assertThat(errors(compilation)).containsExactly(message("Note.day: UnreconciledDay joins a source; "
-                + "a @Join model reads entity columns only"));
+        // The outer model registers the source under the @Join's prefix (D-214).
+        assertThat(compilation).succeededWithoutWarnings();
+        assertThat(generatedFlat(compilation, "shop.QNote")).contains("DAY_SALES = SourceJoin.of(\"daySales\"")
+                .contains("SourceQuery<DaySales> daySales)");
     }
 
     @Test
-    void ac_src_45_a_nested_join_model_with_an_entity_join_is_mq3044() {
+    void ac_gen_37_a_nested_join_model_with_an_entity_join_is_registered_under_the_prefix() {
         Compilation compilation = compile(DAY_ENTITY, source("shop.NoteEntity", """
                 package shop;
 
@@ -460,8 +462,9 @@ class JoinSourceModelTest {
                 public record Note(@PrimaryKey Long id, @Join(attribute = "day") Optional<UnreconciledDay> day) {}
                 """));
 
-        assertThat(errors(compilation)).containsExactly(message("Note.day: UnreconciledDay has an entity join; "
-                + "a @Join model reads entity columns only"));
+        assertThat(compilation).succeededWithoutWarnings();
+        assertThat(generatedFlat(compilation, "shop.QNote")).contains("DAY_TWIN = EntityJoin.of(\"dayTwin\"")
+                .contains(".within(DAY_TABLE)").contains(".joinEntity(DAY_TWIN)");
     }
 
     @Test

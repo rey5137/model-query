@@ -658,8 +658,9 @@ var query = ModelQuery.builder(ORDERS, row -> new Row(row.get(ID), row.get(name)
   their declared join kind (`@FilterColumn#joinType` applies to the associations on the path; the entity join's own kind is `@JoinEntity#type`). A to-one column below an entity join resolves by its model field name (`viaOrder` here).
   To-many paths, a joined-column `@PrimaryKey`, `@JoinEntity` on `@SourceModel`, and `treat` combined
   with `entityJoin` are refused. A `@Child` whose child model declares an entity join, directly or through a nested
-  `@Join` recursively, is `MQ3039`, since a fetch plan passes no join; a nested `@Join` model that declares its own
-  entity join is `MQ3044`.
+  `@Join` recursively, is `MQ3039`, since a fetch plan passes no join. A nested `@Join` model's own joins are
+  registered under the `@Join` prefix ([nested models with their own joins](models.md#nested-models-with-their-own-joins));
+  under `@Join(entityJoin)` they are `MQ3044`.
   Generated declarations fail with [`MQ3046`](diagnostics.md); invalid hand-written
   definitions fail with [`MQ1911`](diagnostics.md), at build or first resolution before SQL; an entity class the render
   options' metamodel rejects as unmapped is `MQ1911` too (without a metamodel, the provider decides). A column over an entity join the query does not bind is `MQ1003`.
