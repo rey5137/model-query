@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.rey.modelquery.annotations.JoinKind;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /** A join's presence key, before any Criteria query exists (spec api/10 R-COL-15, api/13 R-AGG-09, D-38). */
@@ -12,11 +14,15 @@ class PresenceKeyTest {
 
     static final class Order {}
 
-    static final class Customer {}
+    static class Customer {}
 
     static final class OrderView {}
 
     static final class CustomerView {}
+
+    static final class Lines {}
+
+    static final class Admin extends Customer {}
 
     private static final TableField<Customer, Customer> CUSTOMER_ROOT = TableField.root(Customer.class);
     private static final ColumnField<CustomerView, Customer, Long> CUSTOMER_ID =
@@ -97,5 +103,48 @@ class PresenceKeyTest {
                     .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
                             e -> assertThat(e.code()).isEqualTo(MqCode.MQ1409));
         }
+    }
+
+    @Test
+    void ac_col_64_present_by_on_a_joined_entity_root_keeps_the_join() {
+        var anchor = ColumnField.of(OrderView.class, ROOT, "customerId", Long.class);
+        EntityJoin<OrderView, Customer> buyer = EntityJoin.of("buyer", Customer.class, JoinKind.LEFT,
+                List.of(EntityJoin.on(anchor, "id")));
+
+        TableField<Customer, Customer> present = buyer.root().presentBy(CUSTOMER_KEY);
+
+        assertThat(present).isEqualTo(buyer.root()).hasSameHashCodeAs(buyer.root());
+        assertThat(present.key()).isEqualTo(buyer.root().key());
+        assertThat(present.isJoinedEntity()).isTrue();
+        assertThat(present.isJoinedSource()).isFalse();
+        assertThat(present.presenceKey()).isSameAs(CUSTOMER_KEY);
+        assertThat(present.describe()).isEqualTo(buyer.root().describe());
+        TableField<Customer, Customer> named = present.named("purchaser");
+        assertThat(named.presenceKey()).isSameAs(CUSTOMER_KEY);
+        assertThat(named.withParent(CUSTOMER_ROOT)).isSameAs(named);
+        assertThat(named).isEqualTo(buyer.root());
+    }
+
+    @Test
+    void ac_col_64_present_by_on_a_query_root_a_source_root_a_joined_source_or_a_treated_root_is_mq1104() {
+        var key = ColumnField.of(Lines.class, TableField.root(Lines.class), "id", Long.class);
+        var id = ColumnField.of(OrderView.class, ROOT, "id", Long.class);
+        var lines = SourceJoin.of("lines", Lines.class, JoinKind.LEFT, List.of(SourceJoin.on(id, key)));
+        var anchor = ColumnField.of(OrderView.class, ROOT, "customerId", Long.class);
+        var buyer = EntityJoin.of("buyer", Customer.class, JoinKind.LEFT, List.of(EntityJoin.on(anchor, "id")));
+
+        for (TableField<?, ?> root : List.of(ROOT, TableField.source(Lines.class), lines.root(),
+                CUSTOMER_ROOT.treat(Admin.class), buyer.root().treat(Admin.class))) {
+            assertThatThrownBy(() -> root.presentBy(CUSTOMER_KEY))
+                    .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ1104))
+                    .hasMessageContaining("presentBy(...) applies to a join");
+        }
+        assertThatThrownBy(() -> buyer.root().as("other"))
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1104));
+        assertThatThrownBy(() -> buyer.root().on((customer, cb) -> cb.conjunction()))
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1104));
     }
 }

@@ -184,21 +184,26 @@ public final class TableField<P, T> {
      * the join, declared on that model's own root. An ungrouped query that selects a column of the join also selects
      * the key, re-rooted under the join, so a mapper reading it through {@link Row#scoped} tells a LEFT-join miss from
      * a match whose other columns are {@code NULL}. It is kept by {@link #as}, {@link #on}, {@link #named} and
-     * {@link #withParent}, and is not part of the join's identity (R-COL-15).
+     * {@link #withParent}, and is not part of the join's identity (R-COL-15). A joined-entity root
+     * ({@link EntityJoin#root()}) takes one too and keeps its join name, so the copy is the same join (D-213).
      *
-     * @throws ModelQueryDefinitionException {@code MQ1104} on a root, which is not a join
+     * @throws ModelQueryDefinitionException {@code MQ1104} on the query's root, a source root, a joined source's
+     *     root or a treated root, none of which is a join a row can miss
      */
     public TableField<P, T> presentBy(PrimaryKey<?, ?> key) {
         Objects.requireNonNull(key, "key");
-        requireJoin("presentBy(...)");
-        return new TableField<>(rootEntity, parent, attribute, type, alias, condition, key, property, false,
-                subtype, treatOrigin, null);
+        if (!isJoinedEntity()) {
+            requireJoin("presentBy(...)");
+        }
+        return new TableField<>(rootEntity, parent, attribute, type, alias, condition, key, property, source,
+                subtype, treatOrigin, joinName);
     }
 
     /**
      * This node with {@code property} as the name of the model field the join fills, which a sort property's path is
-     * matched against (R-QRY-14). The join key is unchanged. A root's property is never part of a path: a column of
-     * the root has only its own property.
+     * matched against (R-QRY-14). The join key is unchanged. The query root's property is never part of a path: a
+     * column of the root has only its own property. A joined root's property is: a column of it reads
+     * {@code <property>.<column>}, the join name never appearing in the path (D-213).
      *
      * @throws ModelQueryDefinitionException {@code MQ1106} after {@link #treat(Class)}: a treated node's path is its
      *     join's, so it is named before the treat (R-COL-34)
@@ -335,6 +340,11 @@ public final class TableField<P, T> {
         return key;
     }
 
+    /** The property {@link #named} gave this node itself, or {@code null}. */
+    String property() {
+        return property;
+    }
+
     /** The parent node, or {@code null} for a root. */
     TableField<?, P> parent() {
         return parent;
@@ -367,7 +377,8 @@ public final class TableField<P, T> {
     /**
      * The model field names from the root to this node, dotted: empty for a root, {@code customer.address} for a join
      * named {@code address} below a join named {@code customer}; {@code null} when this node or a join above it has no
-     * property (R-QRY-14, D-55). Unnamed association nodes below an entity join add no property segment, so a
+     * property (R-QRY-14, D-55). A joined root given a property with {@link #named} starts the path with it; an
+     * unnamed one is empty (D-213). Unnamed association nodes below an entity join add no property segment, so a
      * column there resolves by its model field name (R-SRC-23).
      */
     String propertyPath() {
@@ -375,7 +386,7 @@ public final class TableField<P, T> {
             return parent.propertyPath();
         }
         if (parent == null) {
-            return "";
+            return joinName != null && property != null ? property : "";
         }
         String above = parent.propertyPath();
         if (property == null && above != null) {
@@ -391,6 +402,15 @@ public final class TableField<P, T> {
             return null;
         }
         return above.isEmpty() ? property : above + "." + property;
+    }
+
+    /** The property of the named joined root this path starts at, or {@code null} for any other root (D-213). */
+    String joinedRootProperty() {
+        TableField<?, ?> node = this;
+        while (node.parent != null) {
+            node = node.parent;
+        }
+        return node.joinName != null ? node.property : null;
     }
 
     /** Whether {@link #on} gave this join a condition. */

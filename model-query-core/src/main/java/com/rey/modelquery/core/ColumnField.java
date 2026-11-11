@@ -666,6 +666,15 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
         return above.isEmpty() ? property : above + "." + property;
     }
 
+    /**
+     * The attribute path a sort matches: {@link #path()}, after the property of the named joined root it starts at,
+     * so a bare attribute name never matches a column of a joined root that has a property (R-QRY-14, D-213).
+     */
+    String sortPath() {
+        String joined = table.joinedRootProperty();
+        return joined == null ? path() : joined + "." + path();
+    }
+
     Class<M> model() {
         return model;
     }

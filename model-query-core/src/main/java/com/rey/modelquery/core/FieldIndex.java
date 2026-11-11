@@ -273,11 +273,12 @@ public final class FieldIndex<M> {
         /**
          * Adds {@code set} under {@code join}'s property path.
          *
-         * @throws IllegalArgumentException when {@code join} is a root or has no property
+         * @throws IllegalArgumentException when {@code join} has no property of its own, even below a named joined
+         *     root, or is a root other than a joined root given one with {@code named} (D-213)
          */
         public Builder<M> joinSet(TableField<?, ?> join, SelectSet<M> set) {
             String key = Objects.requireNonNull(join, "join").propertyPath();
-            if (key == null || key.isEmpty()) {
+            if (key == null || key.isEmpty() || join.parent() != null && join.property() == null) {
                 throw new IllegalArgumentException(
                         model.getSimpleName() + ": a join set needs a join with a property, got " + join);
             }

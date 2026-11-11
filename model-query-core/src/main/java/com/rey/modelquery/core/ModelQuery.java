@@ -408,7 +408,7 @@ public final class ModelQuery<E, K, M> {
                 if (property.equals(FieldIndex.propertyKey(plain))) {
                     matches.computeIfAbsent(column, c -> new ArrayList<>()).add("property path");
                 }
-                if (plain.path().equals(property)) {
+                if (plain.sortPath().equals(property)) {
                     matches.computeIfAbsent(column, c -> new ArrayList<>()).add("attribute path");
                 }
             } else if (property.equals(FieldIndex.propertyKey(column))) {
@@ -447,9 +447,9 @@ public final class ModelQuery<E, K, M> {
     private static String candidateName(SelectField<?, ?> column) {
         if (column instanceof ColumnField<?, ?, ?> plain) {
             String propertyPath = plain.propertyPath();
-            return propertyPath == null || propertyPath.equals(plain.path())
-                    ? plain.path()
-                    : propertyPath + " reading " + plain.path();
+            return propertyPath == null || propertyPath.equals(plain.sortPath())
+                    ? plain.sortPath()
+                    : propertyPath + " reading " + plain.sortPath();
         }
         String named = FieldIndex.propertyKey(column);
         return named != null ? named : column.name();
