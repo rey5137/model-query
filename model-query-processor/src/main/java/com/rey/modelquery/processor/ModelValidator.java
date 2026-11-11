@@ -104,6 +104,7 @@ final class ModelValidator {
     private final TreatChecks treatChecks;
     private final JoinSourceChecks joinSourceChecks;
     private final EntityJoinChecks entityJoinChecks;
+    private final NestedJoinChecks nestedJoinChecks;
 
     ModelValidator(
             Types types, EntityMetamodel metamodel, NestedModels nestedModels, BuiltInConverters builtIns,
@@ -118,6 +119,7 @@ final class ModelValidator {
         this.treatChecks = new TreatChecks(types, metamodel);
         this.joinSourceChecks = new JoinSourceChecks(types, metamodel);
         this.entityJoinChecks = new EntityJoinChecks(types, metamodel, builtIns);
+        this.nestedJoinChecks = new NestedJoinChecks(metamodel, nestedModels, builtIns);
     }
 
     void validate(ModelDefinition model, Diagnostics diagnostics) {
@@ -216,6 +218,9 @@ final class ModelValidator {
             }
         }
         var joined = new ArrayList<JoinedTable>();
+        var joinNames = new HashSet<String>();
+        model.joinSources().forEach(join -> joinNames.add(join.name()));
+        model.entityJoins().forEach(join -> joinNames.add(join.name()));
         // An update model's @Join is MQ3302, an insert model's MQ3502, and joins nothing.
         for (ModelField join : model.readModel() ? model.joins() : List.<ModelField>of()) {
             String where = model.name() + "." + join.name() + ": ";
@@ -226,19 +231,13 @@ final class ModelValidator {
                 continue;
             }
             ModelDefinition nested = checkJoin(model, join, where, diagnostics);
-            if (nested != null && !nested.joinSources().isEmpty()) {
-                diagnostics.error(join.element(), DiagnosticCode.MQ3044, where + nested.name()
-                        + " joins a source; a @Join model reads entity columns only");
-                nested = null;
-            } else if (nested != null && !nested.entityJoins().isEmpty()) {
-                diagnostics.error(join.element(), DiagnosticCode.MQ3044, where + nested.name()
-                        + " has an entity join; a @Join model reads entity columns only");
-                nested = null;
-            }
             if (nested != null) {
                 List<JoinedTable> tables = nestedModels.tables(model, join, nested);
-                claimJoined(model, tables, constants, reserved, where, diagnostics);
-                joined.addAll(tables);
+                // The nested model's own joins are registered under this prefix too (R-GEN-43).
+                if (nestedJoinChecks.check(model, join, tables, constants, reserved, joinNames, where, diagnostics)) {
+                    claimJoined(model, tables, constants, reserved, where, diagnostics);
+                    joined.addAll(tables);
+                }
             }
         }
         Set<String> ofJoins = Set.copyOf(constants.keySet());

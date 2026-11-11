@@ -109,8 +109,11 @@ source's key fields, each once, with the same type on both sides. A `@SourceColu
 the named join and has the source field's type; it takes no `@Column` and no converter. The processor refuses with
 `MQ3044` a join that misses or exceeds the key, pairs a key twice, mismatches a type, names an unknown root attribute
 or source field, names a class that is no `@SourceModel`, or repeats a name; a `@SourceColumn` naming an unknown join or
-field; a `@JoinSource` or `@SourceColumn` on a model that is not a `@QueryModel` rooted at an entity; and a nested
-`@Join` model that joins a source or declares an entity join (it reads entity columns only). A `@SourceColumn` is also `MQ3044` beside `@PrimaryKey` (a model's key is the
+field; a `@JoinSource` or `@SourceColumn` on a model that is not a `@QueryModel` rooted at an entity; and, for a
+nested `@Join` model with joins of its own (generated under the `@Join` prefix, R-GEN-43, D-217): joins below a
+`@Join(entityJoin)` (they chain, Part C), an `INNER` join below a `LEFT` `@Join` (it would drop the outer row), an entity join anchored on a `@FilterColumn`, a `@Column(entityJoin)`
+reached through an association or a `treat`, and a join whose constant or name is a declared join's. A field named
+like a nested join constant is `MQ3015`. A `@SourceColumn` is also `MQ3044` beside `@PrimaryKey` (a model's key is the
 root's; a `LEFT`-joined value can be `NULL` or shared, which breaks keyset paging and row dedup) and beside any
 annotation that makes the field no column (`@Aggregate`, `@Computed`, `@Window`, `@Join`, `@Transient`, `@Child`,
 `@Selected`), and so is an `@On` key field with a converter (the join would compare the database value, not the model
@@ -228,9 +231,10 @@ with `attribute` or `treat` (a non-empty combination is `MQ3047`).
 1. The named `@JoinEntity` exists on the model and its `entity` matches the nested model's root (`MQ3047`).
 2. `type` is not explicitly written on `@Join`: the join kind is the `@JoinEntity`'s (`MQ3047`).
 3. The nested model has a `@PrimaryKey` (`MQ3006`); its key columns decide presence.
-4. A nested `@Join` with `type = INNER` at any depth below a `LEFT` entity join is refused (`MQ3047`).
-5. A nested model under `@Join(entityJoin)` may not declare its own `@JoinEntity` or `@JoinSource` (`MQ3044`). To-one
-`@Join`s below it are allowed.
+4. A nested `@Join` with `type = INNER` at any depth below a `LEFT` entity join is refused (`MQ3047`); likewise a nested model's own `INNER` join below a `LEFT` `@Join` is `MQ3044` (D-217).
+5. A nested model under `@Join(entityJoin)` may not declare its own `@JoinEntity` or `@JoinSource` (`MQ3044`): allowed
+under an association `@Join` (R-GEN-43), refused here until chained anchors lift it (D-217, Part C). To-one `@Join`s
+below it are allowed.
 6. Two `@Join(entityJoin = ...)` fields may name the same join; each maps through the same joined table.
 7. Flat `@Column(entityJoin = ...)` fields and `@Join(entityJoin = ...)` fields may coexist on one model.
 8. When a `@Join(entityJoin = ...)` field's prefix equals its entity-join constant (for example,
