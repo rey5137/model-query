@@ -6,9 +6,9 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
 ## [Unreleased]
 
-The coming 0.13.0 covers milestone M36 (RFC 0024, D-213 to D-217): nested models over declared joins. A `@Join` may
-nest a model over an entity join, a nested model may declare its own joins, and an entity join may be anchored on an
-earlier one. Every API addition below is `@Incubating`.
+The coming 0.13.0 covers milestone M36 (RFC 0024, D-213 to D-218): nested models over declared joins. A `@Join` may
+nest a model over an entity join, a nested model may declare its own joins, and an entity join or a joined source may
+be anchored on an earlier entity join. Every API addition below is `@Incubating`.
 
 ### Added (incubating)
 
@@ -28,6 +28,11 @@ earlier one. Every API addition below is `@Incubating`.
   columns of an entity join created before it, or a to-one path below that join. Joins are created in registration
   order (generated: declaration order); 2- and 3-join chains in every allowed `LEFT` / `INNER` mix match native SQL on
   H2, PostgreSQL and MySQL. Under `@Join(entityJoin)`, a nested model's own `@JoinEntity` is such a chain.
+- Joined sources anchored on a column-anchored entity join (R-SRC-21, R-SRC-24, D-218): a `SourceJoin`'s outer column
+  may read such a join or a to-one path below it. Every statement creates these sources after the column-anchored
+  entity joins, attached to the statement root, so binding order doesn't matter and queries without one render
+  unchanged. Under `@Join(entityJoin)` naming a column-anchored join, a nested model's own `@JoinSource` is generated
+  on the join's root.
 - User guide: [entity-join chains](docs/site/docs/source-models.md#joining-an-entity) and
   [nested models with their own joins](docs/site/docs/models.md#nested-models-with-their-own-joins).
 
@@ -38,10 +43,16 @@ earlier one. Every API addition below is `@Incubating`.
 - `MQ1911` now also refuses, at build, a chain read before its join is created (previously a misleading run-time
   `MQ1003`), a join reading its own root, an `INNER` join anchored on a `LEFT` one, and a chain over a source-anchored
   join (D-215). `MQ1912` and the other join-filter messages name the join instead of printing its internal key.
+- `MQ1910` now also refuses, at build, a joined source whose outer column reads an entity join the query does not bind
+  (previously a run-time `MQ1003`), a source-anchored entity join, another joined source's columns (previously
+  accepted only when bound in a lucky order), or, for an `INNER` source, a `LEFT` entity join (D-218).
+- `MQ1912` now also refuses an `INNER` joined source whose outer column reads through a `joinFilter(...)` join,
+  root-anchored ones included: such a query used to drop the outer rows the filter blanked instead of reading the
+  source as absent (D-218).
 - `MQ3044` narrows: a nested model's own joins under an association `@Join` are generated; it now covers name clashes
   with a declared join, an `INNER` nested join below a `LEFT` `@Join`, a nested entity join anchored on a
-  `@FilterColumn` or reading its join through an association or `treat`, a nested `@JoinSource` below a
-  `@Join(entityJoin)`, and a nested entity join below a source-anchored one (D-215, D-217).
+  `@FilterColumn` or reading its join through an association or `treat`, and a nested `@JoinEntity` or `@JoinSource`
+  below a `@Join(entityJoin)` naming a source-anchored join (D-215, D-217, D-218).
 - `MQ3046` accepts an anchor or `when` column over an earlier column-anchored entity join, and refuses one over a join
   declared after it, itself, a source-anchored join, or a `LEFT` join from an `INNER` one (D-215).
 - `MQ3039` walks a child's nested `@Join` models and their own joins. `MQ1104` no longer refuses `presentBy` on a

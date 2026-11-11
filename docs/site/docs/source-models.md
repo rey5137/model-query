@@ -464,6 +464,12 @@ joins of one source model (a high band and a low band, say) stay apart by name.
   hand-written query is built. A hand-written `on(...)` pair is also `MQ1910` when the source key field has a
   converter or the two attribute types differ (`Long` against `Integer`; `int` against `Integer` is fine), since the join
   compares database values.
+- **What `on` reads.** An outer column reads the root, a to-one path from it, or a column-anchored entity join the query
+  binds ([below](#joining-an-entity)) and its to-one paths; every statement creates such a source after the entity
+  joins, whatever the binding order. A column of another joined source or of a source-anchored entity join, an entity
+  join the query does not bind, and an `INNER` source on a `LEFT` entity join are `MQ1910` when the query is built. An
+  `INNER` source whose outer column reads through a `joinFilter(...)` join is [`MQ1912`](diagnostics.md) before any
+  statement; declare it `LEFT`.
 - **The source must be unique.** `SourceQuery#unique()` decides: a plain or grouped source, a `tree(...)` source, an
   ungrouped source over a tree and a grouped source over any walk qualify. A set operation, a plain `recursive(...)`
   source and an ungrouped source over one do not, because a node reached by two paths would repeat its outer row. They
@@ -689,8 +695,8 @@ var query = ModelQuery.builder(ORDERS, row -> new Row(row.get(ID), row.get(name)
   To-many paths, a joined-column `@PrimaryKey`, `@JoinEntity` on `@SourceModel`, and `treat` combined
   with `entityJoin` are refused. A `@Child` whose child model declares an entity join, directly or through a nested
   `@Join` recursively, is `MQ3039`, since a fetch plan passes no join. A nested `@Join` model's own joins are
-  registered under the `@Join` prefix ([nested models with their own joins](models.md#nested-models-with-their-own-joins));
-  under `@Join(entityJoin)` they are `MQ3044`.
+  registered under the `@Join` prefix ([nested models with their own joins](models.md#nested-models-with-their-own-joins)),
+  also under a `@Join(entityJoin)` naming a column-anchored join; one naming a source-anchored join is `MQ3044`.
   Generated declarations fail with [`MQ3046`](diagnostics.md); invalid hand-written
   definitions fail with [`MQ1911`](diagnostics.md), at build or first resolution before SQL; an entity class the render
   options' metamodel rejects as unmapped is `MQ1911` too (without a metamodel, the provider decides). A column over an entity join the query does not bind is `MQ1003`.

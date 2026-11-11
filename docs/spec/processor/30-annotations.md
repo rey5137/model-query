@@ -229,18 +229,19 @@ model's root to the child's root entity for a many-to-many mapped on the parent'
 cannot be is `MQ3406` (`api/15` R-FCH-14). The child model may be a source of the compilation or a
 class on its classpath, as a nested model may (D-45).
 
-**R-PROC-48** *(D-213, `@Incubating`)* `@Join(entityJoin = "name")` nests a `@QueryModel` over an entity join declared
-on the same model (`api/17` R-SRC-23, R-SRC-25). `entityJoin` names a `@JoinEntity` of the model and cannot be combined
-with `attribute` or `treat` (a non-empty combination is `MQ3047`).
+**R-PROC-48** *(D-213, D-218, `@Incubating`)* `@Join(entityJoin = "name")` nests a `@QueryModel` over an entity join
+declared on the same model (`api/17` R-SRC-23, R-SRC-25). `entityJoin` names a `@JoinEntity` of the model and cannot be
+combined with `attribute` or `treat` (a non-empty combination is `MQ3047`).
 1. The named `@JoinEntity` exists on the model and its `entity` matches the nested model's root (`MQ3047`).
 2. `type` is not explicitly written on `@Join`: the join kind is the `@JoinEntity`'s (`MQ3047`).
 3. The nested model has a `@PrimaryKey` (`MQ3006`); its key columns decide presence.
 4. A nested `@Join` with `type = INNER` at any depth below a `LEFT` entity join is refused (`MQ3047`); likewise a nested model's own `INNER` join below a `LEFT` `@Join` is `MQ3044` (D-217).
-5. A nested model under `@Join(entityJoin)` may declare its own `@JoinEntity`, registered as under an association
-`@Join` (R-GEN-43): re-rooted onto the entity join, it is a chain (R-PROC-46, D-215), registered after it. It is
-`MQ3044` when the named join is anchored on a joined source, and, as rule 4, when it is `INNER` below a `LEFT` join.
-A nested `@JoinSource` there stays `MQ3044`: joined sources are created before every column-anchored entity join, so
-its anchor can't read one (D-217 (1) lifted for entity joins only). To-one `@Join`s below it are allowed.
+5. A nested model under `@Join(entityJoin)` may declare its own `@JoinEntity` and `@JoinSource`, registered as under
+an association `@Join` (R-GEN-43): re-rooted onto the entity join, a `@JoinEntity` is a chain (R-PROC-46, D-215),
+registered after it, and a `@JoinSource` is a source anchored on it (`api/17` R-SRC-21, D-218), which every statement
+creates after the column-anchored entity joins (R-SRC-24). Either is `MQ3044` when the named join is anchored on a
+joined source, and, as rule 4, when it is `INNER` below a `LEFT` join (D-217 (1) lifted by D-215 and D-218). A
+`@Child` over a model with such a field stays `MQ3039`. To-one `@Join`s below it are allowed.
 6. Two `@Join(entityJoin = ...)` fields may name the same join; each maps through the same joined table.
 7. Flat `@Column(entityJoin = ...)` fields and `@Join(entityJoin = ...)` fields may coexist on one model.
 8. When a `@Join(entityJoin = ...)` field's prefix equals its entity-join constant (for example,

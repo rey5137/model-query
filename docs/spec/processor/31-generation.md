@@ -80,29 +80,32 @@ field. It is in the default sets, and the mapper reads a `Class` through that co
 requires no additional nullness handling (`R-GEN-36`). The key, mapper, query builder and source otherwise keep their
 existing shape (D-154).
 
-**R-GEN-43** *(D-214, D-215, D-216, D-217, `@Incubating`)* **Nested joins are registered under the `@Join` prefix.** A
-nested model's own `@JoinSource` and `@JoinEntity` are declared again by every model that nests it under a `@Join` over
-an association, at any depth, as fresh constants (INV-9); its `@JoinEntity` is also declared under a `@Join(entityJoin)`
-(R-PROC-48 rule 5), anchored on the entity join's `P_<ANCHOR>` columns and registered after it. Per `@Join` field with
-prefix `P` the outer QModel emits, in this order: the nested model's plain columns, then each of its source joins and
-entity joins as `P_<JOIN>` (`SourceJoin.of("customerTotals", ...)`, `EntityJoin.of("customerRegion", ...)`) declared
-with `.within(P_TABLE)` and anchored on the outer's own columns of the `@Join` (`ColumnField.of(Outer.class, P_TABLE,
-"id", ...)` for a source, `P_<ANCHOR>` for an entity join), each followed by the columns read through it,
-`<Nested>.X.withTable(Outer.class, P_<JOIN>.root().named("<field path>"))`: built from the `root()` after `within`, named
-by the field path (`customer.address` below two levels). A join anchored on an earlier one so reads columns already set
-(a chain, D-215). A model below another `@Join` is registered by the same
+**R-GEN-43** *(D-214, D-215, D-216, D-217, D-218, `@Incubating`)* **Nested joins are registered under the `@Join`
+prefix.** A nested model's own `@JoinSource` and `@JoinEntity` are declared again by every model that nests it under a
+`@Join` over an association, at any depth, as fresh constants (INV-9); both are also declared under a
+`@Join(entityJoin)` naming a column-anchored join (R-PROC-48 rule 5, D-218), anchored on the entity join's columns
+(`P_<ANCHOR>` for an entity join, `ColumnField.of(Outer.class, P_TABLE, "id", ...)` over `P_TABLE = <JOIN>.root()...`
+for a source) and declared after it. Per `@Join` field with prefix `P` the outer QModel emits, in this order: the nested
+model's plain columns, then each of its source joins and entity joins as `P_<JOIN>` (`SourceJoin.of("customerTotals",
+...)`, `EntityJoin.of("customerRegion", ...)`) declared with `.within(P_TABLE)` and anchored on the outer's own columns
+of the `@Join` (`ColumnField.of(Outer.class, P_TABLE, "id", ...)` for a source, `P_<ANCHOR>` for an entity join), each
+followed by the columns read through it, `<Nested>.X.withTable(Outer.class, P_<JOIN>.root().named("<field path>"))`:
+built from the `root()` after `within`, named by the field path (`customer.address` below two levels). A join anchored
+on an earlier one so reads columns already set (a chain, D-215). A model below another `@Join` is registered by the same
 rule with the inner prefix (`CUSTOMER_ADDRESS_TOTALS`), so a two-level map lists the inner joins too. When a `@Join`
 field's nested model, or one below it, has joins, the QModel also generates `P_SCOPE = JoinScope.of(P_TABLE)
-.source(<Nested>.<JOIN>, P_<JOIN>)...entity(...)` (per table in depth-first order: that table's sources, then its entities) and the mapper reads
-`row.scoped(P_SCOPE)`; without joins it reads `row.scoped(P_TABLE)` as before. `JoinScope` checks the anchors, so a
-generated map that would read another join's row is refused when the class loads, never read as a wrong value
-(INV-5). A subtype adapter composes a scope with a name map onto the view it wraps. The outer `query(...)` takes the
-model's own `SourceQuery` parameters first, then one per nested source join in the order above, named like the join
-(`query(SourceQuery<Spend> customerSpend, SourceQuery<Spend> referrerSpend)`), and registers every source before every
-entity join; a missing or mistyped source is a compile error. Every new generated public member is `@Incubating`.
-A re-rooted anchor renders as the FK column, so a dangling FK still matches its source or entity row for filters, sorts
-and groups on the prefixed column while the nested read is empty (the FK-anchor note, `docs/site/docs/models.md`).
-Under `@Join(entityJoin)` nested joins are refused (R-PROC-48 rule 5, D-217).
+.source(<Nested>.<JOIN>, P_<JOIN>)...entity(...)` (per table in depth-first order: that table's sources, then its
+entities) and the mapper reads `row.scoped(P_SCOPE)`; without joins it reads `row.scoped(P_TABLE)` as before.
+`JoinScope` checks the anchors, so a generated map that would read another join's row is refused when the class loads,
+never read as a wrong value (INV-5). A subtype adapter composes a scope with a name map onto the view it wraps. The
+outer `query(...)` takes the model's own `SourceQuery` parameters first, then one per nested source join in the order
+above, named like the join (`query(SourceQuery<Spend> customerSpend, SourceQuery<Spend> referrerSpend)`), and registers
+every source before every entity join; a missing or mistyped source is a compile error. Every new generated public
+member is `@Incubating`. A re-rooted anchor renders as the FK column, so a dangling FK still matches its source or
+entity row for filters, sorts and groups on the prefixed column while the nested read is empty (the FK-anchor note,
+`docs/site/docs/models.md`). Under a `@Join(entityJoin)` naming a source-anchored join, nested joins are refused
+(`MQ3044`, R-PROC-48 rule 5, D-217, D-218); a nested source under a column-anchored one is bound in `query(...)` before
+the entity joins like any other, and every statement still creates it after them (`api/17` R-SRC-24 phase 3).
 
 **R-GEN-04** A joined `SelectSet` is derived from the nested model (`CustomerView`), so a column added to
 `CustomerView` appears in `QOrderView.CUSTOMER` with no list to update by hand. The processor reads the nested model's
@@ -601,3 +604,4 @@ no mapper or write method (R-GEN-37); the two vocabularies are checked at `build
 | AC-GEN-46 | A nested entity join anchored on a column of the nested model's own source join is generated with the anchor built in place on the registered source's `root()`, and executes equal to native SQL, following the source row (R-GEN-43). Tested by `NestedJoinModelTest.ac_gen_46_*` and `GeneratedNestedJoinExecutionTest.ac_gen_46_*`. |
 | AC-GEN-47 | Entity joins anchored on joins declared before them, through a model column, a to-one `@FilterColumn(entityJoin)` path and a chain of three, generate each join's columns before the next join and register them in declaration order; a nested model's own `@JoinEntity` under `@Join(entityJoin)` (`INNER` under `INNER` included) generates `P_<JOIN>` anchored on the entity join's columns after it. On H2, PostgreSQL and MySQL both match native SQL, with `count` equal to the rows (R-PROC-46, R-PROC-48 rule 5, R-GEN-43, D-215). Tested by `EntityJoinChecksTest.ac_proc_60_an_anchor_on_an_earlier_entity_join_*`, `ac_proc_60_an_inner_join_on_an_inner_join_generates`, `NestedJoinModelTest.ac_gen_47_*` and `GeneratedEntityJoinExecutionTest.ac_gen_47_*`. |
 | AC-GEN-48 | A nested model whose second entity join reads its first is registered under the `@Join` prefix in that order, each join followed by its columns, and executes equal to native SQL (R-GEN-43, D-215, D-216). Tested by `NestedJoinModelTest.ac_gen_48_*` and `GeneratedNestedJoinExecutionTest.ac_gen_48_*`. |
+| AC-GEN-49 | A nested `@JoinSource` under a `@Join(entityJoin)` naming a column-anchored join generates `P_<JOIN> = SourceJoin.of(...)` over `ColumnField.of(Outer.class, P_TABLE, ...)` `.within(P_TABLE)` after the entity join and its table, its columns from `P_<JOIN>.root()`, a `.source(...)` pair in `P_SCOPE`, and a `query(...)` parameter in D-214's order; the generated model reads the native SQL's rows in content, count, keyset pages and export, every statement creating the source after the entity join and its own entity join (R-GEN-43, R-PROC-48, D-218). Tested by `NestedJoinModelTest.ac_proc_61_ac_gen_49_*` and `GeneratedNestedJoinExecutionTest.ac_gen_49_*`. |
