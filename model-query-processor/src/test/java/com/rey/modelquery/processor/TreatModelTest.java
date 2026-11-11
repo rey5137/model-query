@@ -6,14 +6,20 @@ import static com.rey.modelquery.processor.ProcessorHarness.errors;
 import static com.rey.modelquery.processor.ProcessorHarness.generated;
 import static com.rey.modelquery.processor.ProcessorHarness.source;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.google.testing.compile.Compilation;
+import com.rey.modelquery.annotations.JoinKind;
+import com.rey.modelquery.core.ColumnField;
+import com.rey.modelquery.core.EntityJoin;
 import com.rey.modelquery.core.FieldIndex;
+import com.rey.modelquery.core.JoinScope;
 import com.rey.modelquery.core.Row;
 import com.rey.modelquery.core.RowMapper;
 import com.rey.modelquery.core.RowSelection;
 import com.rey.modelquery.core.SelectField;
 import com.rey.modelquery.core.SelectSet;
+import com.rey.modelquery.core.TableField;
 import jakarta.persistence.Tuple;
 import java.lang.reflect.Proxy;
 import java.util.Arrays;
@@ -270,6 +276,16 @@ class TreatModelTest {
         SelectField<?, ?> kind = field(loader.loadClass("treatgen.QPaymentView"), "KIND");
         assertThat(scoped.raw(kind)).isSameAs(card);
         assertThat(scoped.isSelected(kind)).isTrue();
+        // scoped(JoinScope) on a subtype-mapped @Join: a scope with no name map reads as scoped(TableField), a scope
+        // with one is refused rather than read without it (INV-5).
+        Class<?> paymentView = loader.loadClass("treatgen.QPaymentView");
+        TableField<?, ?> issuerTable = (TableField<?, ?>) paymentView.getField("ISSUER_TABLE").get(null);
+        SelectField<?, ?> issuerKind = field(loader.loadClass("treatgen.QIssuerView"), "KIND");
+        assertThat(scoped.scoped(JoinScope.of(issuerTable)).raw(issuerKind)).isSameAs(premium);
+        assertThat(scoped.scoped(issuerTable).raw(issuerKind)).isSameAs(premium);
+        JoinScope mapped = mappedIssuerScope(loader, issuerTable);
+        assertThatThrownBy(() -> scoped.scoped(mapped)).isInstanceOf(UnsupportedOperationException.class)
+                .hasMessage("a subtype-mapped @Join reads no name map: " + mapped);
         Row absent = (Row) scope.invoke(null, row(List.of(field(q, "PAYMENT_ID")), Arrays.asList((Object) null)));
         assertThat(absent.get(kind)).isNull();
         assertThat(absent.raw(kind)).isNull();
@@ -317,6 +333,17 @@ class TreatModelTest {
                 "SourceQuery.builder(PaymentSource.class,ROOT,ALL,KEY)");
         Class<?> q = ProcessorHarness.classes(compilation).loadClass("treatgen.QPaymentSource");
         assertThat(set(q, "ALL").fields()).contains(field(q, "LAST4"), field(q, "KIND"));
+    }
+
+    /** {@code issuerTable}'s scope mapping a hand-written nested entity join of IssuerView's to an outer one. */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static JoinScope mappedIssuerScope(ClassLoader loader, TableField issuerTable) throws Exception {
+        Class issuer = loader.loadClass("treatgen.Entities$Issuer");
+        ColumnField id = (ColumnField) field(loader.loadClass("treatgen.QIssuerView"), "ID");
+        EntityJoin nested = EntityJoin.of("other", issuer, JoinKind.LEFT, List.of(EntityJoin.on(id, "id")));
+        EntityJoin outer = EntityJoin.of("issuer_other", issuer, JoinKind.LEFT, List.of(EntityJoin.on(
+                id.withTable(loader.loadClass("treatgen.PaymentView"), issuerTable), "id"))).within(issuerTable);
+        return JoinScope.of(issuerTable).entity(nested, outer);
     }
 
     private static Compilation nested(boolean subtype) {

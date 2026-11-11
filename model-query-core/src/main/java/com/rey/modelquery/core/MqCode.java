@@ -48,6 +48,14 @@ public enum MqCode {
     @Incubating
     MQ1106("treat(...) requires an untreated entity node and a strict mapped subtype; modify joins before treating"),
 
+    /**
+     * A nested model's join is mapped wrongly or not at all under a {@code @Join}: a {@link JoinScope} pair of another
+     * kind, target, anchor or registration, a join registered {@code within} a {@code @Join} its anchors are not
+     * under, or a scoped row asked for a column on a joined root its scope does not map (D-214, D-216).
+     */
+    @Incubating
+    MQ1107("A nested model's join is not mapped, or mapped to an outer join it does not stand for"),
+
     /** {@code keyset()} or {@code primaryKeyFirst(...)} without a primary key (R-QRY-03). */
     MQ1201("keyset() and primaryKeyFirst(...) require a primary key"),
 

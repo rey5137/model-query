@@ -8,6 +8,7 @@ import com.rey.modelquery.core.BuiltQuery;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.annotations.JoinKind;
 import com.rey.modelquery.core.EntityJoin;
+import com.rey.modelquery.core.JoinScope;
 import com.rey.modelquery.core.KeysetCursorCodec;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryExecutionException;
@@ -194,6 +195,11 @@ class KeysetCursorTest {
 
             @Override
             public Row scoped(TableField<?, ?> join) {
+                throw new UnsupportedOperationException("scoped");
+            }
+
+            @Override
+            public Row scoped(JoinScope scope) {
                 throw new UnsupportedOperationException("scoped");
             }
         };

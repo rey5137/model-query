@@ -38,7 +38,10 @@ therefore produce one join.
 the join matched a row. It is kept by `as`, `on`, `named` and `withParent`, is not part of the join key, and throws
 `MQ1104` on the query's root, a source root, a joined source's root and a treated root. The engine selects it with any
 column of the join (`api/11` R-QRY-04), and a nested model's mapper reads it to tell a LEFT-join miss from a match
-whose other columns are `NULL` (`processor/31` R-GEN-13, D-38).
+whose other columns are `NULL` (`processor/31` R-GEN-13, D-38). A joined root registered `within` a `@Join` field
+(`EntityJoin#within`, `SourceJoin#within`, §5) is read under that field: any of its columns also selects the field's
+key and the keys above it, so a column set holding only a nested model's joined columns still maps it as present, and a
+grouped query needs those keys in `groupBy` (`MQ1409`). A join without `within` adds no key (D-216).
 
 - A joined-entity root (`EntityJoin#root()`, `api/17` R-SRC-23) takes a presence key too: the copy keeps its join
   name and so its join key, and equals the root it came from (D-213).
@@ -565,7 +568,16 @@ public interface Row {
     Object raw(SelectField<?, ?> column);             // the value as read, before any ColumnConverter
     boolean isSelected(SelectField<?, ?> column);
     Row scoped(TableField<?, ?> join);                // view of a nested model's columns under a join
+    Row scoped(JoinScope scope);                      // ... that also reads the nested model's own joins
 }
+
+public final class JoinScope {                        // @Incubating, a constant per @Join field (INV-9)
+    static JoinScope of(TableField<?, ?> join);
+    <E> JoinScope entity(EntityJoin<?, E> nested, EntityJoin<?, E> outer);
+    <S> JoinScope source(SourceJoin<?, S> nested, SourceJoin<?, S> outer);
+    TableField<?, ?> table();
+}
+// EntityJoin<M, E> within(TableField<?, ?> join), SourceJoin<M, S> within(...): the @Join a prefixed join is under
 
 @FunctionalInterface
 public interface RowMapper<M> {
@@ -588,6 +600,22 @@ A hand-written record model passes a lambda: `row -> new OrderView(row.get(ID), 
 may use `RowMapper.setters(factory)`, whose `bind` takes a `SelectField<M, C>` of the mapper's own model: another
 model's column is never selected, so it would set `null` on every row, and it does not compile (D-88). Generated
 mappers are `processor/31`.
+
+**R-COL-41** *(D-214, D-216)* **A scoped row stops at joined roots.** `row.scoped(join)` looks a nested model's
+column up on its path re-rooted under `join`. A column on one of the nested model's own source or entity joins is no
+path of `join`: through `scoped(TableField)` it is `MQ1107` from `get`, `raw` and `isSelected`, never the scope's own
+column of that attribute. `row.scoped(JoinScope)` reads it through the outer join the scope maps it to, the one the
+outer model registered under the field's prefix, re-rooting any to-one path below it. A scoped view resolves a path
+one scope at a time, innermost first, so scopes compose for two levels of nesting. Each `JoinScope` pair is checked
+when the constant is built, all `MQ1107`: the same entity or source and `JoinKind`, each join mapped once, the outer
+join registered `within` the field (or within the outer path of the nested join's own `@Join`) with that table's
+`presentBy` key, and its pairs, id attributes or key fields and `when` term the nested join's re-rooted under the
+field; a nested join anchored on another maps after it. `within` is checked when declared: every anchor and the
+`when` column read at or below the field, one link per join; a `when(...)` term added after `within` is checked the
+same way. Its target is the `@Join` field's own constant: the presence walk (R-COL-15) reads that table's
+`presentBy`, so an equal-keyed copy without it would select no key, and a scope refuses it. Columns are built from the
+`root()` returned after `within`; a column built from the root before it misses the link, which no check can see.
+Neither the scope nor `within` is part of a join key.
 
 ## 6. `OrderField` and null precedence
 
@@ -793,6 +821,10 @@ the planner must see as a literal (a partial index's predicate, a selective enum
 | AC-COL-64 | `presentBy` on a joined-entity root returns a copy equal to the root (same join key and hash), still a joined-entity root, carrying the key, which `named` keeps and `withParent` returns as is; `presentBy` on the query's root, a source root, a joined source's root, a treated root and a treated joined-entity root, and `as` / `on` on a joined-entity root, throw `MQ1104` (R-COL-15, D-213). Tests: core `PresenceKeyTest#ac_col_64_*`. |
 | AC-COL-65 | A joined root (entity or source) named `purchaser` gives its columns the property path `purchaser.<property>`, through unnamed association nodes below it too, and `purchaser.kind.<property>` below a node named `kind`; an unnamed joined root keeps `<property>`, the query's root never adds its property, and `identityPath()` is unchanged; `orderedBy` and a `FieldIndex` filter name the column `purchaser.name` while a bare `name` names the root column, a column with no property sorts as `purchaser.<attribute>`, and `FieldIndex.joinSet` takes the named root but refuses an unnamed node below it, on H2 (R-COL-15, R-QRY-14, D-213). Tests: core `EntityJoinTest#ac_col_65_*`; TCK `EntityJoinPresenceExecutionTest#ac_col_65_*`. |
 | AC-COL-66 | A nested model read through `row.scoped(...)` of a named joined-entity root with a presence key: a `LEFT` miss is empty, a match whose read columns are all `NULL` is present, `INNER` drops the misses, both matching native SQL, and a column set that leaves the key out still selects it, on H2 (R-COL-15, D-38, D-213). Tests: TCK `EntityJoinPresenceExecutionTest#ac_col_66_*`. |
+| AC-COL-67 | A plain `row.scoped(join)` asked for a nested column on a joined root (entity or source) throws `MQ1107` from `get`, `raw` and `isSelected` instead of reading the scope's own column of that attribute, also at execution, where today's code read the customer's name as its label; a key on a joined root is never re-rooted (R-COL-41, D-214, D-216). Tests: `JoinScopeTest#ac_col_67_*`, TCK `NestedJoinScopeExecutionTest#ac_col_67_*`. |
+| AC-COL-68 | `row.scoped(JoinScope)` reads each nested entity and source join through the outer join mapped for it, a to-one path below it and an entity join anchored on a source join included; two `@Join` fields of one nested type each read their own joins, matching native SQL on H2, PostgreSQL and MySQL; a joined root the scope does not map is `MQ1107` when read; scopes compose two levels deep (R-COL-41, D-216). Tests: `JoinScopeTest#ac_col_68_*`, TCK `NestedJoinScopeExecutionTest#ac_col_68_*`. |
+| AC-COL-69 | Building a `JoinScope` refuses with `MQ1107` a swapped prefix, two joins of one entity in one field swapped, another entity or kind, an outer join without `within` or `within` an equal-keyed copy of the field's table without its `presentBy` key, a join mapped twice, another id attribute or source key field, another `when` term, and a join anchored on a nested join mapped before it; `within`, and `when` after it, refuse an anchor or `when` column not read at or below the field, and `within` a second link; `within` and `named` keep the join key and the link, and equal scopes are equal and hash alike (R-COL-41, D-216). Tests: `JoinScopeTest#ac_col_69_*`, TCK `NestedJoinScopeExecutionTest#ac_col_69_*`. |
+| AC-COL-70 | A column set holding only nested joined columns registered `within` a `@Join` field selects that field's key and the keys above it, two levels deep too, and maps each nested model present where native SQL has a row; a join without `within` adds no key; a grouped query selecting such a column needs every key on the walk in `groupBy` or throws `MQ1409` (R-COL-15, D-38, D-216). Tests: `JoinScopeTest#ac_col_70_*`, TCK `NestedJoinScopeExecutionTest#ac_col_70_*`. |
 
 AC-COL-36..39, 41 and 42 run on every Tier-1 vendor and both Hibernate lines. Each scalar terminal selects,
 filters and orders. AC-COL-41 covers all R-COL-33 refusals, including generated annotations and

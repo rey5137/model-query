@@ -13,6 +13,7 @@ import com.google.testing.compile.Compilation;
 import com.rey.modelquery.core.ChildField;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.JoinField;
+import com.rey.modelquery.core.JoinScope;
 import com.rey.modelquery.core.Row;
 import com.rey.modelquery.core.RowMapper;
 import com.rey.modelquery.core.SelectField;
@@ -425,6 +426,11 @@ class FetchFieldTest {
 
             @Override
             public Row scoped(TableField<?, ?> join) {
+                return ProcessorHarness.row(Map.of());
+            }
+
+            @Override
+            public Row scoped(JoinScope scope) {
                 return ProcessorHarness.row(Map.of());
             }
         };
