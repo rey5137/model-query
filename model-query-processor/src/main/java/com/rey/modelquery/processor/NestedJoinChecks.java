@@ -2,9 +2,11 @@ package com.rey.modelquery.processor;
 
 import com.rey.modelquery.processor.ModelDefinition.EntityJoinDefinition;
 import com.rey.modelquery.processor.ModelDefinition.ModelField;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * The checks of a nested model's own {@code @JoinSource} and {@code @JoinEntity} under a {@code @Join} of the model
@@ -79,7 +81,7 @@ final class NestedJoinChecks {
     private static boolean chains(ModelDefinition model, ModelField join, ModelDefinition nested,
             List<NestedJoins> declared, String where, Diagnostics diagnostics) {
         String name = join.join().entityJoin();
-        var outer = model.entityJoins().stream().filter(each -> each.name().equals(name)).findFirst().orElse(null);
+        var outer = model.entityJoin(name);
         if (outer != null && !outer.source().isEmpty()) {
             return error(join, where + nested.name() + " joins " + quoted(declared) + " below the entity join '"
                     + name + "', which is anchored on a joined source; only a join anchored on the root's columns "
@@ -122,7 +124,7 @@ final class NestedJoinChecks {
             ModelField join, ModelDefinition nested, EntityJoinDefinition entityJoin, String where,
             Diagnostics diagnostics) {
         boolean valid = true;
-        var terms = new java.util.ArrayList<String>();
+        var terms = new ArrayList<String>();
         if (entityJoin.source().isEmpty()) {
             entityJoin.on().forEach(pair -> terms.add(pair.column()));
         }
@@ -156,7 +158,7 @@ final class NestedJoinChecks {
 
     private static String quoted(List<NestedJoins> joins) {
         return joins.stream().map(join -> "'" + join.declared() + "'")
-                .collect(java.util.stream.Collectors.joining(", "));
+                .collect(Collectors.joining(", "));
     }
 
     private static boolean error(ModelField join, String detail, Diagnostics diagnostics) {

@@ -401,30 +401,33 @@ public enum MqCode {
     MQ1909("A sub-select cannot be rooted at a source; read the source in an outer query instead"),
 
     /**
-     * A hand-written {@code SourceJoin} binding whose {@code on} pairs miss the source's key or exceed it (a partial
-     * key, a field paired twice, a field that is not a key field), over a non-unique or recursive source, or a join
-     * bound twice; raised when the query is built (R-SRC-21, D-187).
+     * A hand-written {@code SourceJoin} binding that is not unique, or joined on a partial key, a repeated or non-key
+     * field, a converted key or an outer column that is not a to-one read of the root, an unbound or source-anchored
+     * entity join, or a {@code LEFT} one below an {@code INNER} source; raised when the query is built, or at first
+     * resolution for an outer column through a to-many path (R-SRC-21, D-187, D-218, D-219).
      */
     @Incubating
-    MQ1910("A joined source must be unique and joined on its full key, once"),
+    MQ1910("A joined source must be unique, joined on its full key, once, and read its outer columns to one row"),
 
     /**
-     * An entity join is bound twice, has an invalid source anchor, or does not pair that source with every basic
-     * entity id attribute exactly once using the same boxed Java types, or names an entity class the render
-     * options' metamodel rejects. Without a metamodel the renderer or provider decides (Hibernate may throw its own
-     * {@code IllegalArgumentException}; a {@code From} whose model is no {@code EntityType} is MQ4014)
-     * (R-SRC-23, R-SRC-24).
+     * An entity join is bound twice, has an invalid source or column anchor (a chain over an unbound, later, own or
+     * source-anchored entity join, an {@code INNER} one on a {@code LEFT} one, a to-many path), or does not pair that
+     * source with every basic entity id attribute exactly once using the same boxed Java types, or names an entity
+     * class the render options' metamodel rejects. Without a metamodel the renderer or provider decides (Hibernate may
+     * throw its own {@code IllegalArgumentException}; a {@code From} whose model is no {@code EntityType} is MQ4014)
+     * (R-SRC-23, R-SRC-24, D-215).
      */
     @Incubating
-    MQ1911("An entity join must bind one joined source to its full entity id, once"),
+    MQ1911("An entity join must bind one entity, anchored on the root or an earlier join, to its full id, once"),
 
     /**
      * A request-bound join filter has an unsafe target or value, targets an entity join the query does not bind, or a
-     * query could bypass its ON; also a join that resolves to INNER below a join-filtered join, refused at statement
-     * build rather than at {@code build()} (R-COL-39, D-194, D-195).
+     * query could bypass its ON; also a join that resolves to INNER below a join-filtered join, or an {@code INNER}
+     * entity join or joined source whose anchor reads through one, refused at statement build rather than at
+     * {@code build()} (R-COL-39, D-194, D-195, D-218).
      */
     @Incubating
-    MQ1912("A join filter must read only its LEFT join's own columns, values and constants"),
+    MQ1912("A join filter must read only its LEFT join's own columns, values and constants, and no INNER join may read through it"),
 
     /** A page size or {@code maxPerParent} that is not positive, or a limit that is negative (R-EXE-06, R-FCH-11). */
     MQ2001("A page or chunk size and maxPerParent must be positive, and a limit must not be negative"),

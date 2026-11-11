@@ -1428,8 +1428,7 @@ final class ModelValidator {
                         where + "@Join type cannot be combined with entityJoin; the join kind is the @JoinEntity's");
                 joinable = false;
             }
-            var entityJoin = model.entityJoins().stream()
-                    .filter(j -> j.name().equals(join.entityJoin())).findFirst().orElse(null);
+            var entityJoin = model.entityJoin(join.entityJoin());
             if (entityJoin == null) {
                 diagnostics.error(field.element(), DiagnosticCode.MQ3047,
                         where + "unknown entity join '" + join.entityJoin() + "'");
@@ -1590,8 +1589,7 @@ final class ModelValidator {
         }
         for (ModelField field : model.joins()) {
             if (!field.join().entityJoin().isEmpty()) {
-                var ej = model.entityJoins().stream()
-                        .filter(j -> j.name().equals(field.join().entityJoin())).findFirst().orElse(null);
+                var ej = model.entityJoin(field.join().entityJoin());
                 if (ej != null && "INNER".equals(ej.kind())) {
                     return true;
                 }

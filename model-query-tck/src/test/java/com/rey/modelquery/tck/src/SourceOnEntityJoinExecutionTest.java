@@ -423,6 +423,37 @@ class SourceOnEntityJoinExecutionTest {
         assertThat(sql).isEmpty();
     }
 
+    // ---- AC-SRC-67: an outer column through a to-many path repeats each outer row (D-219)
+
+    @TckTest
+    void ac_src_67_a_to_many_outer_column_is_refused_before_any_statement(TckDatabase db) {
+        var items = TableField.join(ORDERS, "items", JoinType.LEFT);
+        var onRoot = SourceJoin.of("referrals", Referrals.class, JoinKind.LEFT,
+                List.of(SourceJoin.on(ColumnField.of(Row.class, items, "id", Long.class), S_REFERRER)));
+        // Below an entity join, a to-many segment is already MQ1911 where the path resolves (D-218).
+        var orders = TableField.join(REFERRED.root(), "orders", JoinType.LEFT);
+        var onEntity = SourceJoin.of("referrals", Referrals.class, JoinKind.LEFT,
+                List.of(SourceJoin.on(ColumnField.of(Row.class, orders, "id", Long.class), S_REFERRER)));
+        List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, x -> {
+            for (var join : List.of(onRoot, onEntity)) {
+                MqCode expected = join == onRoot ? MqCode.MQ1910 : MqCode.MQ1911;
+                var count = ColumnField.over(Row.class, join.root(), S_COUNT).named("referrals");
+                var query = ModelQuery.builder(ORDERS, row -> new Row(row.get(ID), null, row.get(count)))
+                        .joinSource(join, REFERRALS).joinEntity(REFERRED).select(SelectSet.of(ID, count))
+                        .primaryKey(PrimaryKey.of(ID)).where(f -> f.gte(ID, 990L).lte(ID, 1030L)).orderBy(ID.asc())
+                        .build();
+                for (Runnable run : List.<Runnable>of(() -> x.list(query, Limit.unlimited()), () -> x.count(query))) {
+                    assertThatThrownBy(run::run)
+                            .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                                    e -> assertThat(e.code()).as(e.getMessage()).isEqualTo(expected))
+                            .hasMessageContaining(join == onRoot ? "outer column id reads through the to-many items"
+                                    : "a path below an entity join must be to-one");
+                }
+            }
+        }));
+        assertThat(sql).isEmpty();
+    }
+
     // ---- AC-SRC-69: cell 7, a through child statement
 
     @TckTest

@@ -150,6 +150,11 @@ record ModelDefinition(
         return all;
     }
 
+    /** The entity join named {@code name}, or {@code null}. */
+    EntityJoinDefinition entityJoin(String name) {
+        return entityJoins.stream().filter(join -> join.name().equals(name)).findFirst().orElse(null);
+    }
+
     /** The entity whose attributes a named entity join reads. */
     TypeElement entityRoot(String name) {
         return entityJoins.stream().filter(join -> join.name().equals(name))

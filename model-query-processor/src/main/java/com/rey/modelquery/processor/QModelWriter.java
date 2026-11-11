@@ -141,7 +141,7 @@ final class QModelWriter {
         }
         List<JoinedTable> joined = writeOnly ? List.of() : nestedModels.tables(model);
         for (JoinedTable table : joined) {
-            if (table.join().join().entityJoin().isEmpty()) {
+            if (!table.isEntityJoin()) {
                 type.addField(joinedTable(table));
             }
         }
@@ -186,7 +186,7 @@ final class QModelWriter {
             }
         }
         for (JoinedTable table : joined) {
-            if (!table.join().join().entityJoin().isEmpty()) {
+            if (table.isEntityJoin()) {
                 continue;
             }
             joinedConstants(type, modelName, table);
@@ -217,12 +217,12 @@ final class QModelWriter {
             }
         }
         for (JoinedTable table : joined) {
-            if (!table.join().join().entityJoin().isEmpty()) {
+            if (table.isEntityJoin()) {
                 type.addField(joinedTable(table));
             }
         }
         for (JoinedTable table : joined) {
-            if (table.join().join().entityJoin().isEmpty()) {
+            if (!table.isEntityJoin()) {
                 continue;
             }
             joinedConstants(type, modelName, table);
