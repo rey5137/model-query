@@ -20,7 +20,7 @@ public record OrderView(
 | Annotation | Use |
 |---|---|
 | `@QueryModel(root = ...)` | Marks a model and names its root entity. `prefix` and `suffix` rename the generated class; `singleGroup` is covered in [Grouped queries](grouped-queries.md), `generateChanges` in [Shared accessors across models](#shared-accessors-across-models). |
-| `@PrimaryKey` | The entity id. Paging, export and nested-model presence read it. Required on a model without aggregates. |
+| `@PrimaryKey` | Marks the field(s) holding the entity id. Paging, export and nested-model presence read it. Required on a model without aggregates. A composite id needs it on **every** key column: with `@IdClass`, on each field named like an `@Id` attribute; with `@EmbeddedId`, on each field mapped into the id with `@Column(attribute = "id.orderId")`. See the example below the table. |
 | `@Column(attribute = ..., converter = ..., treat = ...)` | Maps a field to a differently named attribute, converts between types, or reads a subtype attribute in a polymorphic hierarchy; see [Inheritance roots](inheritance-roots.md). |
 | `@Join` | A nested model read through a to-one association. The field must be an `Optional` of another `@QueryModel`; it is empty when a LEFT join found nothing. |
 | `@FilterColumn(name, path, ...)` | Adds a filter-only constant for an attribute path (`customer.country`) that the model does not select. |
@@ -28,6 +28,20 @@ public record OrderView(
 | `@Transient` | Keeps a field out of the mapping. |
 | `@GroupBy`, `@Aggregate` | Turn a model into a grouped result; see [Grouped queries](grouped-queries.md). |
 | `@UpdateModel(root = ...)` | Declares the attributes a bulk update may write; see [Bulk writes](bulk-writes.md). |
+
+A composite key, over an `@IdClass(OrderLine.Key.class)` entity whose `@Id` attributes are `orderId` and `lineNo`:
+
+```java
+@QueryModel(root = OrderLine.class)
+public record OrderLineView(
+        @PrimaryKey Long orderId,
+        @PrimaryKey Integer lineNo,
+        Integer qty) {}
+```
+
+Its generated `KEY` is `PrimaryKey.composite(ORDER_ID, LINE_NO)`, typed `PrimaryKey<OrderLineView, List<Object>>`, and
+it counts as present when any key column is non-null. With `generateInserts`, see the composite-key notes under
+[One model for reading and creating](#one-model-for-reading-and-creating).
 
 A field of type `Instant` or `Date` over a `java.sql.Timestamp` attribute needs no `converter`: the processor gives it
 the built-in `InstantTimestampConverter` or `DateTimestampConverter`, so you filter it with values of the field's type:
