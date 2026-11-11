@@ -39,6 +39,14 @@ public @interface Join {
     JoinKind type() default JoinKind.LEFT;
 
     /**
+     * The declared entity join of the model this nested model reads (RFC 0024 Part A, R-PROC-48).
+     *
+     * @return the entity join name, or {@code ""} for an association join
+     */
+    @Incubating
+    String entityJoin() default "";
+
+    /**
      * Prefix of the constants generated for the nested model's columns.
      *
      * @return the constant prefix, or {@code ""} for one derived from the field's name

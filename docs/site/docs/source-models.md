@@ -656,9 +656,10 @@ var query = ModelQuery.builder(ORDERS, row -> new Row(row.get(ID), row.get(name)
   processor or `MQ1911` when a hand-written join is built.
 - **Basic columns and to-one paths.** Joined columns can follow to-one paths, as `customer.name` does above, with
   their declared join kind (`@FilterColumn#joinType` applies to the associations on the path; the entity join's own kind is `@JoinEntity#type`). A to-one column below an entity join resolves by its model field name (`viaOrder` here).
-  To-many paths, nested `@Join`, a joined-column `@PrimaryKey`, `@JoinEntity` on `@SourceModel`, and `treat` combined
-  with `entityJoin` are refused. A `@Child` whose child model declares an entity join is `MQ3039`, since a fetch plan
-  passes no join; a nested `@Join` model that declares one is `MQ3044`.
+  To-many paths, a joined-column `@PrimaryKey`, `@JoinEntity` on `@SourceModel`, and `treat` combined
+  with `entityJoin` are refused. A `@Child` whose child model declares an entity join, directly or through a nested
+  `@Join` recursively, is `MQ3039`, since a fetch plan passes no join; a nested `@Join` model that declares its own
+  entity join is `MQ3044`.
   Generated declarations fail with [`MQ3046`](diagnostics.md); invalid hand-written
   definitions fail with [`MQ1911`](diagnostics.md), at build or first resolution before SQL; an entity class the render
   options' metamodel rejects as unmapped is `MQ1911` too (without a metamodel, the provider decides). A column over an entity join the query does not bind is `MQ1003`.
@@ -678,6 +679,48 @@ var query = ModelQuery.builder(ORDERS, row -> new Row(row.get(ID), row.get(name)
 
 Use a [join filter](models.md#join-filters) to blank a LEFT-joined entity's columns for one request while keeping
 its outer row. A `where` on a blanked column can still filter that row out.
+
+### Nested models over entity joins
+
+`@Join(entityJoin = "name")` projects an entity join into a nested `@QueryModel`:
+
+```java
+@QueryModel(root = CustomerEntity.class)
+public record BuyerCustomerView(@PrimaryKey Long id, String name, String email) {}
+
+@QueryModel(root = OrderEntity.class)
+@JoinEntity(name = "buyer", entity = CustomerEntity.class, type = JoinKind.LEFT,
+        on = @JoinEntity.On(column = "referrerId"))
+public record OrderWithBuyer(
+        @PrimaryKey Long id,
+        Long referrerId,
+        @Join(entityJoin = "buyer") Optional<BuyerCustomerView> buyer) {}
+```
+
+The named `@JoinEntity` must exist and its target entity must match the nested model's root. The join kind is
+inherited from `@JoinEntity` (`type` cannot be explicitly written on `@Join`). If the entity join is `LEFT`, any
+nested `@Join` with `type = INNER` below it is refused ([`MQ3047`](diagnostics.md)). The nested model is
+`Optional.empty()` on a miss and present on a match; presence follows the nested model's `@PrimaryKey`. When the
+`@Join` field's prefix matches the entity join's constant (`BUYER`), its column set is named `BUYER_SET` to avoid
+colliding with the `BUYER` entity-join constant.
+
+```java
+var query = QOrderWithBuyer.query()
+        .select(QOrderWithBuyer.ALL.with(QOrderWithBuyer.BUYER_SET))
+        .orderBy(QOrderWithBuyer.ID.asc()).build();
+```
+
+=== "Plain JPA"
+
+    ```java
+    List<OrderWithBuyer> rows = executor.list(query, Limit.unlimited());
+    ```
+
+=== "Spring repository"
+
+    ```java
+    List<OrderWithBuyer> rows = orders.findAll(query, Limit.unlimited());
+    ```
 
 ### What a joined source costs
 

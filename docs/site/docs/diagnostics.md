@@ -253,11 +253,12 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | `MQ3036` | An outer model's `@PrimaryKey` is not exactly its source's key. |
 | `MQ3037` | A recursive source is not well written: a `@Depth` that is not one `Integer`, a second one, a `@Depth` outside a `@SourceModel`, or `@Window`, `@Aggregate` or `@GroupBy` beside it. |
 | `MQ3038` | A model's `root` is neither an `@Entity` nor a `@SourceModel`, or both. |
-| `MQ3039` | `@Child` whose child model is rooted at a source, joins one (`@JoinSource`), or declares an entity join: a fetch plan has no source or join to pass it. |
+| `MQ3039` | `@Child` whose child model is rooted at a source, joins one (`@JoinSource`), or declares an entity join, directly or through a nested `@Join`: a fetch plan has no source or join to pass it. |
 | `MQ3040` | `generateChanges` on a model rooted at a source. A write needs an entity root; read the source through an outer model instead ([Source models](source-models.md)). |
 | `MQ3044` | `@JoinSource` or `@SourceColumn` written wrongly: `on` misses or exceeds the source's key, pairs a key twice or mismatches a type, an unknown root attribute, source field or join, a class that is no `@SourceModel`, a repeated join name, a key field with a converter, a `@SourceColumn` beside `@PrimaryKey` or an annotation that makes the field no column, a model that is not a `@QueryModel` rooted at an entity, or a nested `@Join` model that joins a source or declares an entity join. |
 | `MQ3045` | `@Aggregate` with `orderBy` but not `FIRST_BY` (or `FIRST_BY` without one), an unknown or malformed `orderBy` key, a `filter` class that is no public `FilterDefinition` of the model with an `INSTANCE` or no-arg constructor, a `scale` outside 0 to 30 or on a field that is not a `BigDecimal`, or an `AVG` field typed `BigDecimal` over a `Double` or `Float` attribute. |
 | `MQ3046` | Invalid `@JoinEntity`, joined-entity column or joined-entity aggregate; see the checks below. |
+| `MQ3047` | Invalid `@Join(entityJoin)`: named join not found, entity mismatch with nested root, `type`, `attribute` or `treat` written with `entityJoin`, or an `INNER` join below a `LEFT` entity join ([Source models](source-models.md)). |
 | `MQ3201` | Aggregate model: field is primitive. |
 | `MQ3202` | Aggregate model: field type does not match the function's result type. |
 | `MQ3203` | Aggregate model: no `@GroupBy` field and is not `singleGroup`. |

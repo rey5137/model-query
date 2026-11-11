@@ -288,7 +288,7 @@ record FilterLayout(
     private static JoinedTable declared(
             List<JoinedTable> joined, JoinedTable under, String crossed, String alias, String root) {
         for (JoinedTable table : joined) {
-            if (!table.attributes().equals(crossed)) {
+            if (table.isEntityJoin() || !table.attributes().equals(crossed)) {
                 continue;
             }
             boolean matches = under == null

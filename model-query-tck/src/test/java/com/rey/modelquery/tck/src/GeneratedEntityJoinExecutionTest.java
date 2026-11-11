@@ -116,4 +116,92 @@ class GeneratedEntityJoinExecutionTest {
         assertThat(rows).isNotEmpty().containsExactlyElementsOf(nativeRows);
         assertThat(sql).anySatisfy(statement -> assertThat(statement.toLowerCase()).contains("count(*)"));
     }
+
+    @TckTest
+    void ac_gen_36_generated_entity_joins_run_nested_reads_and_presence_semantics(TckDatabase db)
+            throws SQLException {
+        var query = QOrderWithBuyerModel.query().select(QOrderWithBuyerModel.ALL
+                        .with(QOrderWithBuyerModel.BUYER_SET)
+                        .with(QOrderWithBuyerModel.SLOT_SET)
+                        .with(QOrderWithBuyerModel.ORDER_COPY_SET)
+                        .with(QOrderWithBuyerModel.ORDER_COPY_CUSTOMER))
+                .where(f -> f.gte(QOrderWithBuyerModel.ID, 1L).lte(QOrderWithBuyerModel.ID, 35L))
+                .orderBy(QOrderWithBuyerModel.ID.asc()).build();
+        List<OrderWithBuyerModel> rows = new ArrayList<>();
+        SqlSnapshots.capture(db, ds -> {
+            try (SessionFactory sf = JoinTestSupport.sessionFactory(ds)) {
+                sf.inSession(em -> rows.addAll(ModelQueryExecutor.create(em, OrderEntity.class,
+                        ModelQueryConfig.defaults()).list(query, Limit.unlimited())));
+            }
+        });
+        // 1. LEFT miss -> Optional.empty(), match -> present
+        assertThat(rows).filteredOn(r -> r.id() == 1L || r.id() == 2L)
+                .allSatisfy(r -> assertThat(r.buyer()).isEmpty());
+        assertThat(rows).filteredOn(r -> r.id() == 3L)
+                .singleElement()
+                .satisfies(r -> {
+                    assertThat(r.buyer()).isPresent();
+                    assertThat(r.buyer().get().name()).isEqualTo("Customer 0034");
+                });
+
+        // 2. match with all-NULL non-key columns -> present
+        assertThat(rows).filteredOn(r -> r.id() == 35L)
+                .singleElement()
+                .satisfies(r -> {
+                    assertThat(r.slot()).isPresent();
+                    assertThat(r.slot().get().id()).isEqualTo(35L);
+                    assertThat(r.slot().get().sortInt()).isNull();
+                    assertThat(r.slot().get().sortText()).isNull();
+                });
+
+        // 5. a @Join below the nested model (to-one): orderCopy has customer
+        assertThat(rows).filteredOn(r -> r.id() == 1L)
+                .singleElement()
+                .satisfies(r -> {
+                    assertThat(r.orderCopy()).isPresent();
+                    assertThat(r.orderCopy().get().customer()).isPresent();
+                    assertThat(r.orderCopy().get().customer().get().name()).isNotNull();
+                });
+
+        // 3. INNER drops misses
+        var innerQuery = QInnerOrderWithBuyerModel.query()
+                .select(QInnerOrderWithBuyerModel.ALL.with(QInnerOrderWithBuyerModel.BUYER_SET))
+                .where(f -> f.gte(QInnerOrderWithBuyerModel.ID, 1L).lte(QInnerOrderWithBuyerModel.ID, 30L))
+                .orderBy(QInnerOrderWithBuyerModel.ID.asc()).build();
+        List<InnerOrderWithBuyerModel> innerRows = new ArrayList<>();
+        SqlSnapshots.capture(db, ds -> {
+            try (SessionFactory sf = JoinTestSupport.sessionFactory(ds)) {
+                sf.inSession(em -> innerRows.addAll(ModelQueryExecutor.create(em, OrderEntity.class,
+                        ModelQueryConfig.defaults()).list(innerQuery, Limit.unlimited())));
+            }
+        });
+        assertThat(innerRows).hasSize(10).allSatisfy(r -> assertThat(r.buyer()).isPresent());
+
+        // 4. buyer.name sort and filter path
+        var filteredQuery = QOrderWithBuyerModel.query()
+                .select(QOrderWithBuyerModel.ALL.with(QOrderWithBuyerModel.BUYER_SET))
+                .where(f -> f.eq(QOrderWithBuyerModel.BUYER_NAME, "Customer 0034")).build();
+        List<OrderWithBuyerModel> filtered = new ArrayList<>();
+        SqlSnapshots.capture(db, ds -> {
+            try (SessionFactory sf = JoinTestSupport.sessionFactory(ds)) {
+                sf.inSession(em -> filtered.addAll(ModelQueryExecutor.create(em, OrderEntity.class,
+                        ModelQueryConfig.defaults()).list(filteredQuery, Limit.unlimited())));
+            }
+        });
+        assertThat(filtered).extracting(OrderWithBuyerModel::id).contains(3L);
+
+        var sortedQuery = QInnerOrderWithBuyerModel.query()
+                .select(QInnerOrderWithBuyerModel.ALL.with(QInnerOrderWithBuyerModel.BUYER_SET))
+                .where(f -> f.gte(QInnerOrderWithBuyerModel.ID, 1L).lte(QInnerOrderWithBuyerModel.ID, 30L))
+                .orderBy(QInnerOrderWithBuyerModel.BUYER_NAME.desc()).build();
+        List<InnerOrderWithBuyerModel> sorted = new ArrayList<>();
+        SqlSnapshots.capture(db, ds -> {
+            try (SessionFactory sf = JoinTestSupport.sessionFactory(ds)) {
+                sf.inSession(em -> sorted.addAll(ModelQueryExecutor.create(em, OrderEntity.class,
+                        ModelQueryConfig.defaults()).list(sortedQuery, Limit.unlimited())));
+            }
+        });
+        assertThat(sorted).hasSize(10).extracting(r -> r.buyer().orElseThrow().name())
+                .isSortedAccordingTo(java.util.Comparator.reverseOrder());
+    }
 }

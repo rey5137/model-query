@@ -616,4 +616,313 @@ class EntityJoinChecksTest {
         assertThat(association).hadErrorContaining("MQ3002:");
         assertThat(association).hadErrorCount(1);
     }
+
+    private static final JavaFileObject NODE_STUB = source("shop.Node", """
+            package shop;
+            import jakarta.persistence.*;
+            @Entity public class Node { @Id Long id; }
+            """);
+    private static final JavaFileObject PROFILE_STUB = source("shop.Profile", """
+            package shop;
+            import jakarta.persistence.*;
+            @Entity public class Profile { @Id Long id; String name; }
+            """);
+
+    private static void rejected47(Compilation compilation, String detail) {
+        assertThat(compilation).failed();
+        assertThat(compilation).hadErrorContaining("MQ3047:");
+        assertThat(compilation).hadErrorContaining(detail);
+    }
+
+    @Test
+    void ac_proc_51_unknown_entity_join_on_nested_join_is_mq3047() {
+        JavaFileObject profileView = source("shop.ProfileView", """
+                package shop;
+                import com.rey.modelquery.annotations.*;
+                @QueryModel(root = Profile.class)
+                public record ProfileView(@PrimaryKey Long id, String name) {}
+                """);
+        Compilation compilation = compile(
+                NODE_STUB, PROFILE_STUB, profileView,
+                source("shop.Detail", """
+                        package shop;
+                        import com.rey.modelquery.annotations.*;
+                        import java.util.Optional;
+                        @QueryModel(root = Node.class)
+                        @JoinEntity(name = "manager", entity = Profile.class, on = @JoinEntity.On(column = "id"))
+                        public record Detail(@PrimaryKey Long id,
+                                @Join(entityJoin = "missing") Optional<ProfileView> profile) {}
+                        """));
+        rejected47(compilation, "unknown entity join 'missing'");
+    }
+
+    @Test
+    void ac_proc_51_entity_join_on_nested_join_targeting_wrong_entity_is_mq3047() {
+        JavaFileObject otherEntity = source("shop.Other", """
+                package shop;
+                import jakarta.persistence.*;
+                @Entity public class Other { @Id Long id; }
+                """);
+        JavaFileObject otherView = source("shop.OtherView", """
+                package shop;
+                import com.rey.modelquery.annotations.*;
+                @QueryModel(root = Other.class)
+                public record OtherView(@PrimaryKey Long id) {}
+                """);
+        Compilation compilation = compile(
+                NODE_STUB, PROFILE_STUB, otherEntity, otherView,
+                source("shop.Detail", """
+                        package shop;
+                        import com.rey.modelquery.annotations.*;
+                        import java.util.Optional;
+                        @QueryModel(root = Node.class)
+                        @JoinEntity(name = "manager", entity = Profile.class, on = @JoinEntity.On(column = "id"))
+                        public record Detail(@PrimaryKey Long id,
+                                @Join(entityJoin = "manager") Optional<OtherView> profile) {}
+                        """));
+        rejected47(compilation, "entity join 'manager' targets Profile, OtherView.root is Other");
+    }
+
+    @Test
+    void ac_proc_51_attribute_treat_or_type_combined_with_entity_join_is_mq3047() {
+        JavaFileObject profileView = source("shop.ProfileView", """
+                package shop;
+                import com.rey.modelquery.annotations.*;
+                @QueryModel(root = Profile.class)
+                public record ProfileView(@PrimaryKey Long id, String name) {}
+                """);
+        var cases = java.util.List.of(
+                java.util.Map.entry(", attribute = \"name\"",
+                        "Detail.profile: @Join attribute cannot be combined with entityJoin"),
+                java.util.Map.entry(", treat = Profile.class",
+                        "Detail.profile: @Join treat cannot be combined with entityJoin"),
+                java.util.Map.entry(", type = JoinKind.LEFT",
+                        "Detail.profile: @Join type cannot be combined with entityJoin; "
+                                + "the join kind is the @JoinEntity's"),
+                java.util.Map.entry(", type = JoinKind.INNER",
+                        "Detail.profile: @Join type cannot be combined with entityJoin; "
+                                + "the join kind is the @JoinEntity's"));
+        for (var entry : cases) {
+            Compilation compilation = compile(
+                    NODE_STUB, PROFILE_STUB, profileView,
+                    source("shop.Detail", ("""
+                            package shop;
+                            import com.rey.modelquery.annotations.*;
+                            import java.util.Optional;
+                            @QueryModel(root = Node.class)
+                            @JoinEntity(name = "manager", entity = Profile.class, on = @JoinEntity.On(column = "id"))
+                            public record Detail(@PrimaryKey Long id,
+                                    @Join(entityJoin = "manager"%s) Optional<ProfileView> profile) {}
+                            """).formatted(entry.getKey())));
+            assertThat(compilation).failed();
+            assertThat(compilation).hadErrorCount(1);
+            assertThat(compilation).hadErrorContaining("MQ3047: " + entry.getValue());
+        }
+    }
+
+    @Test
+    void ac_proc_51_non_query_model_nested_field_with_entity_join_is_rejected_cleanly() {
+        Compilation compilation = compile(
+                NODE_STUB, PROFILE_STUB,
+                source("shop.Detail", """
+                        package shop;
+                        import com.rey.modelquery.annotations.*;
+                        import java.util.Optional;
+                        @QueryModel(root = Node.class)
+                        @JoinEntity(name = "manager", entity = Profile.class, on = @JoinEntity.On(column = "id"))
+                        public record Detail(@PrimaryKey Long id,
+                                @Join(entityJoin = "manager") Optional<String> profile) {}
+                        """));
+        assertThat(compilation).failed();
+        assertThat(compilation).hadErrorContaining("MQ3005:");
+    }
+
+    @Test
+    void ac_proc_51_nested_inner_join_below_left_entity_join_is_mq3047() {
+        JavaFileObject nestedTarget = source("shop.NestedTarget", """
+                package shop;
+                import jakarta.persistence.*;
+                @Entity public class NestedTarget { @Id Long id; }
+                """);
+        JavaFileObject nestedTargetView = source("shop.NestedTargetView", """
+                package shop;
+                import com.rey.modelquery.annotations.*;
+                @QueryModel(root = NestedTarget.class)
+                public record NestedTargetView(@PrimaryKey Long id) {}
+                """);
+        JavaFileObject profileWithInner = source("shop.ProfileWithInner", """
+                package shop;
+                import com.rey.modelquery.annotations.*;
+                import java.util.Optional;
+                @QueryModel(root = Profile.class)
+                public record ProfileWithInner(@PrimaryKey Long id,
+                        @Join(type = JoinKind.INNER) Optional<NestedTargetView> target) {}
+                """);
+        Compilation compilation = compile(
+                NODE_STUB,
+                source("shop.Profile", """
+                        package shop;
+                        import jakarta.persistence.*;
+                        @Entity public class Profile { @Id Long id; @ManyToOne NestedTarget target; }
+                        """),
+                nestedTarget, nestedTargetView, profileWithInner,
+                source("shop.Detail", """
+                        package shop;
+                        import com.rey.modelquery.annotations.*;
+                        import java.util.Optional;
+                        @QueryModel(root = Node.class)
+                        @JoinEntity(name = "manager", entity = Profile.class, type = JoinKind.LEFT,
+                                on = @JoinEntity.On(column = "id"))
+                        public record Detail(@PrimaryKey Long id,
+                                @Join(entityJoin = "manager") Optional<ProfileWithInner> profile) {}
+                        """));
+        rejected47(compilation, "nested @Join with type = INNER below a LEFT entity join is forbidden");
+    }
+
+    @Test
+    void ac_proc_52_child_cannot_have_nested_join_with_entity_or_source_join() {
+        JavaFileObject parentEntity = source("shop.ParentEntity", """
+                package shop;
+                import jakarta.persistence.*;
+                @Entity public class ParentEntity { @Id Long id; }
+                """);
+        JavaFileObject childEntity = source("shop.ChildEntity", """
+                package shop;
+                import jakarta.persistence.*;
+                @Entity public class ChildEntity { @Id Long id; @ManyToOne Node node; }
+                """);
+        JavaFileObject nestedWithEntityJoin = source("shop.NestedWithEntityJoin", """
+                package shop;
+                import com.rey.modelquery.annotations.*;
+                @QueryModel(root = Node.class)
+                @JoinEntity(name = "manager", entity = Profile.class, on = @JoinEntity.On(column = "id"))
+                public record NestedWithEntityJoin(@PrimaryKey Long id) {}
+                """);
+        JavaFileObject childRow = source("shop.ChildRow", """
+                package shop;
+                import com.rey.modelquery.annotations.*;
+                import java.util.Optional;
+                @QueryModel(root = ChildEntity.class)
+                public record ChildRow(@PrimaryKey Long id,
+                        @Join Optional<NestedWithEntityJoin> node) {}
+                """);
+        Compilation compilation = compile(
+                parentEntity, childEntity, NODE_STUB, PROFILE_STUB,
+                nestedWithEntityJoin, childRow,
+                source("shop.Parent", """
+                        package shop;
+                        import com.rey.modelquery.annotations.*;
+                        import java.util.List;
+                        @QueryModel(root = ParentEntity.class)
+                        public record Parent(@PrimaryKey Long id,
+                                @Child(foreignKey = "id") List<ChildRow> children) {}
+                        """));
+        assertThat(compilation).failed();
+        assertThat(compilation).hadErrorContaining("MQ3039:");
+        assertThat(compilation).hadErrorContaining("NestedWithEntityJoin joins 'manager', an entity join");
+    }
+
+    @Test
+    void ac_proc_52_child_cannot_have_nested_join_with_source_join() {
+        JavaFileObject parentEntity = source("shop.ParentEntity", """
+                package shop;
+                import jakarta.persistence.*;
+                @Entity public class ParentEntity { @Id Long id; }
+                """);
+        JavaFileObject childEntity = source("shop.ChildEntity", """
+                package shop;
+                import jakarta.persistence.*;
+                @Entity public class ChildEntity { @Id Long id; @ManyToOne Node node; }
+                """);
+        JavaFileObject edgeEntity = source("shop.Edge", """
+                package shop;
+                import jakarta.persistence.*;
+                @Entity public class Edge { @Id Long id; Long nodeId; }
+                """);
+        JavaFileObject sourceModel = source("shop.ManagerEdge", """
+                package shop;
+                import com.rey.modelquery.annotations.*;
+                @SourceModel(root = Edge.class)
+                public record ManagerEdge(@PrimaryKey Long id, Long nodeId) {}
+                """);
+        JavaFileObject nestedWithSourceJoin = source("shop.NestedWithSourceJoin", """
+                package shop;
+                import com.rey.modelquery.annotations.*;
+                @QueryModel(root = Node.class)
+                @JoinSource(name = "edge", source = ManagerEdge.class,
+                        on = @JoinSource.On(column = "id", key = "id"))
+                public record NestedWithSourceJoin(@PrimaryKey Long id) {}
+                """);
+        JavaFileObject childRow = source("shop.ChildRow", """
+                package shop;
+                import com.rey.modelquery.annotations.*;
+                import java.util.Optional;
+                @QueryModel(root = ChildEntity.class)
+                public record ChildRow(@PrimaryKey Long id,
+                        @Join Optional<NestedWithSourceJoin> node) {}
+                """);
+        Compilation compilation = compile(
+                parentEntity, childEntity, edgeEntity, sourceModel, NODE_STUB,
+                nestedWithSourceJoin, childRow,
+                source("shop.Parent", """
+                        package shop;
+                        import com.rey.modelquery.annotations.*;
+                        import java.util.List;
+                        @QueryModel(root = ParentEntity.class)
+                        public record Parent(@PrimaryKey Long id,
+                                @Child(foreignKey = "id") List<ChildRow> children) {}
+                        """));
+        assertThat(compilation).failed();
+        assertThat(compilation).hadErrorContaining("MQ3039:");
+        assertThat(compilation).hadErrorContaining(
+                "NestedWithSourceJoin joins 'edge', a @SourceModel; a fetch plan has no source to pass it");
+    }
+
+    @Test
+    void ac_proc_52_child_with_cyclic_nested_joins_does_not_hang() {
+        JavaFileObject parentEntity = source("shop.ParentEntity", """
+                package shop;
+                import jakarta.persistence.*;
+                @Entity public class ParentEntity { @Id Long id; }
+                """);
+        JavaFileObject childEntity = source("shop.ChildEntity", """
+                package shop;
+                import jakarta.persistence.*;
+                @Entity public class ChildEntity { @Id Long id; @ManyToOne Node node; }
+                """);
+        JavaFileObject nodeEntity = source("shop.Node", """
+                package shop;
+                import jakarta.persistence.*;
+                @Entity public class Node { @Id Long id; @ManyToOne Node next; }
+                """);
+        JavaFileObject cyclicNode = source("shop.CyclicNode", """
+                package shop;
+                import com.rey.modelquery.annotations.*;
+                import java.util.Optional;
+                @QueryModel(root = Node.class)
+                public record CyclicNode(@PrimaryKey Long id,
+                        @Join Optional<CyclicNode> next) {}
+                """);
+        JavaFileObject childRow = source("shop.ChildRow", """
+                package shop;
+                import com.rey.modelquery.annotations.*;
+                import java.util.Optional;
+                @QueryModel(root = ChildEntity.class)
+                public record ChildRow(@PrimaryKey Long id,
+                        @Join Optional<CyclicNode> node) {}
+                """);
+        Compilation compilation = compile(
+                parentEntity, childEntity, nodeEntity,
+                cyclicNode, childRow,
+                source("shop.Parent", """
+                        package shop;
+                        import com.rey.modelquery.annotations.*;
+                        import java.util.List;
+                        @QueryModel(root = ParentEntity.class)
+                        public record Parent(@PrimaryKey Long id,
+                                @Child(foreignKey = "id") List<ChildRow> children) {}
+                        """));
+        assertThat(compilation).failed();
+        assertThat(compilation).hadErrorContaining("MQ3007:");
+    }
 }

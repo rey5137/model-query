@@ -114,10 +114,16 @@ final class NestedModels {
     List<JoinedTable> tables(ModelDefinition model, ModelField join, ModelDefinition nested) {
         String prefix = join.join().prefix();
         var tables = new ArrayList<JoinedTable>();
+        var entityJoin = join.join().entityJoin().isEmpty() ? null
+                : model.entityJoins().stream()
+                        .filter(j -> j.name().equals(join.join().entityJoin())).findFirst().orElse(null);
+        String joinType = entityJoin != null ? entityJoin.kind() : join.join().type();
+        TypeElement parentEntity = entityJoin != null ? nested.root()
+                : EntityMetamodel.treatedRoot(model.root(), join.join().treat());
+        String attributes = entityJoin != null ? "#entityJoin:" + join.name() : join.join().attribute();
         tables.add(new JoinedTable(
-                join, nested, prefix, null, join.name(), join.join().attribute(),
-                EntityMetamodel.treatedRoot(model.root(), join.join().treat()), nested.root(),
-                join.join().type(),
+                join, nested, prefix, null, join.name(), attributes,
+                parentEntity, nested.root(), joinType,
                 nested.columns().stream()
                         .map(column -> new JoinedColumn(prefix + "_" + column.constant(), column.type(),
                                 join.name() + "." + column.name(), nested, column))
@@ -126,7 +132,7 @@ final class NestedModels {
             tables.add(new JoinedTable(
                     join, nested, prefix + "_" + below.prefix(),
                     below.parent() == null ? prefix : prefix + "_" + below.parent(),
-                    join.name() + "." + below.path(), join.join().attribute() + "." + below.attributes(),
+                    join.name() + "." + below.path(), attributes + "." + below.attributes(),
                     below.parentEntity(), below.entity(), below.joinType(),
                     below.columns().stream()
                             .map(column -> new JoinedColumn(prefix + "_" + column.constant(), column.type(),

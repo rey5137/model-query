@@ -144,7 +144,8 @@ public final class SourceQuery<S> {
   its converter is the source field's — `@Column(converter = ...)` on an outer column is `MQ3014`. A `@FilterColumn`
   of an outer model is `MQ3011`, since it aliases a CTE column of its own and the CTE's columns are the source's
   fields. A `@Join` on a model rooted at a source is `MQ3035`: a source root has no associations. A `@Child` whose
-  child model is rooted at a source is `MQ3039`, because the fetch plan has no `SourceQuery` to pass it; on a parent
+  child model is rooted at a source, or declares an entity join or joins a source, directly or through a nested
+  `@Join`, is `MQ3039`, because the fetch plan has no `SourceQuery` or entity join to pass it; on a parent
   rooted at a source, a `@Child`'s parent-side key names a source field, and a `through` child is `MQ3406`, since
   it joins along entity associations the source does not have.
 
@@ -424,7 +425,8 @@ SourceQuery<CategoryNode> tree = QCategoryNode.source()
   row. Pages already delivered stay delivered, as with the depth check. No check state is kept between statements;
   REPEATABLE READ or a snapshot around the call is the full guarantee (`engine/21` R-PAG-01).
 - **Fetch children.** Child rounds read the child entity, not the source, so they carry no recursive CTE or check.
-  A child model rooted at a source, or one that joins a source, is `MQ3039` at compile time. A hand-written
+  A child model rooted at a source, or one that declares an entity join or joins a source, directly or through a
+  nested `@Join`, is `MQ3039` at compile time. A hand-written
   `ChildField` whose `query()` joins a walk is the one child round that carries it: its load joins the walk and reads
   its checks as any other statement. The checked parent keys identify the rows children attach to (R-FCH-05); a
   write between parent and child reads is the same race as a table-rooted fetch plan.

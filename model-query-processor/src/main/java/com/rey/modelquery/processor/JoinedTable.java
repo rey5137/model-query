@@ -39,6 +39,18 @@ record JoinedTable(
         return prefix + "_TABLE";
     }
 
+    /** Whether this table is over an entity join (or below one). */
+    boolean isEntityJoin() {
+        return !join.join().entityJoin().isEmpty();
+    }
+
+    /** The constant name for this table's SelectSet, suffixed with _SET if the prefix collides with an entity join. */
+    String selectSet() {
+        boolean collision = isEntityJoin()
+                && prefix.equals(QueryModelReader.constantName(join.join().entityJoin()));
+        return collision ? prefix + "_SET" : prefix;
+    }
+
     /** {@code constant}, one of this join's, as the nested model's QModel names it: without the join's prefix. */
     String inNested(String constant) {
         return constant.substring(join.join().prefix().length() + 1);
