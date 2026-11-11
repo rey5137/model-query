@@ -218,6 +218,30 @@ class GeneratedNestedJoinExecutionTest {
                 .anySatisfy(o -> assertThat(o.customer().orElseThrow().twinName()).isNull());
     }
 
+    @TckTest
+    void ac_gen_48_a_nested_chain_reads_each_join_through_the_one_before_it(TckDatabase db) throws SQLException {
+        var query = QChainedCustomerOrder.query().select(SelectSet.of(QChainedCustomerOrder.ID,
+                        QChainedCustomerOrder.CUSTOMER_ID, QChainedCustomerOrder.CUSTOMER_LABEL_ID,
+                        QChainedCustomerOrder.CUSTOMER_LABELLED_NAME))
+                .where(f -> f.in(QChainedCustomerOrder.ID, SAMPLE)).orderBy(QChainedCustomerOrder.ID.asc()).build();
+        List<ChainedCustomerOrder> rows = new ArrayList<>();
+        orders(db, x -> rows.addAll(x.list(query, Limit.unlimited())));
+
+        assertThat(rows.stream().map(o -> SourceJoinExecutionTest.text(o.id(),
+                o.customer().map(ChainedCustomer::id).orElse(null),
+                o.customer().map(ChainedCustomer::labelId).orElse(null),
+                o.customer().map(ChainedCustomer::labelledName).orElse(null))))
+                .containsExactlyElementsOf(SourceJoinExecutionTest.rows(db, """
+                        select o.id, c.id, cl.id, lc.name from orders o
+                        left join customers c on c.id = o.customer_id
+                        left join labels cl on cl.id = c.id
+                        left join customers lc on lc.id = cl.id
+                        where o.id in (1, 2, 3, 273, 546, 819, 946, 973) order by o.id"""));
+        // The second join reads a row only where the first one did.
+        assertThat(rows).anySatisfy(o -> assertThat(o.customer().orElseThrow().labelledName()).isNotNull())
+                .anySatisfy(o -> assertThat(o.customer().orElseThrow().labelledName()).isNull());
+    }
+
     private static void orders(TckDatabase db, Consumer<ModelQueryExecutor<OrderEntity>> work) {
         SqlSnapshots.capture(db, ds -> {
             try (SessionFactory sf = JoinTestSupport.sessionFactory(ds)) {

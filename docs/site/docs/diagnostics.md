@@ -129,15 +129,16 @@ insert whose `where` or conflict update's `where` reads a param is `MQ1512` at i
 `MQ1512` when the plan is built. A bound param that nothing reads is allowed, and inspection names params by name and
 type, never by value.
 
-`MQ1911` rejects a converted anchor, pairs over two joined sources or an unbound source, pairs mixing a joined
-source's columns with the root's, a column anchor over another entity join or a path below one, a treated node, a
-source or an `Outer` lift, a query rooted at a source, a duplicate name, or a bad `when` term (a second one, a
-converted column, one off the root and its to-one paths, or a value that is null, not of the column's boxed type or
-not bindable) at build. At first resolution before SQL it rejects partial, extra, repeated, non-id or association-id
-pairs, boxed-type mismatches, to-many paths, and a column anchor through a to-many path or reading a to-one by its id;
-an entity class the render options' metamodel rejects as unmapped (without a metamodel, the provider decides:
-Hibernate may throw its own exception). A column over an entity join the query does not bind is `MQ1003`. See
-[Entity joins](source-models.md#joining-an-entity).
+`MQ1911` rejects a converted anchor, pairs over two joined sources or an unbound source, pairs mixing a joined source's
+columns with the root's, a refused chain (a column anchor over an entity join bound after it, its own root, one the
+query does not bind or one anchored on a joined source, or an `INNER` join anchored on a `LEFT` one), a treated node, a
+source or an `Outer` lift, a query rooted at a source, a duplicate name, or a bad `when` term (a second one, a converted
+column, one a chain could not read, or on a source-anchored join one off the root and its to-one paths, or a value that
+is null, not of the column's boxed type or not bindable) at build. At first resolution before SQL it rejects partial,
+extra, repeated, non-id or association-id pairs, boxed-type mismatches, to-many paths, and a column anchor through a
+to-many path or reading a to-one by its id; an entity class the render options' metamodel rejects as unmapped (without a
+metamodel, the provider decides: Hibernate may throw its own exception). A column over an entity join the query does not
+bind is `MQ1003`. See [Entity joins](source-models.md#joining-an-entity).
 
 `MQ1912` rejects a root or INNER join, a filter on an entity join the query does not bind, another table or descendant path, `exists`, an aggregate, window or
 correlated value, or a sub-query crossing the join at build. At first resolution before SQL it rejects id-form
@@ -255,7 +256,7 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | `MQ3038` | A model's `root` is neither an `@Entity` nor a `@SourceModel`, or both. |
 | `MQ3039` | `@Child` whose child model is rooted at a source, joins one (`@JoinSource`), or declares an entity join, directly or through a nested `@Join`: a fetch plan has no source or join to pass it. |
 | `MQ3040` | `generateChanges` on a model rooted at a source. A write needs an entity root; read the source through an outer model instead ([Source models](source-models.md)). |
-| `MQ3044` | `@JoinSource` or `@SourceColumn` written wrongly: `on` misses or exceeds the source's key, pairs a key twice or mismatches a type, an unknown root attribute, source field or join, a class that is no `@SourceModel`, a repeated join name, a key field with a converter, a `@SourceColumn` beside `@PrimaryKey` or an annotation that makes the field no column, a model that is not a `@QueryModel` rooted at an entity, or a nested `@Join` model's own joins that sit below a `@Join(entityJoin)`, are anchored on a `@FilterColumn`, read an entity join through an association or `treat`, or clash with a declared join's constant or name. |
+| `MQ3044` | `@JoinSource` or `@SourceColumn` written wrongly: `on` misses or exceeds the source's key, pairs a key twice or mismatches a type, an unknown root attribute, source field or join, a class that is no `@SourceModel`, a repeated join name, a key field with a converter, a `@SourceColumn` beside `@PrimaryKey` or an annotation that makes the field no column, a model that is not a `@QueryModel` rooted at an entity, or a nested `@Join` model's own joins that are a `@JoinSource` below a `@Join(entityJoin)`, a `@JoinEntity` below one anchored on a joined source, `INNER` below a `LEFT` `@Join`, anchored on a `@FilterColumn`, read an entity join through an association or `treat`, or clash with a declared join's constant or name. |
 | `MQ3045` | `@Aggregate` with `orderBy` but not `FIRST_BY` (or `FIRST_BY` without one), an unknown or malformed `orderBy` key, a `filter` class that is no public `FilterDefinition` of the model with an `INSTANCE` or no-arg constructor, a `scale` outside 0 to 30 or on a field that is not a `BigDecimal`, or an `AVG` field typed `BigDecimal` over a `Double` or `Float` attribute. |
 | `MQ3046` | Invalid `@JoinEntity`, joined-entity column or joined-entity aggregate; see the checks below. |
 | `MQ3047` | Invalid `@Join(entityJoin)`: named join not found, entity mismatch with nested root, `type`, `attribute` or `treat` written with `entityJoin`, or an `INNER` join below a `LEFT` entity join ([Source models](source-models.md)). |
@@ -288,10 +289,11 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 
 `MQ3046` rejects an invalid entity or name, constant collision, partial, extra, repeated, non-id or association-id
 pairs, converted anchor, boxed-type mismatch, unknown source field, a `source` that names no `@JoinSource` of this
-model, duplicate join name, unknown `@Column.entityJoin`, `@FilterColumn.entityJoin` or `@Aggregate.entityJoin`, both
-or neither of `field` and `column` on one pair, pairs mixing the two, a `column` with a `source` or a `field` without
-one, an anchor over a joined source or another entity join, a to-many or treated path, an expression or a to-one read
-by its id, a `when` column that is converted or enum-typed, a value that does not bind or parse as its boxed type, or a
+model, duplicate join name, unknown `@Column.entityJoin`, `@FilterColumn.entityJoin` or `@Aggregate.entityJoin`, both or
+neither of `field` and `column` on one pair, pairs mixing the two, a `column` with a `source` or a `field` without one,
+an anchor over a joined source, a refused chain (an anchor over an entity join declared after it, itself, one anchored
+on a source, or an `INNER` join anchored on a `LEFT` one), a to-many or treated path, an expression or a to-one read by
+its id, a `when` column that is converted or enum-typed, a value that does not bind or parse as its boxed type, or a
 second `when`, to-many path below the entity, nested `@Join`, joined-column `@PrimaryKey`, declaration on
 `@SourceModel`, `treat` combined with `entityJoin`, or a nonempty `@Aggregate.entityJoin` combined with `expression`
 (including `@BindExpression`), for any function.

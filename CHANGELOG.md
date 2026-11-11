@@ -6,6 +6,47 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
 ## [Unreleased]
 
+The coming 0.13.0 covers milestone M36 (RFC 0024, D-213 to D-217): nested models over declared joins. A `@Join` may
+nest a model over an entity join, a nested model may declare its own joins, and an entity join may be anchored on an
+earlier one. Every API addition below is `@Incubating`.
+
+### Added (incubating)
+
+- `@Join(entityJoin = "name")` (RFC 0024 Part A, R-PROC-48, D-213) nests a `@QueryModel` over a `@JoinEntity` of the
+  same model whose entity is the nested root; the join kind is the `@JoinEntity`'s, the nested `@PrimaryKey` decides
+  presence, and flat `@Column(entityJoin)` fields may sit beside it. The new `MQ3047` refuses an unknown or mismatched
+  join, `type`, `attribute` or `treat` written with it, and an `INNER` nested `@Join` below a `LEFT` entity join.
+- `TableField#presentBy` accepts a joined-entity root, and a joined root named with `named(...)` starts its columns'
+  property paths (`purchaser.name`) for sorts and `FieldIndex.joinSet` (R-COL-15, R-QRY-14, D-213).
+- Nested models with their own `@JoinEntity` and `@JoinSource` (RFC 0024 Part B, R-GEN-43, D-214, D-217): the outer
+  QModel registers each as `<PREFIX>_<JOIN>` within the `@Join` field's table, maps them through a `<PREFIX>_SCOPE`,
+  and its `query(...)` takes the nested `SourceQuery` parameters depth-first.
+- `JoinScope` (`of`, `entity`, `source`), `Row.scoped(JoinScope)`, `EntityJoin#within` and `SourceJoin#within`
+  (R-COL-41, D-216): a scoped row reads a nested model's joined columns through the outer joins they map to, each
+  pair checked when the scope is built.
+- Chained entity joins (RFC 0024 Part C, R-SRC-25, R-PROC-46, D-215): a column-anchored entity join may read the
+  columns of an entity join created before it, or a to-one path below that join. Joins are created in registration
+  order (generated: declaration order); 2- and 3-join chains in every allowed `LEFT` / `INNER` mix match native SQL on
+  H2, PostgreSQL and MySQL. Under `@Join(entityJoin)`, a nested model's own `@JoinEntity` is such a chain.
+- User guide: [entity-join chains](docs/site/docs/source-models.md#joining-an-entity) and
+  [nested models with their own joins](docs/site/docs/models.md#nested-models-with-their-own-joins).
+
+### Changed
+
+- `Row.scoped` stops at joined roots: a joined-root column the scope does not map throws `MQ1107` instead of reading
+  the scope's own column (INV-5, D-214).
+- `MQ1911` now also refuses, at build, a chain read before its join is created (previously a misleading run-time
+  `MQ1003`), a join reading its own root, an `INNER` join anchored on a `LEFT` one, and a chain over a source-anchored
+  join (D-215). `MQ1912` and the other join-filter messages name the join instead of printing its internal key.
+- `MQ3044` narrows: a nested model's own joins under an association `@Join` are generated; it now covers name clashes
+  with a declared join, an `INNER` nested join below a `LEFT` `@Join`, a nested entity join anchored on a
+  `@FilterColumn` or reading its join through an association or `treat`, a nested `@JoinSource` below a
+  `@Join(entityJoin)`, and a nested entity join below a source-anchored one (D-215, D-217).
+- `MQ3046` accepts an anchor or `when` column over an earlier column-anchored entity join, and refuses one over a join
+  declared after it, itself, a source-anchored join, or a `LEFT` join from an `INNER` one (D-215).
+- `MQ3039` walks a child's nested `@Join` models and their own joins. `MQ1104` no longer refuses `presentBy` on a
+  joined-entity root.
+
 ## [0.12.0] - 2026-11-10
 
 0.12.0 covers milestone M35 (RFC 0023, D-204 to D-212): key groups, which read the keys of a child load or a `byKeys`

@@ -411,7 +411,10 @@ column such as `CUSTOMER_LABEL_NAME` sorts and filters as `customer.labelName`.
     ```
 
 A column set that selects only joined columns of a nested model still reads that field as present. Nesting composes to
-any depth. Nested joins are refused under `@Join(entityJoin)` (`MQ3044`) until chained anchors are supported, and an `INNER` nested join below a `LEFT` `@Join` is `MQ3044` too (make it `LEFT`, or the `@Join` `INNER`).
+any depth. Under `@Join(entityJoin)`, a nested `@JoinEntity` is a chain on the named entity join, generated after it
+(see [chains](source-models.md#joining-an-entity)); it is `MQ3044` when that join is anchored on a joined source, and a
+nested `@JoinSource` there is `MQ3044`, as joined sources are created before column-anchored entity joins. An `INNER`
+nested join below a `LEFT` `@Join` is `MQ3044` too (make it `LEFT`, or the `@Join` `INNER`).
 A nested entity join must be anchored on a column of the model, not a `@FilterColumn`, and an `@Column(entityJoin)`
 may not reach through an association or a `treat`. A `@Child` over such a model is `MQ3039`.
 

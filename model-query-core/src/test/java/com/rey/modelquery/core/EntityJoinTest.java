@@ -319,6 +319,92 @@ class EntityJoinTest {
                 .containsSame(set);
     }
 
+    private static EntityJoin<View, Profile> rootJoin(String name, JoinKind kind, ColumnField<View, ?, Long> anchor) {
+        return EntityJoin.of(name, Profile.class, kind, List.of(EntityJoin.on(anchor, "id")));
+    }
+
+    private static ModelQuery.Builder<Day, Long, View> chain(EntityJoin<View, ?>... joins) {
+        var query = ModelQuery.builder(DAY, row -> new View()).primaryKey(PrimaryKey.of(V_ID))
+                .select(SelectSet.of(V_ID));
+        for (EntityJoin<View, ?> join : joins) {
+            query = query.joinEntity(join);
+        }
+        return query;
+    }
+
+    @Test
+    void ac_src_63_a_column_anchored_join_reads_an_earlier_one_and_its_to_one_paths() {
+        var first = rootJoin("first", JoinKind.LEFT, V_ID);
+        var second = rootJoin("second", JoinKind.LEFT,
+                ColumnField.of(View.class, first.root(), "managerId", Long.class));
+        var below = TableField.<Profile, Profile>join(first.root(), "boss", JoinType.LEFT);
+        var third = rootJoin("third", JoinKind.LEFT, ColumnField.of(View.class, second.root(), "managerId", Long.class))
+                .when(ColumnField.of(View.class, first.root(), "kind", String.class), "staff");
+        var throughPath = rootJoin("throughPath", JoinKind.LEFT,
+                ColumnField.of(View.class, below, "managerId", Long.class));
+
+        assertThat(chain(first, second, third, throughPath).build().entityJoins())
+                .containsExactly(first, second, third, throughPath);
+        var inner = rootJoin("first", JoinKind.INNER, V_ID);
+        var innerOnInner = rootJoin("second", JoinKind.INNER,
+                ColumnField.of(View.class, inner.root(), "managerId", Long.class));
+        var leftOnInner = rootJoin("third", JoinKind.LEFT,
+                ColumnField.of(View.class, innerOnInner.root(), "managerId", Long.class));
+        assertThatCode(() -> chain(inner, innerOnInner, leftOnInner).build()).doesNotThrowAnyException();
+    }
+
+    @Test
+    void ac_src_64_a_chain_out_of_creation_order_or_inner_on_left_is_mq1911_at_build() {
+        var first = rootJoin("first", JoinKind.LEFT, V_ID);
+        var second = rootJoin("second", JoinKind.LEFT,
+                ColumnField.of(View.class, first.root(), "managerId", Long.class));
+        mq1911(() -> chain(second, first).build(), "anchor managerId: reads the entity join 'first', bound after it; "
+                + "bind 'first' first");
+        mq1911(() -> chain(second).build(), "reads the entity join 'first', which this query does not bind");
+        // An equal-keyed join of the same name: a join cannot be built over its own root otherwise.
+        var self = rootJoin("self", JoinKind.LEFT, ColumnField.of(View.class,
+                rootJoin("self", JoinKind.LEFT, V_ID).root(), "managerId", Long.class));
+        mq1911(() -> chain(self).build(), "reads the entity join 'self', its own root");
+
+        var innerOnLeft = rootJoin("second", JoinKind.INNER,
+                ColumnField.of(View.class, first.root(), "managerId", Long.class));
+        mq1911(() -> chain(first, innerOnLeft).build(), "which is LEFT: this INNER join would drop every row "
+                + "'first' misses; declare 'second' LEFT, or 'first' INNER");
+        var below = TableField.<Profile, Profile>join(first.root(), "boss", JoinType.INNER);
+        var innerBelowLeft = rootJoin("second", JoinKind.INNER, ColumnField.of(View.class, below, "id", Long.class));
+        mq1911(() -> chain(first, innerBelowLeft).build(), "which is LEFT");
+
+        var laterWhen = rootJoin("third", JoinKind.LEFT, V_ID)
+                .when(ColumnField.of(View.class, second.root(), "kind", String.class), "staff");
+        mq1911(() -> chain(first, laterWhen, second).build(), "when(kind, ...): reads the entity join 'second', "
+                + "bound after it");
+    }
+
+    @Test
+    void ac_src_64_source_anchored_chains_and_treated_anchors_stay_mq1911() {
+        var onSourceJoin = rootJoin("onSource", JoinKind.LEFT,
+                ColumnField.of(View.class, MANAGER.root(), "managerId", Long.class));
+        mq1911(() -> base().joinEntity(MANAGER).joinEntity(onSourceJoin).build(),
+                "reads the entity join 'manager', which is anchored on a joined source");
+        var first = rootJoin("first", JoinKind.LEFT, V_ID);
+        mq1911(() -> MANAGER.when(ColumnField.of(View.class, first.root(), "kind", String.class), "staff"),
+                "a source-anchored join's term reads the root or a to-one path from it, not another join");
+        var treated = first.root().treat(Manager.class);
+        var onTreated = rootJoin("second", JoinKind.LEFT, ColumnField.of(View.class, treated, "managerId", Long.class));
+        mq1911(() -> chain(first, onTreated).build(), "reads the treated");
+    }
+
+    @Test
+    void ac_src_65_a_join_key_describes_the_join_not_the_record() {
+        var first = rootJoin("first", JoinKind.LEFT, V_ID);
+        var boss = TableField.<Profile, Profile>join(first.root(), "boss", JoinType.LEFT);
+        assertThat(first.root().key().describe()).isEqualTo("joined entity 'first'");
+        assertThat(SOURCE.root().key().describe()).isEqualTo("joined source 'sales'");
+        assertThat(DAY.key().describe()).isEqualTo("root Day");
+        assertThat(boss.key().describe()).isEqualTo("join 'boss' (LEFT)");
+        assertThat(boss.treat(Manager.class).key().describe()).isEqualTo("join 'boss' (LEFT).treat(Manager)");
+    }
+
     private static void mq1911(Runnable action, String detail) {
         assertThatThrownBy(action::run).isInstanceOf(ModelQueryDefinitionException.class)
                 .hasMessageContaining(detail)

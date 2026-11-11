@@ -31,6 +31,24 @@ record JoinKey(JoinKey parent, String attribute, JoinType type, String alias, bo
         return parent == null && !alias.isEmpty();
     }
 
+    /** The join this key names, for a message: never the record, whose fields mean nothing to a user (D-215). */
+    String describe() {
+        if (parent != null && type == null) {
+            return parent.describe() + ".treat(" + simpleName() + ")";
+        }
+        if (parent != null) {
+            return "join '" + attribute + "' (" + type + (alias.isEmpty() ? "" : ", alias '" + alias + "'") + ")";
+        }
+        if (isJoinedRoot()) {
+            return "joined " + (entity ? "entity" : "source") + " '" + alias + "'";
+        }
+        return "root " + simpleName();
+    }
+
+    private String simpleName() {
+        return attribute.substring(Math.max(attribute.lastIndexOf('.'), attribute.lastIndexOf('$')) + 1);
+    }
+
     /** The parentless key this path starts at. */
     JoinKey root() {
         return parent == null ? this : parent.root();

@@ -71,7 +71,7 @@ class ColumnEntityJoinTest {
     }
 
     @Test
-    void ac_src_61_mixed_kinds_chains_converted_and_treated_anchors_are_mq1911_at_build() {
+    void ac_src_61_mixed_kinds_reversed_chains_converted_and_treated_anchors_are_mq1911_at_build() {
         var mixed = EntityJoin.of("mixed", Employee.class, JoinKind.LEFT,
                 List.of(EntityJoin.on(REP_CODE, "code"), EntityJoin.on(SOURCE_ID, "id")));
         var mixedSourceFirst = EntityJoin.of("mixed", Employee.class, JoinKind.LEFT,
@@ -97,8 +97,11 @@ class ColumnEntityJoinTest {
 
         mq1911(() -> base().joinSource(SOURCE, KEYS).joinEntity(mixed).build(), "mix");
         mq1911(() -> base().joinSource(SOURCE, KEYS).joinEntity(mixedSourceFirst).build(), "mix");
-        mq1911(() -> base().joinEntity(REP).joinEntity(chain).build(), "entity join");
-        mq1911(() -> base().joinEntity(REP).joinEntity(belowChain).build(), "entity join");
+        // In order, a chain builds (D-215); bound before the join it reads, it is refused.
+        assertThatCode(() -> base().joinEntity(REP).joinEntity(chain).joinEntity(belowChain).build())
+                .doesNotThrowAnyException();
+        mq1911(() -> base().joinEntity(chain).joinEntity(REP).build(), "entity join 'rep', bound after it");
+        mq1911(() -> base().joinEntity(belowChain).joinEntity(REP).build(), "entity join 'rep', bound after it");
         mq1911(() -> base().joinEntity(treated).build(), "treated");
         mq1911(() -> base().joinEntity(converted).build(), "converted");
         mq1911(() -> base().joinEntity(lifted).build(), "Outer lift");
@@ -172,7 +175,7 @@ class ColumnEntityJoinTest {
                 "a Kind value does not bind as one statement parameter (R-COL-18)");
         mq1911(() -> REP.when(day, Optional.of("x")), "R-COL-18");
         mq1911(() -> REP.when(converted, LocalDate.EPOCH), "converted");
-        mq1911(() -> REP.when(REP_NAME, "x"), "entity join");
+        mq1911(() -> base().joinEntity(REP.when(REP_NAME, "x")).build(), "entity join 'rep', its own root");
         mq1911(() -> REP.when(ColumnField.of(Row.class, INVOICE.treat(CreditNote.class), "ownerType",
                 String.class), "x"), "treated");
         mq1911(() -> REP.when(ColumnField.<Row, Keys, Long>over(Row.class, SOURCE.root(), K_ID), 1L), "source");

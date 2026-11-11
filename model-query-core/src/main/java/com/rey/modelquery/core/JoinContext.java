@@ -299,7 +299,8 @@ public final class JoinContext {
     void checkJoinFilters() {
         for (JoinKey key : joinFilters.keySet()) {
             if (!appliedFilters.contains(key)) {
-                throw JoinFilterChecks.refused("joinFilter(...): the content statement never creates join " + key);
+                throw JoinFilterChecks.refused("joinFilter(...): the content statement never creates the "
+                        + key.describe());
             }
         }
     }
@@ -1065,7 +1066,8 @@ public final class JoinContext {
         if (!key.equals(cacheKey) && joinFilters.containsKey(cacheKey)) {
             // Another join key resolves to the filtered join: it would read it, or cache it before the filter (D-194).
             throw JoinFilterChecks.refused(description + ": resolves to the join of a joinFilter(...) as "
-                    + resolvedType + " " + cacheKey + "; the filtered join is read only through its own key");
+                    + resolvedType + " " + cacheKey.describe() + "; the filtered join is read only through its own "
+                    + "key");
         }
         if (resolvedType == JoinType.INNER) {
             // A filter only blanks columns, so an INNER join below it, as rendered, would drop the row (D-195).

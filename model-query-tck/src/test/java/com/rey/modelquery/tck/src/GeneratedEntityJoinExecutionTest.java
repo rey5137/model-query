@@ -204,4 +204,77 @@ class GeneratedEntityJoinExecutionTest {
         assertThat(sorted).hasSize(10).extracting(r -> r.buyer().orElseThrow().name())
                 .isSortedAccordingTo(java.util.Comparator.reverseOrder());
     }
+
+    @TckTest
+    void ac_gen_47_generated_entity_joins_anchored_on_earlier_joins_match_native_sql(TckDatabase db)
+            throws SQLException {
+        var query = QChainedEntityJoinDetail.query().select(QChainedEntityJoinDetail.ALL)
+                .where(f -> f.gte(QChainedEntityJoinDetail.ID, 990L).lte(QChainedEntityJoinDetail.ID, 1030L))
+                .orderBy(QChainedEntityJoinDetail.ID.asc()).build();
+        List<ChainedEntityJoinDetail> rows = new ArrayList<>();
+        List<Long> count = new ArrayList<>();
+        List<String> sql = SqlSnapshots.capture(db, ds -> {
+            try (SessionFactory sf = JoinTestSupport.sessionFactory(ds)) {
+                sf.inSession(em -> {
+                    var executor = ModelQueryExecutor.create(em, OrderEntity.class, ModelQueryConfig.defaults());
+                    rows.addAll(executor.list(query, Limit.unlimited()));
+                    count.add(executor.count(query));
+                });
+            }
+        });
+        assertThat(rows.stream().map(r -> SourceJoinExecutionTest.text(r.id(), r.referrerId(), r.referredId(),
+                r.referredName(), r.twinReferrerId(), r.twinReferredName(), r.twinCustomerName())))
+                .containsExactlyElementsOf(SourceJoinExecutionTest.rows(db, """
+                        select o.id, o.referrer_id, r.id, r.name, t.referrer_id, tr.name, tc.name from orders o
+                        left join customers r on r.id = o.referrer_id
+                        left join orders t on t.id = r.id
+                        left join customers tr on tr.id = t.referrer_id
+                        left join customers tc on tc.id = t.customer_id
+                        where o.id between 990 and 1030 order by o.id"""));
+        // Each link reads a row on some orders and misses on others, so the chain is exercised end to end.
+        assertThat(rows).hasSize(41)
+                .anySatisfy(r -> assertThat(r.twinReferredName()).isNotNull())
+                .anySatisfy(r -> assertThat(r.twinCustomerName()).isNotNull())
+                .anySatisfy(r -> {
+                    assertThat(r.referredName()).isNotNull();
+                    assertThat(r.twinReferredName()).isNull();
+                })
+                .anySatisfy(r -> assertThat(r.referredName()).isNull());
+        assertThat(count).containsExactly(41L);
+        // The joins render in declaration order: each ON reads only a table joined before it.
+        assertThat(sql).hasSize(2).allSatisfy(statement -> assertThat(statement)
+                .containsPattern("join customers \\w+ on .* join orders \\w+ on .* join customers \\w+ on .* "
+                        + "join customers \\w+ on "));
+    }
+
+    @TckTest
+    void ac_gen_47_a_nested_entity_join_below_an_entity_join_matches_native_sql(TckDatabase db)
+            throws SQLException {
+        var query = QOrderWithLabelledReferrer.query()
+                .select(QOrderWithLabelledReferrer.ALL.with(QOrderWithLabelledReferrer.REFERRED_SET))
+                .where(f -> f.in(QOrderWithLabelledReferrer.ID, List.of(1L, 2L, 3L, 273L, 546L, 819L, 946L, 973L)))
+                .orderBy(QOrderWithLabelledReferrer.ID.asc()).build();
+        List<OrderWithLabelledReferrer> rows = new ArrayList<>();
+        SqlSnapshots.capture(db, ds -> {
+            try (SessionFactory sf = JoinTestSupport.sessionFactory(ds)) {
+                sf.inSession(em -> rows.addAll(ModelQueryExecutor.create(em, OrderEntity.class,
+                        ModelQueryConfig.defaults()).list(query, Limit.unlimited())));
+            }
+        });
+        assertThat(rows.stream().map(r -> SourceJoinExecutionTest.text(r.id(), r.referrerId(),
+                r.referred().map(LabelledCustomer::id).orElse(null),
+                r.referred().map(LabelledCustomer::name).orElse(null),
+                r.referred().map(LabelledCustomer::labelName).orElse(null))))
+                .containsExactlyElementsOf(SourceJoinExecutionTest.rows(db, """
+                        select o.id, o.referrer_id, r.id, r.name, rl.name from orders o
+                        left join customers r on r.id = o.referrer_id
+                        left join labels rl on rl.id = r.id
+                        where o.id in (1, 2, 3, 273, 546, 819, 946, 973) order by o.id"""));
+        // A labelled referrer, an unlabelled one, and an order without a referrer.
+        assertThat(rows)
+                .anySatisfy(r -> assertThat(r.referred())
+                        .hasValueSatisfying(c -> assertThat(c.labelName()).isNotNull()))
+                .anySatisfy(r -> assertThat(r.referred()).hasValueSatisfying(c -> assertThat(c.labelName()).isNull()))
+                .anySatisfy(r -> assertThat(r.referred()).isEmpty());
+    }
 }

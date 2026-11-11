@@ -2,6 +2,8 @@ package com.rey.modelquery.processor;
 
 import static com.google.testing.compile.CompilationSubject.assertThat;
 import static com.rey.modelquery.processor.ProcessorHarness.compile;
+import static com.rey.modelquery.processor.ProcessorHarness.errors;
+import static com.rey.modelquery.processor.ProcessorHarness.generatedFlat;
 import static com.rey.modelquery.processor.ProcessorHarness.source;
 
 import com.google.testing.compile.Compilation;
@@ -388,7 +390,7 @@ class EntityJoinChecksTest {
         rejected(model(SOURCE_JOIN + ENTITY_JOIN + """
                 @JoinEntity(name = "other", entity = Profile.class, on = @JoinEntity.On(column = "managerId"))
                 """, FIELDS + ", @Column(entityJoin = \"manager\", attribute = \"id\") Long managerId", PROFILE),
-                "reads the entity join 'manager'");
+                "reads the entity join 'manager', which is anchored on a joined source");
     }
 
     @Test
@@ -924,5 +926,101 @@ class EntityJoinChecksTest {
                         """));
         assertThat(compilation).failed();
         assertThat(compilation).hadErrorContaining("MQ3007:");
+    }
+
+    private static final String CHAIN_PROFILE = """
+            @Id Long id; String name; Long bossId; @ManyToOne Node home; @OneToMany java.util.List<Node> nodes;""";
+    private static final String MANAGER = """
+            @JoinEntity(name = "manager", entity = Profile.class, on = @JoinEntity.On(column = "id"))
+            """;
+    private static final String CHAIN_FIELDS = FIELDS
+            + ", @Column(entityJoin = \"manager\", attribute = \"bossId\") Long bossId"
+            + ", @Column(entityJoin = \"boss\", attribute = \"name\") String bossName";
+
+    private static String boss(String kind, String column) {
+        return "@JoinEntity(name = \"boss\", entity = Profile.class, type = JoinKind." + kind
+                + ", on = @JoinEntity.On(column = \"" + column + "\"))\n";
+    }
+
+    private static Compilation chain(String joins, String fields, String filters) {
+        return model(joins, fields, CHAIN_PROFILE, "Long managerId", "Long managerId", filters, "@QueryModel");
+    }
+
+    @Test
+    void ac_proc_60_an_anchor_on_an_earlier_entity_join_and_its_to_one_path_generates_in_declaration_order() {
+        Compilation compilation = chain(MANAGER + boss("LEFT", "bossId")
+                + "@JoinEntity(name = \"home\", entity = Profile.class, type = JoinKind.LEFT, "
+                + "on = @JoinEntity.On(column = \"HOME_ID\"))\n", CHAIN_FIELDS,
+                "@FilterColumn(name = \"HOME_ID\", path = \"home.id\", entityJoin = \"manager\")\n");
+        assertThat(compilation).succeededWithoutWarnings();
+        String generated = generatedFlat(compilation, "shop.QDetail");
+        org.assertj.core.api.Assertions.assertThat(generated)
+                .contains("BOSS = EntityJoin.of(\"boss\", Profile.class, JoinKind.LEFT, "
+                        + "List.of(EntityJoin.on(BOSS_ID, \"id\")))")
+                .contains("HOME = EntityJoin.of(\"home\", Profile.class, JoinKind.LEFT, "
+                        + "List.of(EntityJoin.on(HOME_ID, \"id\")))")
+                .contains(".joinEntity(MANAGER).joinEntity(BOSS).joinEntity(HOME)");
+        // Each join's columns come after it and before the join anchored on them, so the class initialises.
+        for (String column : java.util.List.of(" BOSS_ID =", " HOME_ID =")) {
+            org.assertj.core.api.Assertions.assertThat(java.util.List.of(generated.indexOf(" MANAGER ="),
+                    generated.indexOf(column), generated.indexOf(" BOSS ="), generated.indexOf(" BOSS_NAME ="),
+                    generated.indexOf(" HOME ="))).doesNotContain(-1).isSortedAccordingTo(Integer::compare);
+        }
+    }
+
+    @Test
+    void ac_proc_60_an_inner_join_on_an_inner_join_generates() {
+        assertThat(chain(MANAGER.replace("Profile.class,", "Profile.class, type = JoinKind.INNER,")
+                + boss("INNER", "bossId"), CHAIN_FIELDS, "")).succeededWithoutWarnings();
+    }
+
+    @Test
+    void ac_proc_60_an_anchor_on_a_later_entity_join_is_mq3046() {
+        rejected(chain(boss("LEFT", "bossId") + MANAGER, CHAIN_FIELDS, ""),
+                "Detail entity join 'boss': column 'bossId' reads the entity join 'manager', declared after it; "
+                        + "declare 'manager' first, as entity joins are created in declaration order");
+    }
+
+    @Test
+    void ac_proc_60_an_anchor_on_its_own_join_is_mq3046() {
+        rejected(chain(MANAGER + boss("LEFT", "bossName"), CHAIN_FIELDS, ""),
+                "column 'bossName' reads the entity join 'boss', its own root");
+    }
+
+    @Test
+    void ac_proc_60_an_inner_join_on_a_left_join_is_mq3046() {
+        rejected(chain(MANAGER + boss("INNER", "bossId"), CHAIN_FIELDS, ""),
+                "column 'bossId' reads the entity join 'manager', which is LEFT: this INNER join would drop every "
+                        + "row 'manager' misses; declare 'boss' LEFT, or 'manager' INNER");
+    }
+
+    @Test
+    void ac_proc_60_a_source_anchored_joins_when_on_an_entity_join_is_mq3046() {
+        Compilation compilation = chain(SOURCE_JOIN + MANAGER + """
+                @JoinEntity(name = "boss", source = "edge", entity = Profile.class,
+                        on = @JoinEntity.On(field = "managerId"),
+                        when = @JoinEntity.When(column = "bossId", value = "7"))
+                """, FIELDS + ", @Column(entityJoin = \"manager\", attribute = \"bossId\") Long bossId", "");
+        rejected(compilation, "when column 'bossId' reads the entity join 'manager'; a source-anchored join's term "
+                + "reads the root or a to-one path from it, not another join");
+        org.assertj.core.api.Assertions.assertThat(errors(compilation)).hasSize(1);
+    }
+
+    @Test
+    void ac_proc_60_an_anchor_on_a_join_whose_entity_failed_reports_only_that_join() {
+        Compilation compilation = chain(MANAGER.replace("Profile.class", "String.class") + boss("LEFT", "bossId")
+                + "@JoinEntity(name = \"home\", entity = Profile.class, type = JoinKind.LEFT, "
+                + "on = @JoinEntity.On(column = \"HOME_ID\"))\n", CHAIN_FIELDS,
+                "@FilterColumn(name = \"HOME_ID\", path = \"home.id\", entityJoin = \"manager\")\n");
+        rejected(compilation, "Detail entity join 'manager': entity must name a JPA @Entity");
+        // The anchors over 'manager', a model column and a filter column, are not also reported as unknown joins.
+        org.assertj.core.api.Assertions.assertThat(errors(compilation)).hasSize(1);
+    }
+
+    @Test
+    void ac_proc_60_an_anchor_through_a_to_many_path_below_an_entity_join_is_mq3046() {
+        rejected(chain(MANAGER + boss("LEFT", "nodeId"), FIELDS,
+                "@FilterColumn(name = \"nodeId\", path = \"nodes.id\", entityJoin = \"manager\")\n"),
+                "traverses the to-many attribute 'nodes'");
     }
 }

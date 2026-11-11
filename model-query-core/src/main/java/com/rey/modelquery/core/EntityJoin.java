@@ -15,12 +15,13 @@ import java.util.Set;
 import java.util.TreeMap;
 
 /**
- * An entity joined on its full id to columns of one joined source (R-SRC-23), or to columns of the root and its to-one
- * paths (R-SRC-25), with an optional static {@link #when} term. Immutable, so a constant (INV-9).
+ * An entity joined on its full id to columns of one joined source (R-SRC-23), or to columns of the root, of an entity
+ * join bound before it, and of their to-one paths (R-SRC-25), with an optional static {@link #when} term. Immutable, so
+ * a constant (INV-9).
  *
  * @param <M> the outer model
  * @param <E> the joined entity
- * @implSpec R-SRC-23, R-SRC-24, R-SRC-25, D-193, D-197
+ * @implSpec R-SRC-23, R-SRC-24, R-SRC-25, D-193, D-197, D-215
  */
 @Incubating
 public final class EntityJoin<M, E> {
@@ -116,7 +117,8 @@ public final class EntityJoin<M, E> {
      * D-197). The value is a definition constant (INV-9).
      *
      * @throws ModelQueryDefinitionException {@code MQ1911} for a second term, a converted column, a column off the
-     *     root and its to-one paths, or a value that is not a bindable instance of the column's boxed attribute type
+     *     root, an entity join and their to-one paths (on a source-anchored join, an entity join's column too), or a
+     *     value that is not a bindable instance of the column's boxed attribute type
      */
     @Incubating
     public <C> EntityJoin<M, E> when(ColumnField<M, ?, C> column, C value) {
@@ -140,7 +142,7 @@ public final class EntityJoin<M, E> {
                     + " value does not bind as one statement parameter (R-COL-18); compare a String, number, "
                     + "boolean or temporal column");
         }
-        checkColumnAnchor(where, column);
+        checkColumnAnchor(where, column, !anchoredOnSource());
         if (root.within() != null) {
             requireReadUnder(this, column, root.within());
         }
@@ -238,9 +240,11 @@ public final class EntityJoin<M, E> {
 
     /**
      * The checks that need no metamodel, run when the query is built (D-193, D-197, Resolution 8): every pair reads
-     * one bound joined source, or every pair reads the root or a to-one path from it, unconverted.
+     * one bound joined source, or every pair reads the root, an entity join bound before {@code join} in
+     * {@code joins}, or a to-one path from either, unconverted (D-215).
      */
-    static void check(String model, EntityJoin<?, ?> join, Set<JoinKey> sources, TableField<?, ?> root) {
+    static void check(String model, EntityJoin<?, ?> join, Set<JoinKey> sources, TableField<?, ?> root,
+            List<? extends EntityJoin<?, ?>> joins) {
         String where = model + ": entity join '" + join.name + "' of " + join.entity.getSimpleName();
         if (root.isSource()) {
             throw new ModelQueryDefinitionException(MqCode.MQ1911, where + ": a query rooted at a source joins no "
@@ -260,7 +264,8 @@ public final class EntityJoin<M, E> {
                         + "its to-one paths");
             }
             if (!onSource) {
-                checkColumnAnchor(where + ": anchor " + pair.anchor.name(), pair.anchor);
+                checkColumnAnchor(where + ": anchor " + pair.anchor.name(), pair.anchor, true);
+                checkChain(where + ": anchor " + pair.anchor.name(), join, pair.anchor, joins);
                 continue;
             }
             if (!sources.contains(table.key())) {
@@ -273,21 +278,68 @@ public final class EntityJoin<M, E> {
             }
             anchor = table.key();
         }
+        if (!onSource && join.when != null) {
+            checkChain(where + ": when(" + join.when.column.name() + ", ...)", join, join.when.column, joins);
+        }
     }
 
     /**
-     * {@code MQ1911} unless {@code column} reads the root or a to-one path from it: not an outer lift, a source, an
-     * entity join or a path below one (no chains, Resolution 6), nor a treated node (R-COL-35). A to-many segment
-     * and an id-form read (R-COL-29) need the metamodel, and fail at first resolution (R-SRC-25).
+     * {@code MQ1911} unless {@code column}, an anchor or the {@code when} column of {@code join}, reads no entity join,
+     * or one bound before {@code join} in {@code joins} that is itself column-anchored and, under an {@code INNER}
+     * {@code join}, {@code INNER} too (R-SRC-25, D-215). Joins are created in registration order, so the earlier
+     * join's table precedes this join's ON; a source-anchored join is created with its source, and no chain starts
+     * there; an {@code INNER} join on a {@code LEFT} one would drop the outer row the {@code LEFT} join keeps.
      */
-    private static void checkColumnAnchor(String where, ColumnField<?, ?, ?> column) {
+    private static void checkChain(String where, EntityJoin<?, ?> join, ColumnField<?, ?, ?> column,
+            List<? extends EntityJoin<?, ?>> joins) {
+        TableField<?, ?> read = column.table();
+        while (read != null && !read.isJoinedEntity()) {
+            read = read.parent();
+        }
+        if (read == null) {
+            return;
+        }
+        String reads = where + ": reads the entity join '" + read.key().alias() + "'";
+        int at = joins.indexOf(join);
+        for (int i = 0; i < joins.size(); i++) {
+            EntityJoin<?, ?> earlier = joins.get(i);
+            if (!earlier.root.key().equals(read.key())) {
+                continue;
+            }
+            if (i >= at) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1911, reads + (i == at ? ", its own root"
+                        : ", bound after it; bind '" + earlier.name + "' first, as entity joins are created in "
+                        + "registration order"));
+            }
+            if (earlier.anchoredOnSource()) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1911, reads + ", which is anchored on a joined "
+                        + "source; only a join anchored on the root's columns may anchor another");
+            }
+            if (join.kind == JoinKind.INNER && earlier.kind == JoinKind.LEFT) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1911, reads + ", which is LEFT: this INNER join "
+                        + "would drop every row '" + earlier.name + "' misses; declare '" + join.name + "' LEFT, or '"
+                        + earlier.name + "' INNER");
+            }
+            return;
+        }
+        throw new ModelQueryDefinitionException(MqCode.MQ1911, reads + ", which this query does not bind");
+    }
+
+    /**
+     * {@code MQ1911} unless {@code column} reads the root or a to-one path from it, or, when {@code chains}, an entity
+     * join or a to-one path from it (D-215; {@link #checkChain} checks which join when the query is built): not an
+     * outer lift, a source, nor a treated node (R-COL-35). A to-many segment and an id-form read (R-COL-29) need the
+     * metamodel, and fail at first resolution (R-SRC-25).
+     */
+    private static void checkColumnAnchor(String where, ColumnField<?, ?, ?> column, boolean chains) {
         if (column.isLifted()) {
             throw new ModelQueryDefinitionException(MqCode.MQ1911, where + ": an Outer lift reads another statement");
         }
         for (TableField<?, ?> node = column.table(); node != null; node = node.parent()) {
-            if (node.isJoinedEntity()) {
+            if (node.isJoinedEntity() && !chains) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1911, where + ": reads the entity join "
-                        + node.describe() + "; an anchor reads the root or a to-one path from it, not another join");
+                        + node.describe() + "; a source-anchored join's term reads the root or a to-one path from "
+                        + "it, not another join");
             }
             if (node.isSource()) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1911, where + ": reads the source "
