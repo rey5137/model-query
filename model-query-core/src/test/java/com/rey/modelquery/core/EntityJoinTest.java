@@ -20,7 +20,8 @@ class EntityJoinTest {
 
     static final class Day {}
     static final class Sales {}
-    static final class Profile {}
+    static class Profile {}
+    static final class Manager extends Profile {}
     static final class View {}
 
     private static final TableField<Day, Day> DAY = TableField.root(Day.class);
@@ -245,6 +246,77 @@ class EntityJoinTest {
         assertThat(NAME.identityPath()).isEqualTo("entity(manager).name");
         assertThatCode(() -> FieldIndex.builder(View.class).filterOnly(rootName, associationName, NAME).build())
                 .doesNotThrowAnyException();
+    }
+
+    @Test
+    void ac_col_65_a_named_joined_root_starts_its_columns_property_paths() {
+        TableField<Profile, Profile> boss = MANAGER.root().named("boss");
+        var bossName = ColumnField.of(View.class, boss, "name", String.class).named("name");
+        assertThat(boss.propertyPath()).isEqualTo("boss");
+        assertThat(bossName.propertyPath()).isEqualTo("boss.name");
+        assertThat(bossName.identityPath()).isEqualTo("entity(manager).name");
+        assertThat(boss).isEqualTo(MANAGER.root());
+        // Unnamed, the joined root keeps an empty path (R-SRC-23).
+        assertThat(MANAGER.root().propertyPath()).isEmpty();
+        assertThat(ColumnField.of(View.class, MANAGER.root(), "name", String.class).named("name").propertyPath())
+                .isEqualTo("name");
+        // An unnamed association node below it adds no segment; a named one does.
+        var type = TableField.<Profile, Profile>join(boss, "type", JoinType.LEFT);
+        assertThat(ColumnField.of(View.class, type, "name", String.class).named("typeName").propertyPath())
+                .isEqualTo("boss.typeName");
+        var parent = TableField.<Profile, Profile>join(type, "parent", JoinType.LEFT);
+        assertThat(ColumnField.of(View.class, parent, "name", String.class).named("parentName").propertyPath())
+                .isEqualTo("boss.parentName");
+        assertThat(ColumnField.of(View.class, type.named("kind"), "name", String.class).named("label")
+                .propertyPath()).isEqualTo("boss.kind.label");
+        // A joined source's root too; the query's own root never.
+        assertThat(ColumnField.over(View.class, SOURCE.root().named("sales"), S_MANAGER).named("managerId")
+                .propertyPath())
+                .isEqualTo("sales.managerId");
+        assertThat(ColumnField.of(View.class, DAY.named("day"), "id", Long.class).named("id").propertyPath())
+                .isEqualTo("id");
+        assertThat(ColumnField.of(View.class, boss.treat(Manager.class), "name", String.class).named("name")
+                .propertyPath()).isEqualTo("boss.name");
+    }
+
+    @Test
+    void ac_col_65_a_sort_names_a_named_joined_root_column_by_its_path_and_a_bare_name_the_root_column() {
+        var rootName = ColumnField.of(View.class, DAY, "name", String.class).named("name");
+        var bossName = ColumnField.of(View.class, MANAGER.root().named("boss"), "name", String.class).named("name");
+        var query = ModelQuery.builder(DAY, row -> new View()).primaryKey(PrimaryKey.of(V_ID))
+                .select(SelectSet.of(V_ID, rootName, bossName)).joinSource(SOURCE, SALES).joinEntity(MANAGER)
+                .build();
+
+        assertThat(query.orderedBy(SortSpec.of(SortSpec.Key.desc("boss.name"))).orderBy())
+                .containsExactly(bossName.desc());
+        assertThat(query.orderedBy(SortSpec.of(SortSpec.Key.asc("name"))).orderBy())
+                .containsExactly(rootName.asc());
+        // A column without a property matches by its attribute path after the joined root's property.
+        var bossId = ColumnField.of(View.class, MANAGER.root().named("boss"), "id", Long.class);
+        var withId = ModelQuery.builder(DAY, row -> new View()).primaryKey(PrimaryKey.of(V_ID))
+                .select(SelectSet.of(V_ID, bossId)).joinSource(SOURCE, SALES).joinEntity(MANAGER).build();
+        assertThat(withId.orderedBy(SortSpec.of(SortSpec.Key.asc("boss.id"))).orderBy())
+                .containsExactly(bossId.asc());
+        assertThat(withId.orderedBy(SortSpec.of(SortSpec.Key.asc("id"))).orderBy()).containsExactly(V_ID.asc());
+        var index = FieldIndex.builder(View.class).select(rootName, bossName).build();
+        assertThat(index.filter("boss.name")).containsSame(bossName);
+        assertThat(index.filter("name")).containsSame(rootName);
+    }
+
+    @Test
+    void ac_col_65_a_named_joined_root_keys_a_join_set_and_an_unnamed_node_below_it_does_not() {
+        TableField<Profile, Profile> boss = MANAGER.root().named("boss");
+        var set = SelectSet.of(NAME);
+        assertThat(FieldIndex.builder(View.class).joinSet(boss, set).build().set("boss")).containsSame(set);
+
+        var type = TableField.<Profile, Profile>join(boss, "type", JoinType.LEFT);
+        assertThatThrownBy(() -> FieldIndex.builder(View.class).joinSet(type, set))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("a join set needs a join with a property");
+        assertThatThrownBy(() -> FieldIndex.builder(View.class).joinSet(MANAGER.root(), set))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(FieldIndex.builder(View.class).joinSet(type.named("kind"), set).build().set("boss.kind"))
+                .containsSame(set);
     }
 
     private static void mq1911(Runnable action, String detail) {

@@ -35,9 +35,17 @@ alias (empty by default) — never by object identity. Two separate `TableField.
 therefore produce one join.
 
 **R-COL-15** **A join may carry a presence key.** `presentBy(key)` names the primary key whose non-null value means
-the join matched a row. It is kept by `as`, `on` and `withParent`, is not part of the join key, and throws `MQ1104` on a
-root. The engine selects it with any column of the join (`api/11` R-QRY-04), and a nested model's mapper reads it to
-tell a LEFT-join miss from a match whose other columns are `NULL` (`processor/31` R-GEN-13, D-38).
+the join matched a row. It is kept by `as`, `on`, `named` and `withParent`, is not part of the join key, and throws
+`MQ1104` on the query's root, a source root, a joined source's root and a treated root. The engine selects it with any
+column of the join (`api/11` R-QRY-04), and a nested model's mapper reads it to tell a LEFT-join miss from a match
+whose other columns are `NULL` (`processor/31` R-GEN-13, D-38).
+
+- A joined-entity root (`EntityJoin#root()`, `api/17` R-SRC-23) takes a presence key too: the copy keeps its join
+  name and so its join key, and equals the root it came from (D-213).
+- A joined root (entity or source) given a property with `named(...)` starts its columns' property paths with it
+  (`purchaser.name`); the join name never appears in a path, and `identityPath()` stays `entity(buyer).name`
+  (`api/11` R-QRY-14, R-PAG-19). An unnamed joined root keeps an empty path, and the query's root never adds its
+  property.
 
 **R-COL-03** The join-sharing rules:
 
@@ -782,6 +790,9 @@ the planner must see as a literal (a partial index's predicate, a selective enum
 | AC-COL-61 | `MQ1512`: an unbound param at `build()` at each read site (filter, order, group key, correlated filter), two params with one name, a param in a bulk write (an update's, delete's or insert's `where`, a conflict update's `where`; a conflict arbiter's is `MQ1804`), a source body's param unbound on its own source; `MQ1502`: a `null` value, a non-instance value, an unbindable value or declared type; a bound param nothing reads is allowed; a second `bind` replaces (R-COL-40). Tests: core `QueryParamTest#ac_col_61_*`. |
 | AC-COL-62 | A joined source's body binds its own value in each statement on both lines (the set value, not the outer one), each set-operation branch its own, and the outer query never binds the body's param; a `Correlated` correlation reads the outer binding; the `withLock`, `withFetch` and `orderedBy` copies and the treated root-id count carry the caller's bindings, and a fetch plan's child load that reads a param is `MQ1512` at the plan build; inspection and `toString` name params and never values (R-COL-40). Tests: TCK `QueryParamStatementsTest#ac_col_62_*`, `TreatStatementsTest#ac_col_62_*`; core `QueryParamTest#ac_col_62_*`. |
 | AC-COL-63 | The queries one builder builds through `bind` alone share one definition key; a builder change other than `bind`, an `orderedBy` copy and a query built apart each have another; a `withLock` or `withFetch` copy's key is shared by the copies of every binding for an equal lock or the same plan, and the second binding's copies are built without the checks of `build()` and read with their own values; a customizer narrowing only `MODEL` on a definition bound per request logs its phase warning once per definition, and `count`'s ignored `orderBy` once (R-COL-40, D-201). Tests: core `QueryParamTest#ac_col_63_*`; TCK `QueryParamStatementsTest#ac_col_63_*`. |
+| AC-COL-64 | `presentBy` on a joined-entity root returns a copy equal to the root (same join key and hash), still a joined-entity root, carrying the key, which `named` keeps and `withParent` returns as is; `presentBy` on the query's root, a source root, a joined source's root, a treated root and a treated joined-entity root, and `as` / `on` on a joined-entity root, throw `MQ1104` (R-COL-15, D-213). Tests: core `PresenceKeyTest#ac_col_64_*`. |
+| AC-COL-65 | A joined root (entity or source) named `purchaser` gives its columns the property path `purchaser.<property>`, through unnamed association nodes below it too, and `purchaser.kind.<property>` below a node named `kind`; an unnamed joined root keeps `<property>`, the query's root never adds its property, and `identityPath()` is unchanged; `orderedBy` and a `FieldIndex` filter name the column `purchaser.name` while a bare `name` names the root column, a column with no property sorts as `purchaser.<attribute>`, and `FieldIndex.joinSet` takes the named root but refuses an unnamed node below it, on H2 (R-COL-15, R-QRY-14, D-213). Tests: core `EntityJoinTest#ac_col_65_*`; TCK `EntityJoinPresenceExecutionTest#ac_col_65_*`. |
+| AC-COL-66 | A nested model read through `row.scoped(...)` of a named joined-entity root with a presence key: a `LEFT` miss is empty, a match whose read columns are all `NULL` is present, `INNER` drops the misses, both matching native SQL, and a column set that leaves the key out still selects it, on H2 (R-COL-15, D-38, D-213). Tests: TCK `EntityJoinPresenceExecutionTest#ac_col_66_*`. |
 
 AC-COL-36..39, 41 and 42 run on every Tier-1 vendor and both Hibernate lines. Each scalar terminal selects,
 filters and orders. AC-COL-41 covers all R-COL-33 refusals, including generated annotations and

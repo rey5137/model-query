@@ -41,7 +41,7 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ1101` | Two `TableField`s share a join key but carry different `on(...)` conditions | `api/10` R-COL-04 |
 | `MQ1102` | `on(...)` used without `as(...)` | `api/10` R-COL-04 |
 | `MQ1103` | Two `Agg.of` fields share a name with different expressions | `api/13` R-AGG-02 |
-| `MQ1104` | `as(...)`, `on(...)` or `presentBy(...)` on a root `TableField`, which is not a join | `api/10` R-COL-03, R-COL-04 |
+| `MQ1104` | `as(...)` or `on(...)` on a root `TableField`, which is not a join; `presentBy(...)` on a root other than a joined-entity root (the query's root, a source root, a joined source's root, a treated root) | `api/10` R-COL-03, R-COL-04 |
 | `MQ1105` | `FieldIndex.only` names a key the index doesn't hold, or leaves a kept set empty | `api/10` R-COL-24 |
 | `MQ1106` | `treat` misused: an improper root subtype at definition or join subtype at first resolution; treating a treat or source root; `as`/`on` on a treated join; an unmapped subtype or a sibling target; `typeOf`/`ofType` over a source root; an `ofType`/`notOfType` type the metamodel doesn't map as an entity or outside the node's hierarchy, before any statement and at first resolution | `api/10` R-COL-34, R-COL-36, `api/12` R-FLT-28, D-154, D-158 |
 | `MQ1201` | `keyset()` or `primaryKeyFirst(...)` without a primary key | `api/11` R-QRY-03 |
