@@ -1,0 +1,118 @@
+vendor	item	case	status	value
+POSTGRESQL	0	setup	PASS	PostgreSQL 16.15; shadow EntityJoin loaded
+POSTGRESQL	1	baseline-presentBy-on-entity-join-root	PASS	refused MQ1104: MQ1104: joined entity 'buyer' (SpCustomer): presentBy(...) applies to a join; a root is the query's FROM, not a join
+POSTGRESQL	1	emulated-presentBy-keeps-name	PASS	name=buyer, joined-entity, equal to BUYER.root(), presenceKey=QBuyer.KEY; table propertyPath='' (RFC: 'buyer'; not emulated); buyer name column entity(buyer).name has propertyPath 'name'
+POSTGRESQL	1	inner-rows	PASS	rows=10; order 4 present with name/email NULL; misses empty=false; count=10
+POSTGRESQL	1	inner-columnset-without-key	PASS	rows=10; key selected though not asked; selections=so1_0.id,sc1_0.name,sc1_0.id
+POSTGRESQL	1	left-rows	PASS	rows=12; order 4 present with name/email NULL; misses empty=true; count=12
+POSTGRESQL	1	left-columnset-without-key	PASS	rows=12; key selected though not asked; selections=so1_0.id,sc1_0.name,sc1_0.id
+POSTGRESQL	2	nested-model-standalone	PASS	rows=6
+POSTGRESQL	2	today-row-scoped-hazard	PASS	INV-5 hazard reproduced: 17 nested values read the nested root's own `name` instead of the region's; e.g. order 1 buyer 10 regionName='Ann' (its own name; region is 100) spent=null
+POSTGRESQL	2	emulated-scoped-two-fields-same-type	PASS	rows=12; each @Join field reads its own region and totals; order 1 customer North/12.5, referrer South/3.25
+POSTGRESQL	2	columnset-only-nested-joined-columns-loses-presence	PASS	FINDING: selecting only customer.regionName and customer.spent adds no presence key (they sit on customer_region / customer_totals, not under the presentBy join), so 10/12 present customers read Optional.empty(); selections=so1_0.id,sr1_0.name,var_1_21_0.mq_spent
+POSTGRESQL	2	columnset-only-nested-joined-columns-with-scope-key	PASS	rows=12; with the scope's key added (what the engine must do for a column on a mapped joined root) every row matches
+POSTGRESQL	2	paths-of-prefixed-columns	PASS	identityPath -> propertyPath: {customer.name=customer.name, entity(customer_region).name=regionName, entity(referrer_region).name=regionName, source(customer_totals).mq_spent=spent, source(referrer_totals).mq_spent=spent}
+POSTGRESQL	2	broken-map-missing-entry	PASS	loud: RFC 0024 scoped row: name reads the nested join joined entity 'region' (SpRegion), which the name map of join 'customer' (LEFT) does not map to an outer join
+POSTGRESQL	2	broken-map-swapped-prefix	PASS	loud at definition: RFC 0024 name map: EntityJoin[referrer_region: LEFT SpRegion] is anchored on join 'referrer' (LEFT), not at or below the scope join 'customer' (LEFT)
+POSTGRESQL	2	broken-map-wrong-kind	PASS	loud at definition: RFC 0024 name map: mismatched pair EntityJoin[region: LEFT SpRegion] / SourceJoin[customer_totals: LEFT CustomerTotals]
+POSTGRESQL	3	two-sources-one-type-two-prefixes	PASS	rows=12; customer totals over all payments, referrer totals over >= 2.00; binds=[2.00]
+POSTGRESQL	3	swapped-source-parameters	PASS	silent, as D-189 says of two joins of one source today: 5/12 rows read the other prefix's totals; no error
+POSTGRESQL	3	keyset-paging-over-outer	PASS	pages=3 of 5; concatenated = native
+POSTGRESQL	3	keyset-by-nested-name-no-null-order	PASS	refused MQ2202: MQ2202: OrderView: keyset column name is null in an exported row; order it with nullsFirst() or nullsLast() so the next page can be found after it
+POSTGRESQL	3	keyset-by-customer.name-nullsLast	PASS	pages=3 of 4 ordered by customer.name nullsLast, id; concatenated = list
+POSTGRESQL	3	keyset-by-entity(customer_region).name-nullsLast	PASS	pages=3 of 4 ordered by entity(customer_region).name nullsLast, id; concatenated = list
+POSTGRESQL	3	keyset-by-source(referrer_totals).mq_spent-nullsLast	PASS	pages=3 of 4 ordered by source(referrer_totals).mq_spent nullsLast, id; concatenated = list
+POSTGRESQL	3	grouped-count-through-both	PASS	groups=11; count=11; count statement reads the groups (client-side, D-192); anchors read FINDING: the FK column o.customer_id (Hibernate shortens customer.id), not the joined row: a dangling key (999) still matches its totals; joined-row reading differs: [0.5|3.25|1, 0.5|null|1, 10|null|2, 12.5|12.5|1, 12.5|3.25|1, 3.25|12.5|1, 3.25|null|1, 7|10|1, null|12.5|1, null|6|1, null|null|1]
+POSTGRESQL	4	baseline-chain-refused	PASS	refused MQ1911: MQ1911: Chain: entity join 'r' of SpRegion: anchor regionId: reads the entity join joined entity 'c' (SpCustomer); an anchor reads the root or a to-one path from it, not another join
+POSTGRESQL	4	chain-LL	PASS	rows=12; count=12; joins in creation order; from sp_order so1_0 left join sp_customer sc1_0 on sc1_0.id=so1_0.customer_id left join sp_region sr1_0 on sr1_0.id=sc1_0.region_id
+POSTGRESQL	4	chain-LI	PASS	rows=8; count=8; joins in creation order; from sp_order so1_0 left join sp_customer sc1_0 on sc1_0.id=so1_0.customer_id join sp_region sr1_0 on sr1_0.id=sc1_0.region_id
+POSTGRESQL	4	chain-IL	PASS	rows=10; count=10; joins in creation order; from sp_order so1_0 join sp_customer sc1_0 on sc1_0.id=so1_0.customer_id left join sp_region sr1_0 on sr1_0.id=sc1_0.region_id
+POSTGRESQL	4	chain-II	PASS	rows=8; count=8; joins in creation order; from sp_order so1_0 join sp_customer sc1_0 on sc1_0.id=so1_0.customer_id join sp_region sr1_0 on sr1_0.id=sc1_0.region_id
+POSTGRESQL	4	chain-LLL	PASS	rows=12; count=12; joins in creation order; from sp_order so1_0 left join sp_customer sc1_0 on sc1_0.id=so1_0.customer_id left join sp_region sr1_0 on sr1_0.id=sc1_0.region_id left join sp_country sc2_0 on sc2_0.id=sr1_0.country_id
+POSTGRESQL	4	chain-III	PASS	rows=6; count=6; joins in creation order; from sp_order so1_0 join sp_customer sc1_0 on sc1_0.id=so1_0.customer_id join sp_region sr1_0 on sr1_0.id=sc1_0.region_id join sp_country sc2_0 on sc2_0.id=sr1_0.country_id
+POSTGRESQL	4	chain-LLI	PASS	rows=6; count=6; joins in creation order; from sp_order so1_0 left join sp_customer sc1_0 on sc1_0.id=so1_0.customer_id left join sp_region sr1_0 on sr1_0.id=sc1_0.region_id join sp_country sc2_0 on sc2_0.id=sr1_0.country_id
+POSTGRESQL	4	chain-LIL	PASS	rows=8; count=8; joins in creation order; from sp_order so1_0 left join sp_customer sc1_0 on sc1_0.id=so1_0.customer_id join sp_region sr1_0 on sr1_0.id=sc1_0.region_id left join sp_country sc2_0 on sc2_0.id=sr1_0.country_id
+POSTGRESQL	4	chain-ILL	PASS	rows=10; count=10; joins in creation order; from sp_order so1_0 join sp_customer sc1_0 on sc1_0.id=so1_0.customer_id left join sp_region sr1_0 on sr1_0.id=sc1_0.region_id left join sp_country sc2_0 on sc2_0.id=sr1_0.country_id
+POSTGRESQL	4	chain-LLL-reversed-registration	PASS	refused MQ1003: MQ1003: Chain.countryId: joined entity 'r' (SpRegion): the query binds no entity joined as 'r'; bind it with joinEntity(...)
+POSTGRESQL	4	chain-LLL-joinFilter-on-first	PASS	rows=12; count=12; joins in creation order; from sp_order so1_0 left join sp_customer sc1_0 on sc1_0.id=so1_0.customer_id and sc1_0.name=? left join sp_region sr1_0 on sr1_0.id=sc1_0.region_id left join sp_country sc2_0 on sc2_0.id=sr1_0.country_id
+POSTGRESQL	4	chain-LIL-joinFilter-on-first	PASS	refused MQ1912: MQ1912: EntityJoin[r: INNER SpRegion]: INNER, but its anchor regionId reads through the joinFilter(...) join JoinKey[parent=null, attribute=com.rey.modelquery.spike.rfc0024.Entities$SpCustomer, type=null, alias=c, entity=true], whose filter would blank it and drop the row; declare the entity join LEFT
+POSTGRESQL	4	chain-LLL-keyset-pages	PASS	pages=3 of 4; concatenated = native
+POSTGRESQL	4	combined-partA-over-partB-over-chain	PASS	rows=12; @Join(entityJoin) buyer with its own region join reads through buyer_region; count=12
+H2	0	setup	PASS	H2 2.5.252 (2026-09-23); shadow EntityJoin loaded
+H2	1	baseline-presentBy-on-entity-join-root	PASS	refused MQ1104: MQ1104: joined entity 'buyer' (SpCustomer): presentBy(...) applies to a join; a root is the query's FROM, not a join
+H2	1	emulated-presentBy-keeps-name	PASS	name=buyer, joined-entity, equal to BUYER.root(), presenceKey=QBuyer.KEY; table propertyPath='' (RFC: 'buyer'; not emulated); buyer name column entity(buyer).name has propertyPath 'name'
+H2	1	inner-rows	PASS	rows=10; order 4 present with name/email NULL; misses empty=false; count=10
+H2	1	inner-columnset-without-key	PASS	rows=10; key selected though not asked; selections=so1_0.id,sc1_0.name,sc1_0.id
+H2	1	left-rows	PASS	rows=12; order 4 present with name/email NULL; misses empty=true; count=12
+H2	1	left-columnset-without-key	PASS	rows=12; key selected though not asked; selections=so1_0.id,sc1_0.name,sc1_0.id
+H2	2	nested-model-standalone	PASS	rows=6
+H2	2	today-row-scoped-hazard	PASS	INV-5 hazard reproduced: 17 nested values read the nested root's own `name` instead of the region's; e.g. order 1 buyer 10 regionName='Ann' (its own name; region is 100) spent=null
+H2	2	emulated-scoped-two-fields-same-type	PASS	rows=12; each @Join field reads its own region and totals; order 1 customer North/12.5, referrer South/3.25
+H2	2	columnset-only-nested-joined-columns-loses-presence	PASS	FINDING: selecting only customer.regionName and customer.spent adds no presence key (they sit on customer_region / customer_totals, not under the presentBy join), so 10/12 present customers read Optional.empty(); selections=so1_0.id,sr1_0.name,var_1_21_0.mq_spent
+H2	2	columnset-only-nested-joined-columns-with-scope-key	PASS	rows=12; with the scope's key added (what the engine must do for a column on a mapped joined root) every row matches
+H2	2	paths-of-prefixed-columns	PASS	identityPath -> propertyPath: {customer.name=customer.name, entity(customer_region).name=regionName, entity(referrer_region).name=regionName, source(customer_totals).mq_spent=spent, source(referrer_totals).mq_spent=spent}
+H2	2	broken-map-missing-entry	PASS	loud: RFC 0024 scoped row: name reads the nested join joined entity 'region' (SpRegion), which the name map of join 'customer' (LEFT) does not map to an outer join
+H2	2	broken-map-swapped-prefix	PASS	loud at definition: RFC 0024 name map: EntityJoin[referrer_region: LEFT SpRegion] is anchored on join 'referrer' (LEFT), not at or below the scope join 'customer' (LEFT)
+H2	2	broken-map-wrong-kind	PASS	loud at definition: RFC 0024 name map: mismatched pair EntityJoin[region: LEFT SpRegion] / SourceJoin[customer_totals: LEFT CustomerTotals]
+H2	3	two-sources-one-type-two-prefixes	PASS	rows=12; customer totals over all payments, referrer totals over >= 2.00; binds=[2.00]
+H2	3	swapped-source-parameters	PASS	silent, as D-189 says of two joins of one source today: 5/12 rows read the other prefix's totals; no error
+H2	3	keyset-paging-over-outer	PASS	pages=3 of 5; concatenated = native
+H2	3	keyset-by-nested-name-no-null-order	PASS	refused MQ2202: MQ2202: OrderView: keyset column name is null in an exported row; order it with nullsFirst() or nullsLast() so the next page can be found after it
+H2	3	keyset-by-customer.name-nullsLast	PASS	pages=3 of 4 ordered by customer.name nullsLast, id; concatenated = list
+H2	3	keyset-by-entity(customer_region).name-nullsLast	PASS	pages=3 of 4 ordered by entity(customer_region).name nullsLast, id; concatenated = list
+H2	3	keyset-by-source(referrer_totals).mq_spent-nullsLast	PASS	pages=3 of 4 ordered by source(referrer_totals).mq_spent nullsLast, id; concatenated = list
+H2	3	grouped-count-through-both	PASS	groups=11; count=11; count statement reads the groups (client-side, D-192); anchors read FINDING: the FK column o.customer_id (Hibernate shortens customer.id), not the joined row: a dangling key (999) still matches its totals; joined-row reading differs: [0.5|3.25|1, 0.5|null|1, 10|null|2, 12.5|12.5|1, 12.5|3.25|1, 3.25|12.5|1, 3.25|null|1, 7|10|1, null|12.5|1, null|6|1, null|null|1]
+H2	4	baseline-chain-refused	PASS	refused MQ1911: MQ1911: Chain: entity join 'r' of SpRegion: anchor regionId: reads the entity join joined entity 'c' (SpCustomer); an anchor reads the root or a to-one path from it, not another join
+H2	4	chain-LL	PASS	rows=12; count=12; joins in creation order; from sp_order so1_0 left join sp_customer sc1_0 on sc1_0.id=so1_0.customer_id left join sp_region sr1_0 on sr1_0.id=sc1_0.region_id
+H2	4	chain-LI	PASS	rows=8; count=8; joins in creation order; from sp_order so1_0 left join sp_customer sc1_0 on sc1_0.id=so1_0.customer_id join sp_region sr1_0 on sr1_0.id=sc1_0.region_id
+H2	4	chain-IL	PASS	rows=10; count=10; joins in creation order; from sp_order so1_0 join sp_customer sc1_0 on sc1_0.id=so1_0.customer_id left join sp_region sr1_0 on sr1_0.id=sc1_0.region_id
+H2	4	chain-II	PASS	rows=8; count=8; joins in creation order; from sp_order so1_0 join sp_customer sc1_0 on sc1_0.id=so1_0.customer_id join sp_region sr1_0 on sr1_0.id=sc1_0.region_id
+H2	4	chain-LLL	PASS	rows=12; count=12; joins in creation order; from sp_order so1_0 left join sp_customer sc1_0 on sc1_0.id=so1_0.customer_id left join sp_region sr1_0 on sr1_0.id=sc1_0.region_id left join sp_country sc2_0 on sc2_0.id=sr1_0.country_id
+H2	4	chain-III	PASS	rows=6; count=6; joins in creation order; from sp_order so1_0 join sp_customer sc1_0 on sc1_0.id=so1_0.customer_id join sp_region sr1_0 on sr1_0.id=sc1_0.region_id join sp_country sc2_0 on sc2_0.id=sr1_0.country_id
+H2	4	chain-LLI	PASS	rows=6; count=6; joins in creation order; from sp_order so1_0 left join sp_customer sc1_0 on sc1_0.id=so1_0.customer_id left join sp_region sr1_0 on sr1_0.id=sc1_0.region_id join sp_country sc2_0 on sc2_0.id=sr1_0.country_id
+H2	4	chain-LIL	PASS	rows=8; count=8; joins in creation order; from sp_order so1_0 left join sp_customer sc1_0 on sc1_0.id=so1_0.customer_id join sp_region sr1_0 on sr1_0.id=sc1_0.region_id left join sp_country sc2_0 on sc2_0.id=sr1_0.country_id
+H2	4	chain-ILL	PASS	rows=10; count=10; joins in creation order; from sp_order so1_0 join sp_customer sc1_0 on sc1_0.id=so1_0.customer_id left join sp_region sr1_0 on sr1_0.id=sc1_0.region_id left join sp_country sc2_0 on sc2_0.id=sr1_0.country_id
+H2	4	chain-LLL-reversed-registration	PASS	refused MQ1003: MQ1003: Chain.countryId: joined entity 'r' (SpRegion): the query binds no entity joined as 'r'; bind it with joinEntity(...)
+H2	4	chain-LLL-joinFilter-on-first	PASS	rows=12; count=12; joins in creation order; from sp_order so1_0 left join sp_customer sc1_0 on sc1_0.id=so1_0.customer_id and sc1_0.name=? left join sp_region sr1_0 on sr1_0.id=sc1_0.region_id left join sp_country sc2_0 on sc2_0.id=sr1_0.country_id
+H2	4	chain-LIL-joinFilter-on-first	PASS	refused MQ1912: MQ1912: EntityJoin[r: INNER SpRegion]: INNER, but its anchor regionId reads through the joinFilter(...) join JoinKey[parent=null, attribute=com.rey.modelquery.spike.rfc0024.Entities$SpCustomer, type=null, alias=c, entity=true], whose filter would blank it and drop the row; declare the entity join LEFT
+H2	4	chain-LLL-keyset-pages	PASS	pages=3 of 4; concatenated = native
+H2	4	combined-partA-over-partB-over-chain	PASS	rows=12; @Join(entityJoin) buyer with its own region join reads through buyer_region; count=12
+MYSQL	0	setup	PASS	MySQL 8.0.34; shadow EntityJoin loaded
+MYSQL	1	baseline-presentBy-on-entity-join-root	PASS	refused MQ1104: MQ1104: joined entity 'buyer' (SpCustomer): presentBy(...) applies to a join; a root is the query's FROM, not a join
+MYSQL	1	emulated-presentBy-keeps-name	PASS	name=buyer, joined-entity, equal to BUYER.root(), presenceKey=QBuyer.KEY; table propertyPath='' (RFC: 'buyer'; not emulated); buyer name column entity(buyer).name has propertyPath 'name'
+MYSQL	1	inner-rows	PASS	rows=10; order 4 present with name/email NULL; misses empty=false; count=10
+MYSQL	1	inner-columnset-without-key	PASS	rows=10; key selected though not asked; selections=so1_0.id,sc1_0.name,sc1_0.id
+MYSQL	1	left-rows	PASS	rows=12; order 4 present with name/email NULL; misses empty=true; count=12
+MYSQL	1	left-columnset-without-key	PASS	rows=12; key selected though not asked; selections=so1_0.id,sc1_0.name,sc1_0.id
+MYSQL	2	nested-model-standalone	PASS	rows=6
+MYSQL	2	today-row-scoped-hazard	PASS	INV-5 hazard reproduced: 17 nested values read the nested root's own `name` instead of the region's; e.g. order 1 buyer 10 regionName='Ann' (its own name; region is 100) spent=null
+MYSQL	2	emulated-scoped-two-fields-same-type	PASS	rows=12; each @Join field reads its own region and totals; order 1 customer North/12.5, referrer South/3.25
+MYSQL	2	columnset-only-nested-joined-columns-loses-presence	PASS	FINDING: selecting only customer.regionName and customer.spent adds no presence key (they sit on customer_region / customer_totals, not under the presentBy join), so 10/12 present customers read Optional.empty(); selections=so1_0.id,sr1_0.name,var_1_21_0.mq_spent
+MYSQL	2	columnset-only-nested-joined-columns-with-scope-key	PASS	rows=12; with the scope's key added (what the engine must do for a column on a mapped joined root) every row matches
+MYSQL	2	paths-of-prefixed-columns	PASS	identityPath -> propertyPath: {customer.name=customer.name, entity(customer_region).name=regionName, entity(referrer_region).name=regionName, source(customer_totals).mq_spent=spent, source(referrer_totals).mq_spent=spent}
+MYSQL	2	broken-map-missing-entry	PASS	loud: RFC 0024 scoped row: name reads the nested join joined entity 'region' (SpRegion), which the name map of join 'customer' (LEFT) does not map to an outer join
+MYSQL	2	broken-map-swapped-prefix	PASS	loud at definition: RFC 0024 name map: EntityJoin[referrer_region: LEFT SpRegion] is anchored on join 'referrer' (LEFT), not at or below the scope join 'customer' (LEFT)
+MYSQL	2	broken-map-wrong-kind	PASS	loud at definition: RFC 0024 name map: mismatched pair EntityJoin[region: LEFT SpRegion] / SourceJoin[customer_totals: LEFT CustomerTotals]
+MYSQL	3	two-sources-one-type-two-prefixes	PASS	rows=12; customer totals over all payments, referrer totals over >= 2.00; binds=[2.00]
+MYSQL	3	swapped-source-parameters	PASS	silent, as D-189 says of two joins of one source today: 5/12 rows read the other prefix's totals; no error
+MYSQL	3	keyset-paging-over-outer	PASS	pages=3 of 5; concatenated = native
+MYSQL	3	keyset-by-nested-name-no-null-order	PASS	refused MQ2202: MQ2202: OrderView: keyset column name is null in an exported row; order it with nullsFirst() or nullsLast() so the next page can be found after it
+MYSQL	3	keyset-by-customer.name-nullsLast	PASS	pages=3 of 4 ordered by customer.name nullsLast, id; concatenated = list
+MYSQL	3	keyset-by-entity(customer_region).name-nullsLast	PASS	pages=3 of 4 ordered by entity(customer_region).name nullsLast, id; concatenated = list
+MYSQL	3	keyset-by-source(referrer_totals).mq_spent-nullsLast	PASS	pages=3 of 4 ordered by source(referrer_totals).mq_spent nullsLast, id; concatenated = list
+MYSQL	3	grouped-count-through-both	PASS	groups=11; count=11; count statement reads the groups (client-side, D-192); anchors read FINDING: the FK column o.customer_id (Hibernate shortens customer.id), not the joined row: a dangling key (999) still matches its totals; joined-row reading differs: [0.5|3.25|1, 0.5|null|1, 10|null|2, 12.5|12.5|1, 12.5|3.25|1, 3.25|12.5|1, 3.25|null|1, 7|10|1, null|12.5|1, null|6|1, null|null|1]
+MYSQL	4	baseline-chain-refused	PASS	refused MQ1911: MQ1911: Chain: entity join 'r' of SpRegion: anchor regionId: reads the entity join joined entity 'c' (SpCustomer); an anchor reads the root or a to-one path from it, not another join
+MYSQL	4	chain-LL	PASS	rows=12; count=12; joins in creation order; from sp_order so1_0 left join sp_customer sc1_0 on sc1_0.id=so1_0.customer_id left join sp_region sr1_0 on sr1_0.id=sc1_0.region_id
+MYSQL	4	chain-LI	PASS	rows=8; count=8; joins in creation order; from sp_order so1_0 left join sp_customer sc1_0 on sc1_0.id=so1_0.customer_id join sp_region sr1_0 on sr1_0.id=sc1_0.region_id
+MYSQL	4	chain-IL	PASS	rows=10; count=10; joins in creation order; from sp_order so1_0 join sp_customer sc1_0 on sc1_0.id=so1_0.customer_id left join sp_region sr1_0 on sr1_0.id=sc1_0.region_id
+MYSQL	4	chain-II	PASS	rows=8; count=8; joins in creation order; from sp_order so1_0 join sp_customer sc1_0 on sc1_0.id=so1_0.customer_id join sp_region sr1_0 on sr1_0.id=sc1_0.region_id
+MYSQL	4	chain-LLL	PASS	rows=12; count=12; joins in creation order; from sp_order so1_0 left join sp_customer sc1_0 on sc1_0.id=so1_0.customer_id left join sp_region sr1_0 on sr1_0.id=sc1_0.region_id left join sp_country sc2_0 on sc2_0.id=sr1_0.country_id
+MYSQL	4	chain-III	PASS	rows=6; count=6; joins in creation order; from sp_order so1_0 join sp_customer sc1_0 on sc1_0.id=so1_0.customer_id join sp_region sr1_0 on sr1_0.id=sc1_0.region_id join sp_country sc2_0 on sc2_0.id=sr1_0.country_id
+MYSQL	4	chain-LLI	PASS	rows=6; count=6; joins in creation order; from sp_order so1_0 left join sp_customer sc1_0 on sc1_0.id=so1_0.customer_id left join sp_region sr1_0 on sr1_0.id=sc1_0.region_id join sp_country sc2_0 on sc2_0.id=sr1_0.country_id
+MYSQL	4	chain-LIL	PASS	rows=8; count=8; joins in creation order; from sp_order so1_0 left join sp_customer sc1_0 on sc1_0.id=so1_0.customer_id join sp_region sr1_0 on sr1_0.id=sc1_0.region_id left join sp_country sc2_0 on sc2_0.id=sr1_0.country_id
+MYSQL	4	chain-ILL	PASS	rows=10; count=10; joins in creation order; from sp_order so1_0 join sp_customer sc1_0 on sc1_0.id=so1_0.customer_id left join sp_region sr1_0 on sr1_0.id=sc1_0.region_id left join sp_country sc2_0 on sc2_0.id=sr1_0.country_id
+MYSQL	4	chain-LLL-reversed-registration	PASS	refused MQ1003: MQ1003: Chain.countryId: joined entity 'r' (SpRegion): the query binds no entity joined as 'r'; bind it with joinEntity(...)
+MYSQL	4	chain-LLL-joinFilter-on-first	PASS	rows=12; count=12; joins in creation order; from sp_order so1_0 left join sp_customer sc1_0 on sc1_0.id=so1_0.customer_id and sc1_0.name=? left join sp_region sr1_0 on sr1_0.id=sc1_0.region_id left join sp_country sc2_0 on sc2_0.id=sr1_0.country_id
+MYSQL	4	chain-LIL-joinFilter-on-first	PASS	refused MQ1912: MQ1912: EntityJoin[r: INNER SpRegion]: INNER, but its anchor regionId reads through the joinFilter(...) join JoinKey[parent=null, attribute=com.rey.modelquery.spike.rfc0024.Entities$SpCustomer, type=null, alias=c, entity=true], whose filter would blank it and drop the row; declare the entity join LEFT
+MYSQL	4	chain-LLL-keyset-pages	PASS	pages=3 of 4; concatenated = native
+MYSQL	4	combined-partA-over-partB-over-chain	PASS	rows=12; @Join(entityJoin) buyer with its own region join reads through buyer_region; count=12
