@@ -34,6 +34,117 @@ public record Line(@PrimaryKey Long id, String productCode, Integer quantity) {}
 `@PrimaryKey`. Both take one path, and their types must be equal. A `@Child` of type `Optional` is a to-one child.
 The processor generates a `ChildField` constant per `@Child`, such as `QCustomerOrders.ORDERS`.
 
+### Declaring `@Child`, case by case
+
+A child is matched by comparing two columns: `key` on the parent and `foreignKey` on the child. Pick the row that
+matches where the linking column lives. The parent entity does not need a `@OneToMany` collection for any of these:
+`@Child` reads the columns, not the collection.
+
+| Where the link lives | Field type | Declare |
+|---|---|---|
+| The child has a `@ManyToOne` to the parent | `List` | `@Child(foreignKey = "order.id")` |
+| The child has a plain column holding the parent's id | `List` | `@Child(foreignKey = "orderId")` |
+| The parent has a `@ManyToOne` to the child | `Optional` | `@Child(key = "customer.id")` |
+| The parent has a plain column holding the child's id | `Optional` | `@Child(key = "customerId")` |
+| The child holds the parent's id and has at most one row per parent (a one-to-one) | `Optional` | `@Child(foreignKey = "order.id")` |
+| Both sides link on a column other than an id | `List` or `Optional` | `@Child(key = "email", foreignKey = "customerEmail")` |
+| Many-to-many, mapped on the child's side | `List` | `@Child(foreignKey = "orders.id")` |
+| Many-to-many or any association path, mapped on the parent's side | `List` or `Optional` | `@Child(through = "labels")` |
+
+`key` defaults to the parent's `@PrimaryKey` and `foreignKey` to the child's. A path that ends at an association must
+name one of its attributes: `"order.id"`, not `"order"` (`MQ3402`). The two columns must have the same type (`MQ3403`).
+
+**The child points back with an association.** `OrderItemEntity` has `@ManyToOne OrderEntity order`:
+
+```java
+@QueryModel(root = OrderEntity.class)
+public record OrderItems(
+        @PrimaryKey Long id,
+        String status,
+        @Child(foreignKey = "order.id") List<Line> items) {}         // OrderItemEntity.order.id = OrderEntity.id
+
+@QueryModel(root = OrderItemEntity.class)
+public record Line(@PrimaryKey Long id, String productCode, Integer quantity) {}
+```
+
+**The child points back with a plain column.** `PaymentEntity` has `@Column(name = "order_id") Long orderId` and no
+association:
+
+```java
+@QueryModel(root = OrderEntity.class)
+public record OrderPayments(
+        @PrimaryKey Long id,
+        @Child(foreignKey = "orderId") List<PaymentView> payments) {}  // PaymentEntity.orderId = OrderEntity.id
+
+@QueryModel(root = PaymentEntity.class)
+public record PaymentView(@PrimaryKey Long id, BigDecimal amount, String state) {}
+```
+
+A JPA `@OneToMany(mappedBy = "orderId")` over such a column is not valid, since `mappedBy` must name an association.
+Leave the collection off the entity, or map it with `@OneToMany @JoinColumn(name = "order_id", insertable = false,
+updatable = false)`; the model does not need it either way.
+
+**The parent holds the child's id.** An order has one customer. Set `key` to the parent's column; `foreignKey`
+defaults to the child's `@PrimaryKey`:
+
+```java
+@QueryModel(root = OrderEntity.class)
+public record OrderCustomer(
+        @PrimaryKey Long id,
+        @Child(key = "customer.id") Optional<Buyer> buyer) {}          // OrderEntity.customer.id = CustomerEntity.id
+
+@QueryModel(root = CustomerEntity.class)
+public record Buyer(@PrimaryKey Long id, String name) {}
+```
+
+With a plain `Long customerId` column on the order instead, write `key = "customerId"`. A `null` key leaves
+`Optional.empty()`. A to-one association can also be read in the same row with `@Join`
+([Writing a model](models.md#writing-a-model)); use `@Child` when the plan should decide whether to load it.
+
+**A one-to-one where the child holds the key.** Each order has at most one shipment, whose `order.id` points back:
+
+```java
+@QueryModel(root = OrderEntity.class)
+public record OrderShipment(
+        @PrimaryKey Long id,
+        @Child(foreignKey = "order.id") Optional<ShipmentView> shipment) {}
+
+@QueryModel(root = ShipmentEntity.class)
+public record ShipmentView(@PrimaryKey Long id, String carrier, String trackingNo) {}
+```
+
+Two shipments for one order fail with `MQ2601`; use a `List` when the column is not unique on the child's side.
+
+**Several children, and children of children.** Each `@Child` is a separate field, and a child model may declare its
+own:
+
+```java
+@QueryModel(root = OrderEntity.class)
+public record OrderDetail(
+        @PrimaryKey Long id,
+        String status,
+        @Child(foreignKey = "order.id") List<Line> items,
+        @Child(foreignKey = "orderId") List<PaymentView> payments,
+        @Child(key = "customer.id") Optional<Buyer> buyer) {}
+
+FetchPlan<OrderDetail> plan = FetchPlan.of(QOrderDetail.ALL)
+        .child(QOrderDetail.ITEMS, FetchPlan.of(QLine.ALL))
+        .child(QOrderDetail.PAYMENTS, FetchPlan.of(QPaymentView.ALL),
+                c -> c.where(f -> f.eq(QPaymentView.STATE, "SETTLED")))
+        .child(QOrderDetail.BUYER, FetchPlan.of(QBuyer.ALL));
+```
+
+A plan may leave out any child; it then reads as empty. Keys on other columns, many-to-many children and `through` have
+their own sections below: [A to-one child, and a key other than the primary
+key](#a-to-one-child-and-a-key-other-than-the-primary-key) and [Many-to-many children](#many-to-many-children).
+
+The rules every case shares:
+
+- A `List` child needs `foreignKey` or `through`, and its model needs a `@PrimaryKey` (`MQ3405`).
+- `key` and `foreignKey` each take one attribute; a composite or embedded key is refused (`MQ3404`).
+- `key` may not cross a collection. `foreignKey` may, for a many-to-many child (`MQ3402`).
+- `through` and `foreignKey` exclude each other (`MQ3401`).
+
 A plan says which children to load. It is immutable, built bottom-up, and attached to the query with `fetch(...)`:
 
 ```java
