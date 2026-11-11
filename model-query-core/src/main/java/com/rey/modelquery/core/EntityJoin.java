@@ -32,13 +32,15 @@ public final class EntityJoin<M, E> {
     private final TableField<E, E> root;
     private final When<M> when;
 
-    private EntityJoin(String name, Class<E> entity, JoinKind kind, List<On<M>> on, When<M> when) {
+    private EntityJoin(String name, Class<E> entity, JoinKind kind, List<On<M>> on, When<M> when,
+            TableField<?, ?> within) {
         this.name = name;
         this.entity = entity;
         this.kind = kind;
         this.on = on;
         this.when = when;
-        this.root = TableField.joinedEntity(name, entity);
+        TableField<E, E> joined = TableField.joinedEntity(name, entity);
+        this.root = within == null ? joined : joined.within(within);
     }
 
     /** The full basic id, checked on first resolution, when the metamodel is available (D-193 Resolution 8). */
@@ -105,7 +107,7 @@ public final class EntityJoin<M, E> {
                     "entity join '" + name + "' needs a name and at least one on(...) pair");
         }
         return new EntityJoin<>(name, Objects.requireNonNull(entity, "entity"), Objects.requireNonNull(kind, "kind"),
-                pairs, null);
+                pairs, null, null);
     }
 
     /**
@@ -139,7 +141,46 @@ public final class EntityJoin<M, E> {
                     + "boolean or temporal column");
         }
         checkColumnAnchor(where, column);
-        return new EntityJoin<>(name, entity, kind, on, new When<>(column, value));
+        if (root.within() != null) {
+            requireReadUnder(this, column, root.within());
+        }
+        return new EntityJoin<>(name, entity, kind, on, new When<>(column, value), root.within());
+    }
+
+    /**
+     * This join registered under {@code join}, the {@code @Join} field whose nested model declared it: a column of
+     * {@link #root()} then also selects the presence key of {@code join} and of every join above it, and a
+     * {@link JoinScope} maps the nested model's join to this one (D-216). The link is not part of the root's key.
+     * Pass the {@code @Join} field's own constant, whose {@code presentBy} the walk reads (a copy with an equal key
+     * but no {@code presentBy} selects no key, and a scope refuses it), and build this join's columns from the
+     * {@link #root()} returned here: a column built from the root before {@code within} misses the link.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1107} for a join already registered under one, or an anchor or
+     *     {@link #when} column that is not read at or below {@code join}
+     */
+    @Incubating
+    public EntityJoin<M, E> within(TableField<?, ?> join) {
+        Objects.requireNonNull(join, "join");
+        if (root.within() != null) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1107, this + ": within(" + join.describe()
+                    + "): already registered within " + root.within().describe());
+        }
+        for (On<M> pair : on) {
+            requireReadUnder(this, pair.anchor(), join);
+        }
+        if (when != null) {
+            requireReadUnder(this, when.column(), join);
+        }
+        return new EntityJoin<>(name, entity, kind, on, when, join);
+    }
+
+    /** {@code column}, an anchor of {@code owner}, is read at or below {@code join}, or {@code MQ1107} (D-216). */
+    static void requireReadUnder(Object owner, ColumnField<?, ?, ?> column, TableField<?, ?> join) {
+        if (!column.table().isReadUnder(join)) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1107, owner + ": " + column.name() + " on "
+                    + column.table().describe() + " is not read at or below " + join.describe()
+                    + ", the @Join the join is registered within");
+        }
     }
 
     /** Pairs {@code anchor}, a joined source's or the root's column, with an entity id attribute path (R-SRC-23). */

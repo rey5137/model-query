@@ -40,6 +40,8 @@ public final class TableField<P, T> {
     private final boolean source;
     /** The bound source or entity join name, or {@code null} for every other node (R-SRC-21, R-SRC-23). */
     private final String joinName;
+    /** The {@code @Join} a joined root is read under, or {@code null}; not part of {@link #key} (D-216). */
+    private final TableField<?, ?> within;
     private final JoinKey key;
     private final Class<T> subtype;
     private final TableField<?, ?> treatOrigin;
@@ -64,6 +66,14 @@ public final class TableField<P, T> {
     private TableField(Class<T> rootEntity, TableField<?, P> parent, String attribute, JoinType type, String alias,
             BiFunction<From<?, T>, CriteriaBuilder, Predicate> condition, PrimaryKey<?, ?> presenceKey,
             String property, boolean source, Class<T> subtype, TableField<?, ?> treatOrigin, String joinName) {
+        this(rootEntity, parent, attribute, type, alias, condition, presenceKey, property, source, subtype,
+                treatOrigin, joinName, null);
+    }
+
+    private TableField(Class<T> rootEntity, TableField<?, P> parent, String attribute, JoinType type, String alias,
+            BiFunction<From<?, T>, CriteriaBuilder, Predicate> condition, PrimaryKey<?, ?> presenceKey,
+            String property, boolean source, Class<T> subtype, TableField<?, ?> treatOrigin, String joinName,
+            TableField<?, ?> within) {
         this.rootEntity = rootEntity;
         this.parent = parent;
         this.attribute = attribute;
@@ -76,6 +86,7 @@ public final class TableField<P, T> {
         this.subtype = subtype;
         this.treatOrigin = treatOrigin;
         this.joinName = joinName;
+        this.within = within;
         this.key = joinName != null ? source ? JoinKey.joinedSource(rootEntity, joinName)
                 : JoinKey.joinedEntity(rootEntity, joinName)
                 : rootEntity != null ? JoinKey.root(rootEntity)
@@ -196,7 +207,7 @@ public final class TableField<P, T> {
             requireJoin("presentBy(...)");
         }
         return new TableField<>(rootEntity, parent, attribute, type, alias, condition, key, property, source,
-                subtype, treatOrigin, joinName);
+                subtype, treatOrigin, joinName, within);
     }
 
     /**
@@ -212,7 +223,7 @@ public final class TableField<P, T> {
         Objects.requireNonNull(property, "property");
         requireUntreated("named(...)");
         return new TableField<>(rootEntity, parent, attribute, type, alias, condition, presenceKey, property,
-                source, subtype, treatOrigin, joinName);
+                source, subtype, treatOrigin, joinName, within);
     }
 
     /**
@@ -416,6 +427,39 @@ public final class TableField<P, T> {
     /** Whether {@link #on} gave this join a condition. */
     boolean hasCondition() {
         return condition != null;
+    }
+
+    /**
+     * This joined root read under {@code join}, the {@code @Join} a nested model's own join was registered under:
+     * presence keys and {@link #isReadUnder} continue from it (D-216). Only {@link EntityJoin#within} and
+     * {@link SourceJoin#within} call it.
+     */
+    TableField<P, T> within(TableField<?, ?> join) {
+        return new TableField<>(rootEntity, parent, attribute, type, alias, condition, presenceKey, property,
+                source, subtype, treatOrigin, joinName, Objects.requireNonNull(join, "join"));
+    }
+
+    /** The {@code @Join} this joined root is read under, or {@code null} (D-216). */
+    TableField<?, ?> within() {
+        return within;
+    }
+
+    /** The node a presence key is read through next: the parent, or the {@code @Join} a joined root is under. */
+    TableField<?, ?> above() {
+        return parent != null ? parent : within;
+    }
+
+    /**
+     * Whether this node is {@code join} or is read under it: below it, or on a joined root registered
+     * {@link #within} it or below it (D-216).
+     */
+    boolean isReadUnder(TableField<?, ?> join) {
+        for (TableField<?, ?> node = this; node != null; node = node.above()) {
+            if (node.key.equals(join.key)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** The key named by {@link #presentBy}, or {@code null}. */

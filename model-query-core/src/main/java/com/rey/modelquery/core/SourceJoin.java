@@ -30,12 +30,13 @@ public final class SourceJoin<M, S> {
     private final List<On<M, S>> on;
     private final TableField<S, S> root;
 
-    private SourceJoin(String name, Class<S> source, JoinKind kind, List<On<M, S>> on) {
+    private SourceJoin(String name, Class<S> source, JoinKind kind, List<On<M, S>> on, TableField<?, ?> within) {
         this.name = name;
         this.source = source;
         this.kind = kind;
         this.on = on;
-        this.root = TableField.joinedSource(name, source);
+        TableField<S, S> joined = TableField.joinedSource(name, source);
+        this.root = within == null ? joined : joined.within(within);
     }
 
     /**
@@ -53,7 +54,31 @@ public final class SourceJoin<M, S> {
             throw new IllegalArgumentException("join '" + name + "' needs at least one on(...) pair");
         }
         return new SourceJoin<>(name, Objects.requireNonNull(source, "source"), Objects.requireNonNull(kind, "kind"),
-                pairs);
+                pairs, null);
+    }
+
+    /**
+     * This join registered under {@code join}, the {@code @Join} field whose nested model declared it: a column of
+     * {@link #root()} then also selects the presence key of {@code join} and of every join above it, and a
+     * {@link JoinScope} maps the nested model's join to this one (D-216). The link is not part of the root's key.
+     * Pass the {@code @Join} field's own constant, whose {@code presentBy} the walk reads (a copy with an equal key
+     * but no {@code presentBy} selects no key, and a scope refuses it), and build this join's columns from the
+     * {@link #root()} returned here: a column built from the root before {@code within} misses the link.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1107} for a join already registered under one, or an outer
+     *     column of a pair that is not read at or below {@code join}
+     */
+    @Incubating
+    public SourceJoin<M, S> within(TableField<?, ?> join) {
+        Objects.requireNonNull(join, "join");
+        if (root.within() != null) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1107, this + ": within(" + join.describe()
+                    + "): already registered within " + root.within().describe());
+        }
+        for (On<M, S> pair : on) {
+            EntityJoin.requireReadUnder(this, pair.column(), join);
+        }
+        return new SourceJoin<>(name, source, kind, on, join);
     }
 
     /** The pair joining the outer {@code column} to the source key field {@code key}, compared by {@code =}. */

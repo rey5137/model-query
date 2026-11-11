@@ -26,8 +26,33 @@ record JoinKey(JoinKey parent, String attribute, JoinType type, String alias, bo
         return new JoinKey(null, entity.getName(), null, name, true);
     }
 
-    /** This key with its root replaced by {@code newRoot}, as {@code TableField.withParent} re-roots a path. */
+    /** Whether this is a named source or entity join's root: parentless, its alias the join name (R-SRC-21). */
+    boolean isJoinedRoot() {
+        return parent == null && !alias.isEmpty();
+    }
+
+    /** The parentless key this path starts at. */
+    JoinKey root() {
+        return parent == null ? this : parent.root();
+    }
+
+    /**
+     * This key with its root replaced by {@code newRoot}, as {@code TableField.withParent} re-roots a path. A path
+     * that starts at a joined root is not re-rooted: its join is no path of the scope, and re-rooting it would read
+     * the scope's own column (D-216).
+     *
+     * @throws IllegalStateException when this path starts at a joined root
+     */
     JoinKey reroot(JoinKey newRoot) {
-        return parent == null ? newRoot : new JoinKey(parent.reroot(newRoot), attribute, type, alias, entity);
+        if (root().isJoinedRoot()) {
+            throw new IllegalStateException("a path on the joined root '" + root().alias()
+                    + "' cannot be re-rooted; map its join instead (D-216)");
+        }
+        return replaceRoot(newRoot);
+    }
+
+    /** This key with its root, whatever it is, replaced by {@code newRoot}: a joined root mapped to an outer one. */
+    JoinKey replaceRoot(JoinKey newRoot) {
+        return parent == null ? newRoot : new JoinKey(parent.replaceRoot(newRoot), attribute, type, alias, entity);
     }
 }

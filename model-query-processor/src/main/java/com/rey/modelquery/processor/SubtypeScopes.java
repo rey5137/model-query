@@ -18,6 +18,7 @@ final class SubtypeScopes {
     private static final ClassName ROW = ClassName.get(CORE, "Row");
     private static final ClassName SELECT_FIELD = ClassName.get(CORE, "SelectField");
     private static final ClassName TABLE_FIELD = ClassName.get(CORE, "TableField");
+    private static final ClassName JOIN_SCOPE = ClassName.get(CORE, "JoinScope");
 
     private SubtypeScopes() {}
 
@@ -69,6 +70,22 @@ final class SubtypeScopes {
             }
         }
         adapter.addMethod(scope.addStatement("return scoped.scoped(join)").build());
+        // A scope with no name map reads as scoped(TableField); one with a map over a subtype adapter is refused,
+        // since the adapter reads its table plainly and would drop the map (INV-5).
+        MethodSpec.Builder mapped = MethodSpec.methodBuilder("scoped").addAnnotation(Override.class)
+                .addModifiers(Modifier.PUBLIC).returns(ROW).addParameter(JOIN_SCOPE, "scope");
+        for (JoinedTable child : children(table, joined)) {
+            if (needed(child, joined)) {
+                mapped.beginControlFlow("if (scope.table().equals($T.$L_TABLE))", nested,
+                                child.declaration().join().prefix())
+                        .beginControlFlow("if (!scope.equals($T.of(scope.table())))", JOIN_SCOPE)
+                        .addStatement("throw new $T($S + scope)", UnsupportedOperationException.class,
+                                "a subtype-mapped @Join reads no name map: ")
+                        .endControlFlow()
+                        .addStatement("return $L(row)", name(child)).endControlFlow();
+            }
+        }
+        adapter.addMethod(mapped.addStatement("return scoped.scoped(scope)").build());
         return MethodSpec.methodBuilder(name(table)).addModifiers(Modifier.PRIVATE, Modifier.STATIC).returns(ROW)
                 .addParameter(ROW, "row").addStatement("$T scoped = row.scoped($L)", ROW, table.table())
                 .addStatement("return $L", adapter.build());

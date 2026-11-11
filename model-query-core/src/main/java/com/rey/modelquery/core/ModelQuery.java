@@ -1613,11 +1613,13 @@ public final class ModelQuery<E, K, M> {
     /**
      * The presence keys {@code column} is read through: the key columns of its own join and of every join above it
      * that names one with {@code presentBy}, each re-rooted under its join as a column of the column's model
-     * (R-COL-15, D-38). No join is added by selecting them, since the column's own path already makes each.
+     * (R-COL-15, D-38). Above a joined root registered {@code within} a {@code @Join}, the walk continues at that
+     * {@code @Join} (D-216). No join is added by selecting them, since the column's own path, or its join's anchors,
+     * already make each.
      */
     private static <M> List<ColumnField<M, ?, ?>> presenceKeys(ColumnField<M, ?, ?> column) {
         var keys = new ArrayList<ColumnField<M, ?, ?>>();
-        for (TableField<?, ?> join = column.table(); join != null; join = join.parent()) {
+        for (TableField<?, ?> join = column.table(); join != null; join = join.above()) {
             if (join.presenceKey() != null) {
                 for (ColumnField<?, ?, ?> key : join.presenceKey().columns()) {
                     keys.add(key.under(column.model(), join));

@@ -125,9 +125,30 @@ public final class RowSelection {
         return new ValueRow(aliases, byPath, byAlias::get, null);
     }
 
+    /**
+     * A chain of scopes, innermost first: a nested model's path is translated by its own scope, then by each
+     * enclosing one, so the outermost result is a path of the query's model (D-216).
+     */
+    private record Scopes(JoinScope scope, Scopes outer) {
+
+        JoinKey translate(ColumnField<?, ?, ?> column) {
+            JoinKey path = scope.translate(column);
+            return outer == null ? path : outer.translate(path, column);
+        }
+
+        private JoinKey translate(JoinKey path, ColumnField<?, ?, ?> column) {
+            JoinKey translated = scope.translate(path);
+            if (translated == null) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1107, column + ": read through " + scope
+                        + ", which maps no outer join for the joined root '" + path.root().alias() + "'");
+            }
+            return outer == null ? translated : outer.translate(translated, column);
+        }
+    }
+
     /** A row reading each column's value by its alias from {@code values}: a tuple's, or values read elsewhere. */
     private record ValueRow(Map<SelectField<?, ?>, String> aliases, Map<PathKey, String> byPath,
-            Function<String, Object> values, JoinKey scope) implements Row {
+            Function<String, Object> values, Scopes scopes) implements Row {
 
         @Override
         public <C> C get(SelectField<?, C> column) {
@@ -149,22 +170,26 @@ public final class RowSelection {
 
         @Override
         public Row scoped(TableField<?, ?> join) {
-            JoinKey key = Objects.requireNonNull(join, "join").key();
-            // Inside a scope, join is a path of the nested model, so it is re-rooted too: scopes compose.
-            return new ValueRow(aliases, byPath, values, scope == null ? key : key.reroot(scope));
+            return scoped(JoinScope.of(Objects.requireNonNull(join, "join")));
+        }
+
+        @Override
+        public Row scoped(JoinScope scope) {
+            // Inside a scope, the new scope's table and outer joins are the nested model's: the chain resolves them.
+            return new ValueRow(aliases, byPath, values, new Scopes(Objects.requireNonNull(scope, "scope"), scopes));
         }
 
         private String alias(SelectField<?, ?> column) {
             Objects.requireNonNull(column, "column");
-            if (scope == null) {
+            if (scopes == null) {
                 return aliases.get(column);
             }
             if (!(column instanceof ColumnField<?, ?, ?> wanted)) {
                 return null;
             }
-            // The whole chain of join keys is re-rooted, so a column on a join below the nested root matches that
-            // join's column, not the same attribute on the scope itself.
-            return byPath.get(new PathKey(wanted.table().key().reroot(scope), wanted));
+            // The whole chain of join keys is translated, so a column on a join below the nested root matches that
+            // join's column, not the same attribute on the scope itself; a joined root maps to its outer join.
+            return byPath.get(new PathKey(scopes.translate(wanted), wanted));
         }
     }
 }

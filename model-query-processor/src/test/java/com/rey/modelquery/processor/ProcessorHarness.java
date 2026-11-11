@@ -4,6 +4,7 @@ import static com.google.testing.compile.Compiler.javac;
 
 import com.google.testing.compile.Compilation;
 import com.google.testing.compile.JavaFileObjects;
+import com.rey.modelquery.core.JoinScope;
 import com.rey.modelquery.core.Row;
 import com.rey.modelquery.core.SelectField;
 import com.rey.modelquery.core.TableField;
@@ -201,6 +202,11 @@ final class ProcessorHarness {
 
             @Override
             public Row scoped(TableField<?, ?> join) {
+                throw new UnsupportedOperationException("a flat model has no join to scope");
+            }
+
+            @Override
+            public Row scoped(JoinScope scope) {
                 throw new UnsupportedOperationException("a flat model has no join to scope");
             }
         };
