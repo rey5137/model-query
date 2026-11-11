@@ -1,6 +1,7 @@
 # RFC 0024 — Nested models over declared joins: `@Join(entityJoin)`, and nested models with their own joins
 
-- **Status:** draft
+- **Status:** accepted as D-213 to D-215 (2026-11-11), after the acceptance spike (`rfc/0024-spike-results.md`);
+  M36 in 0.13.0, `mvp-plan` §36
 - **Affects:**
   - **`processor/30`:** R-PROC-44 (a nested `@Join` model that joins a source or declares an entity join is no
     longer `MQ3044` once Part B lands), R-PROC-46 (`@Join` beside an entity join narrowed); new R-PROC-48
@@ -203,10 +204,10 @@ On H2, PostgreSQL and MySQL, Hibernate 6.6 and 7.4; results in `rfc/0024-spike-r
 |---|---|---|
 | R-PROC-48 | `processor/30` | `@Join(entityJoin)` rules |
 | R-GEN-43 | `processor/31` | Nested joins registered under prefixes; the outer factory's nested `SourceQuery` parameters |
-| `MQ3047` | `processor/32` | An invalid `@Join(entityJoin)` |
+| `MQ3047` | `processor/32` | An invalid `@Join(entityJoin)`, including an `INNER` join below a `LEFT` one |
 | AC-PROC-51 onward | `processor/30` | One per rule |
 | AC-GEN-36 onward | `processor/31` | Presence, prefixes, factory signature |
-| D-213 onward | `reference/92` | One per part, on acceptance |
+| D-213 to D-215 | `reference/92` | One per part (A, B, C) |
 
 ## Compatibility
 
@@ -226,20 +227,45 @@ of every outer factory; that is source-incompatible and loud, never silent.
 - **Part B by running the nested factory.** The nested factory builds a `ModelQuery<Nested>`, not joins on another
   query; it would need a second, join-only factory per model, which is more generated surface than the name map.
 
+## Resolution
+
+The acceptance spike (`rfc/0024-spike-results.md`) ran on Hibernate 6.6 and 7.4 against H2, PostgreSQL and MySQL.
+All three parts ship.
+
+- **D-213 (Part A).** `@Join(entityJoin = "name")` as rules 1 to 7, with rule 4 a refusal: an `INNER` join below a
+  `LEFT` one is `MQ3047`. `TableField#presentBy` accepts a joined-entity root and keeps its join name; both are fixed
+  together. `propertyPath()` of a nested column reached through a `@Join` returns the `@Join` field path
+  (`buyer.name`, `customer.regionName`); internal join names and Part B's prefixes never appear in `FilterSpec`
+  paths or sort names.
+- **D-214 (Part B).** A nested model may declare its own `@JoinEntity` / `@JoinSource` under `@Join` over an
+  association; the outer generated code registers them under the `@Join` field prefix with a checked name map.
+  `Row.scoped` stops at joined roots and resolves through the map; an unmapped or mis-kinded name fails loudly and
+  never falls back to the root's column (INV-5; the spike showed today's code reads `'Ann'` for `regionName`). When a
+  column set selects only nested joined columns of a `@Join` field, that field's presence key is added (otherwise 10
+  of 12 present customers read empty). The outer `query(...)` takes the nested `SourceQuery`s depth-first (point 4).
+  Documented, not changed: a re-rooted anchor renders as the FK column, so a dangling FK still matches its
+  source or entity row for filters, sorts and groups on the prefixed column while the nested read is empty. `MQ3044`
+  narrows to processor-side name clashes; `@Child` keeps `MQ3039`, now walking nested joins.
+- **D-215 (Part C ships).** R-SRC-25 is relaxed: an entity join may be column-anchored on an earlier entity join (the
+  spike covered 2- and 3-join chains, all 9 `LEFT` / `INNER` mixes and a `joinFilter` on the first, on each vendor and
+  line). The anchored join must be created after the one it reads; the reverse order is `MQ1911` at definition time
+  (processor and `EntityJoin`), replacing today's misleading run-time `MQ1003`. An `INNER` join anchored on a `LEFT`
+  one is refused (`MQ1911`). Source-anchored chains stay refused. `MQ1912`'s message names the join instead of
+  printing a `JoinKey` record.
+
 ## Unresolved questions
 
-1. Whether Part C ships at all, decided by its spike.
-2. Whether Part B's prefixed names (`customer_region`) are visible in `FilterSpec` paths and sort names, or only the
-   `@Join` field path (`customer.region.name`) is. Recommendation: the field path only.
+None. Question 1 (does Part C ship) is closed by D-215, question 2 (are Part B's prefixed names visible) by D-213:
+only the `@Join` field path is.
 
-## Milestone sketch
+## Milestone
 
-Targets **0.13.0**: one milestone, M36, with the freeze moving to M37. Part A can ship alone if the spike drops Part B.
+Targets **0.13.0**: one milestone, M36, with the freeze moved to M37. The plan rows are in `mvp-plan` §36.
 
 | Slice | Content | Tier |
 |---|---|---|
-| .1 | `TableField#presentBy` on a joined-entity root (name kept), `propertyPath` for named joined roots | `opus` / `high` (public API, INV-5) |
-| .2 | `@Join(entityJoin)`: annotation, R-PROC-48 / `MQ3047`, generated code, `MQ3039` over nested joins, docs | `sonnet` / `medium` |
-| .3 | Part B: `Row.scoped` stopping at joined roots with the name map, prefixed registration | `opus` / `high` (INV-5) |
-| .4 | Part B: the outer factory's nested `SourceQuery` parameters, `MQ3044` narrowed, TCK and docs | `sonnet` / `medium` |
-| .5 | Part C, if the spike keeps it: chained column anchors in R-SRC-25 | `opus` / `high` |
+| M36.1 | `presentBy` on a joined-entity root (name kept), `propertyPath` = the `@Join` field path | `opus` / `high` (public API, INV-5) |
+| M36.2 | `@Join(entityJoin)`: annotation, R-PROC-48 / `MQ3047`, generated code, `MQ3039` over nested joins, docs | `sonnet` / `medium` |
+| M36.3 | Part B core: `Row.scoped` stopping at joined roots with the checked name map, prefixed registration, presence key added | `opus` / `high` (INV-5) |
+| M36.4 | Part B generated: the outer factory's nested `SourceQuery` parameters, `MQ3044` narrowed, TCK, docs incl. the FK-anchor note | `sonnet` / `medium` |
+| M36.5 | Part C: chained column anchors in R-SRC-25, creation order `MQ1911`, `INNER`-under-`LEFT` refusal, `MQ1912` message | `opus` / `high` (R-SRC-25) |
