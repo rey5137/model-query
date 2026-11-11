@@ -41,10 +41,9 @@ final class NestedJoinChecks {
             if (declared.isEmpty()) {
                 continue;
             }
-            if (!join.join().entityJoin().isEmpty()) {
-                valid = error(join, where + nested.name() + " joins " + quoted(declared) + " below the entity join '"
-                        + join.join().entityJoin() + "', which chains one join on another; a nested model's own "
-                        + "joins read a @Join over an association", diagnostics);
+            if (!join.join().entityJoin().isEmpty() && !chains(model, join, table, nested, declared, where,
+                    diagnostics)) {
+                valid = false;
                 continue;
             }
             for (NestedJoins each : declared) {
@@ -69,6 +68,34 @@ final class NestedJoinChecks {
                 valid = error(join, where + "constant " + scope + " is also generated for " + earlier
                         + "; rename the field or set @Join(prefix)", diagnostics);
             }
+        }
+        return valid;
+    }
+
+    /**
+     * Whether the joins {@code declared} of a model below the {@code @Join(entityJoin)} field {@code join} can be
+     * anchored on that entity join, which the outer model re-roots them onto (D-215, D-217): an entity join can,
+     * after it, when the entity join is itself anchored on the root's columns; a source join can't, as joined
+     * sources are created before every column-anchored entity join.
+     */
+    private static boolean chains(ModelDefinition model, ModelField join, JoinedTable table, ModelDefinition nested,
+            List<NestedJoins> declared, String where, Diagnostics diagnostics) {
+        boolean valid = true;
+        String name = join.join().entityJoin();
+        for (NestedJoins each : declared) {
+            if (each.source() != null) {
+                valid = error(join, where + nested.name() + " join '" + each.declared() + "' of " + table.path()
+                        + " is a source join below the entity join '" + name + "'; joined sources are created "
+                        + "before entity joins, so its anchor can't read one; join it on a @Join over an "
+                        + "association", diagnostics);
+            }
+        }
+        boolean entities = declared.stream().anyMatch(each -> each.entity() != null);
+        var outer = model.entityJoins().stream().filter(each -> each.name().equals(name)).findFirst().orElse(null);
+        if (entities && outer != null && !outer.source().isEmpty()) {
+            valid = error(join, where + nested.name() + " joins " + quoted(declared) + " below the entity join '"
+                    + name + "', which is anchored on a joined source; only a join anchored on the root's columns "
+                    + "may anchor another", diagnostics);
         }
         return valid;
     }

@@ -198,19 +198,22 @@ final class QModelWriter {
             }
             type.addField(filterColumn(modelName, model, column));
         }
+        // Each late join's tables and columns come before the next join, which may be anchored on them (D-215).
         for (ModelDefinition.EntityJoinDefinition join : model.entityJoins()) {
-            if (late.contains(QueryModelReader.constantName(join.name()))) {
-                type.addField(entityJoin(modelName, model, join));
+            String constant = QueryModelReader.constantName(join.name());
+            if (!late.contains(constant)) {
+                continue;
             }
-        }
-        for (FilterLayout.Table table : filters.tables()) {
-            if (filters.overEntityJoin(table) && overJoin(filters, table, late)) {
-                type.addField(filterTable(table));
+            type.addField(entityJoin(modelName, model, join));
+            for (FilterLayout.Table table : filters.tables()) {
+                if (filters.overEntityJoin(table) && overJoin(filters, table, Set.of(constant))) {
+                    type.addField(filterTable(table));
+                }
             }
-        }
-        for (FilterLayout.Column column : filters.columns()) {
-            if (late.contains(QueryModelReader.constantName(column.definition().entityJoin()))) {
-                type.addField(filterColumn(modelName, model, column));
+            for (FilterLayout.Column column : filters.columns()) {
+                if (QueryModelReader.constantName(column.definition().entityJoin()).equals(constant)) {
+                    type.addField(filterColumn(modelName, model, column));
+                }
             }
         }
         for (JoinedTable table : joined) {
@@ -1253,14 +1256,17 @@ final class QModelWriter {
                 type.addField(joinedColumn(modelName, table, column));
             }
         }
+        // Each nested join's columns come before the next join, which may be anchored on them (D-215).
         ModelDefinition declared = nestedModels.of(table.declaration());
         for (NestedJoins join : NestedJoins.of(table, nestedModels)) {
             type.addField(join.source() != null ? sourceJoin(modelName, declared, join.source(), join)
                     : entityJoin(modelName, declared, join.entity(), join));
-        }
-        for (JoinedColumn column : table.columns()) {
-            if (column.field().sourceColumn() != null || !column.field().entityJoin().isEmpty()) {
-                type.addField(joinedColumn(modelName, table, column));
+            for (JoinedColumn column : table.columns()) {
+                ModelField field = column.field();
+                if (join.declared().equals(field.sourceColumn() != null ? field.sourceColumn().join()
+                        : field.entityJoin())) {
+                    type.addField(joinedColumn(modelName, table, column));
+                }
             }
         }
     }

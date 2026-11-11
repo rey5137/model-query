@@ -727,7 +727,7 @@ public final class ModelQuery<E, K, M> {
             walk = joinedSources(query, joins, outer, statementRoot);
         }
         // Column-anchored joins come after the joined sources, in registration order; each anchor's to-one joins are
-        // made first, so the ON reads only tables before it (R-SRC-25, D-197).
+        // made first, so the ON reads only tables before it, an earlier entity join's included (R-SRC-25, D-215).
         for (EntityJoin<M, ?> entityJoin : entityJoins) {
             if (!entityJoin.anchoredOnSource()) {
                 joinEntity(entityJoin, entityJoinRenderer(options), statementRoot, joins);
@@ -809,8 +809,8 @@ public final class ModelQuery<E, K, M> {
                 JoinKey filtered = joins.filteredAtOrAbove(anchor.table().key());
                 if (filtered != null) {
                     throw JoinFilterChecks.refused(join + ": INNER, but its anchor " + anchor.name() + " reads "
-                            + "through the joinFilter(...) join " + filtered + ", whose filter would blank it and "
-                            + "drop the row; declare the entity join LEFT");
+                            + "through the joinFilter(...) " + filtered.describe() + ", whose filter would blank it "
+                            + "and drop the row; declare the entity join LEFT");
                 }
             }
             Path<?> path = anchor.path(joins);
@@ -2235,7 +2235,7 @@ public final class ModelQuery<E, K, M> {
                     throw new ModelQueryDefinitionException(MqCode.MQ1911, model + ": entity join '" + join.name()
                             + "' is bound twice or shares a source join's name");
                 }
-                EntityJoin.check(model, join, sources, root);
+                EntityJoin.check(model, join, sources, root, entityJoins);
             }
         }
 

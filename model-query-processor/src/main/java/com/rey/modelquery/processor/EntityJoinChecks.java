@@ -9,7 +9,10 @@ import javax.lang.model.element.TypeElement;
 import javax.lang.model.type.DeclaredType;
 import javax.lang.model.util.Types;
 
-/** Entity joins compare a source field with every basic id attribute (R-PROC-46). */
+/**
+ * Entity joins compare a source field, or a column of the root or of an entity join declared before them, with every
+ * basic id attribute (R-PROC-46, D-215).
+ */
 final class EntityJoinChecks {
 
     private final Types types;
@@ -183,8 +186,14 @@ final class EntityJoinChecks {
             ModelDefinition model, Diagnostics diagnostics) {
         var resolution = EntityJoinAnchors.resolve(model, metamodel, builtIns, pair.column());
         if (resolution.anchor() == null) {
-            error(model, join.name(), resolution.problem(), diagnostics);
+            if (resolution.problem() != null) {
+                error(model, join.name(), resolution.problem(), diagnostics);
+            }
             return;
+        }
+        String chain = EntityJoinAnchors.chain(model, join, resolution.anchor());
+        if (chain != null) {
+            error(model, join.name(), chain, diagnostics);
         }
         if (id != null && !types.isSameType(ProcessorTypes.boxed(types, resolution.anchor().type()),
                 ProcessorTypes.boxed(types, id.type()))) {
@@ -200,8 +209,14 @@ final class EntityJoinChecks {
         for (var term : join.when()) {
             var resolution = EntityJoinAnchors.resolve(model, metamodel, builtIns, term.column());
             if (resolution.anchor() == null) {
-                error(model, join.name(), "when " + resolution.problem(), diagnostics);
+                if (resolution.problem() != null) {
+                    error(model, join.name(), "when " + resolution.problem(), diagnostics);
+                }
                 continue;
+            }
+            String chain = EntityJoinAnchors.chain(model, join, resolution.anchor());
+            if (chain != null) {
+                error(model, join.name(), "when " + chain, diagnostics);
             }
             var value = EntityJoinAnchors.whenValue(types, resolution.anchor().type(), term.value());
             if (value.problem() != null) {

@@ -697,32 +697,44 @@ renderer that does not call `on` exactly once, returns a join other than the one
 no `ON` is also `MQ4014` naming the renderer class (R-VND-32, AC-VND-22).
 Lock `MQ1903`, child-model `MQ3039` and the source-query write restrictions remain unchanged.
 
-**R-SRC-25** *(D-197, `@Incubating`)* **Entity joins anchored on outer columns.** An `EntityJoin` whose pairs read
-columns of the root, or of a to-one path from it (R-COL-25), joins with no joined source: `EntityJoin.on(anchor,
+**R-SRC-25** *(D-197, D-215, `@Incubating`)* **Entity joins anchored on outer columns.** An `EntityJoin` whose pairs
+read columns of the root, of a column-anchored entity join bound before it, or of a to-one path from either (R-COL-25),
+joins with no joined source: `EntityJoin.on(anchor,
 idAttribute)` takes such a column, and `Builder#joinEntity` registers it with no `SourceQuery`. R-SRC-23's id rule
 holds unchanged (the full basic id, each attribute once, boxed types equal), so the join adds at most one row per
-outer row. All pairs of one join read one joined source, or all read the root and its to-one paths; pairs may span
-the root and several of its to-one paths.
+outer row. All pairs of one join read one joined source, or all read the root, earlier entity joins and their to-one
+paths; pairs may span several of them.
 
 - **Anchor rule.** `MQ1911` at build, without a metamodel: pairs mixing a joined source's columns with the root's, an
-  anchor over another entity join or a path below one (no chains), over a treated node (R-COL-35), over a source, an
-  `Outer` lift, a converted anchor, and any entity join on a query rooted at a source. At first resolution, before
+  anchor over a treated node (R-COL-35), over a source, an `Outer` lift, a converted anchor, and any entity join on a
+  query rooted at a source.
+- **Chains** *(D-215)*. An anchor, or the `when` column, may read another entity join or a to-one path below it when
+  that join is column-anchored and bound before this one: joins are created in registration order, so its table
+  precedes this join's `ON`. `MQ1911` at build, naming both joins: an anchor reading a join bound after this one or not
+  bound at all (never the run-time `MQ1003`), its own root, or a join anchored on a joined source (source-anchored
+  chains stay refused; such a join's `when` column reading any entity join is `MQ1911` at `when`); and an `INNER` join
+  reading a `LEFT` one, which would drop every outer row the `LEFT` join misses (declare it `LEFT`, as RFC 0024 Part A
+  rule 4). `LEFT` on `INNER` and `INNER` on `INNER` are allowed, at any depth. At first resolution, before
   any statement: R-SRC-23's id checks, an anchor through a to-many path, and an anchor that reads a to-one by its id
   (R-COL-29; anchor on the foreign key's basic column instead).
 - **The static `when` term.** `EntityJoin#when(column, value)` returns a copy of the join whose one `ON` also ANDs
   `column = value`, for a polymorphic reference whose ids collide across tables. The value is a definition constant
-  (INV-9), bound as a statement parameter, through the operand binder under inline value handling. Its column
-  follows the anchor rule above on every entity join, a source-anchored one included: the root or a to-one path from
-  it, unconverted. A second `when`, or a value that is null, not of the column's boxed attribute type, or of a type
-  R-COL-18 does not bind (an enum, `Optional`, a collection, an array, `Date`, `Calendar`, an entity), is `MQ1911`.
+  (INV-9), bound as a statement parameter, through the operand binder under inline value handling. Its column follows
+  the anchor rule above on every entity join, a source-anchored one included: the root or a to-one path from it,
+  unconverted, or on a column-anchored join an earlier entity join (Chains). A second `when`, or a value that is null,
+  not of the column's boxed attribute type, or of a type R-COL-18 does not bind (an enum, `Optional`, a collection, an
+  array, `Date`, `Calendar`, an entity), is `MQ1911`.
 - **Rendering.** On every statement R-SRC-24 names, after the joined sources and their entity joins, the engine
   creates each column-anchored join in registration order. Each anchor's and the `when` column's own to-one joins
-  resolve first, so the `ON` reads only tables before it. Hibernate may read a to-one path's id as the foreign key and
+  resolve first, so the `ON` reads only tables before it, a chained join's earlier entity join included; a `count`
+  keeps every join of a chain. Hibernate may read a to-one path's id as the foreign key and
   leave that path's join out. The join goes through `EntityJoinRenderer` as R-SRC-24 says (`MQ4014` unchanged).
 - **Join kind and filters.** Under `LEFT` an orphan anchor reads NULL columns and keeps the row. `INNER` drops
   unmatched rows, including rows whose anchor is NULL because its own `LEFT` path was unmatched, in content and
   totals. An `INNER` join whose anchor or `when` column reads through a `joinFilter` join (R-COL-39) is `MQ1912` at
-  statement build (D-195 extended); declare it `LEFT`.
+  statement build (D-195 extended); declare it `LEFT`. The message names the filtered join (`join 'referrer' (LEFT)`,
+  `joined entity 'c'`), never its internal key. A `joinFilter` on the first join of a chain renders in that join's
+  `ON`, and the joins after it miss where it blanks their anchor.
 - **No CTE gate.** `MQ4015` for an entity join on a vendor without `SourceFeature.CTE` applies only to a query that
   joins a source; a column-anchored join renders on `OTHER`.
 - **Count over groups.** A grouped query with column-anchored entity joins and no joined source counts its groups
@@ -803,5 +815,8 @@ the root and several of its to-one paths.
 | AC-SRC-58 | Missing `entityJoins()` is `MQ4014` before SQL, after vendor `MQ4015` and SourceRenderer `MQ4014`, reported per PortabilityCheck target. LEFT entity and descendant counts use the first id attribute on both Hibernate lines, including composite ids; eligible INNER entity joins use `count(*)` (R-AGG-19, AC-AGG-31); `on` is called once per entity join, and a renderer breaking that is `MQ4014` (AC-VND-22); `firstBy` returns one value per group (R-SRC-24, R-AGG-19, R-VND-32). |
 | AC-SRC-59 | A `LEFT` entity join anchored on a root column, and one on a to-one path's column, match native SQL on Tier 1 and both Hibernate lines; orphan anchors read NULL and keep the row; two joins of one entity stay apart; a non-id anchor on a to-one path renders that path's join before the entity join, whose `ON` reads it; a vendor without `SourceFeature.CTE` renders it (R-SRC-25, D-197). |
 | AC-SRC-60 | An `INNER` column-anchored join drops unmatched rows, including rows whose `LEFT` anchor path is unmatched, in content and totals; it and an unread `LEFT` join are in every R-SRC-24 statement (list, count, counted page, primary-key-first, keyset pages, `byKeys`, `one`, export, stream); keyset over a nullable joined column with `nullsLast` loses no row; `count` and a counted page of a grouped query with an `INNER` column-anchored join return the group count from the provider's count copy, which keeps the join (R-SRC-25, D-197). |
-| AC-SRC-61 | `MQ1911` at build for mixed anchor kinds, chains, treated, converted, lifted and source anchors and a source-rooted query, and at first resolution for a to-many or id-form anchor and the id rules, before SQL; `MQ1912` for an `INNER` join anchored through a `joinFilter` join; `MQ2211` for a lock; `MQ1604`, `MQ1801` and `MQ1003` for the writes, and `MQ1809` for a `persist` returning a query with `joinEntity(...)`, naming the clause, before any statement; a hand-written `through` child load keeps the join and returns the rows its anchors match (R-SRC-25). |
+| AC-SRC-61 | `MQ1911` at build for mixed anchor kinds, reversed chains, treated, converted, lifted and source anchors and a source-rooted query, and at first resolution for a to-many or id-form anchor and the id rules, before SQL; `MQ1912` for an `INNER` join anchored through a `joinFilter` join; `MQ2211` for a lock; `MQ1604`, `MQ1801` and `MQ1003` for the writes, and `MQ1809` for a `persist` returning a query with `joinEntity(...)`, naming the clause, before any statement; a hand-written `through` child load keeps the join and returns the rows its anchors match (R-SRC-25). |
 | AC-SRC-62 | `when` turns the matches of other owner types into NULL columns, as the native `ON ... and o.status = 'PAID'` does; it binds as `?` with the same SQL on each run; a second term, a converted or off-root column and a null, mistyped or unbindable value are `MQ1911` (R-SRC-25). |
+| AC-SRC-63 | Two- and three-join chains, each join column-anchored on the one before, in every allowed `LEFT` / `INNER` mix (`LL`, `IL`, `II`, `LLL`, `ILL`, `IIL`, `III`), read the native SQL's rows and `count` equals them, on every Tier-1 vendor and both Hibernate lines; the joins render in creation order with each `ON` reading the join before it, in content and count; a `joinFilter` on the first join renders in its `ON` and the joins after it miss with it; keyset pages over a chain lose and repeat no row; an anchor on a to-one path below an earlier entity join reads the native SQL's rows (R-SRC-25, D-215). |
+| AC-SRC-64 | `MQ1911` at build, before any statement and naming both joins: a chain bound in reverse order (not `MQ1003`), an anchor or `when` column reading a later, unbound or its own join, an `INNER` join reading a `LEFT` one directly or through a to-one path below it (`LI`, `LLI`, `LIL`), a join anchored on a source-anchored entity join, and a treated node below an entity join; `MQ1911` at `when` for a source-anchored join's `when` column reading an entity join (R-SRC-25, D-215). |
+| AC-SRC-65 | `MQ1912`'s and the other join-filter messages name the join (`join 'referrer' (LEFT)`, `joined entity 'first'`, `joined source 'sales'`, `root Day`, a `.treat(...)` suffix), never a `JoinKey[...]` record (R-SRC-25, D-215). |

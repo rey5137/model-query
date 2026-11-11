@@ -641,12 +641,42 @@ var query = ModelQuery.builder(ORDERS, row -> new Row(row.get(ID), row.get(name)
   `EntityJoin.on(anchor, "id")` names the id explicitly.
   Converted anchors, partial or extra ids, association ids and differing boxed types are refused. `int` and `Integer`
   agree. Names must be unique across source and entity joins.
-- **What an anchor may read.** A column anchor is the root or a to-one path from it (`customer.legacyRepCode`), not a
-  joined source (use `field`), another entity join or a path below one (no chains), a to-many or treated path, an
+- **What an anchor may read.** A column anchor is the root or a to-one path from it (`customer.legacyRepCode`), or an
+  earlier entity join (see the chains below), not a joined source (use `field`), a to-many or treated path, an
   expression, a correlated column, or a to-one read by its id (anchor on the foreign key's basic column). Pairs over
-  two anchor kinds, an anchor over another entity join, a converted anchor and a query rooted at a source are
+  two anchor kinds, a converted anchor, a refused chain and a query rooted at a source are
   [`MQ1911`](diagnostics.md) at build; the id rules and a to-many path are `MQ1911` at first resolution, before any
   statement. A generated declaration is [`MQ3046`](diagnostics.md) instead.
+- **Chains.** A column-anchored join may read the columns of an entity join created before it, or a to-one path below
+  that join: the joins render in creation order, so each `ON` reads only tables joined before it. Generated joins are
+  created in declaration order, hand-written ones in `joinEntity` registration order. This model, adapted from
+  `GeneratedEntityJoinExecutionTest`, reads an order's referrer, the order whose id is the referrer's, and that
+  order's own referrer and customer:
+
+    ```java
+    @QueryModel(root = OrderEntity.class)
+    @JoinEntity(name = "referred", entity = CustomerEntity.class, on = @JoinEntity.On(column = "referrerId"))
+    @JoinEntity(name = "twin", entity = OrderEntity.class, on = @JoinEntity.On(column = "referredId"))
+    @JoinEntity(name = "twinReferred", entity = CustomerEntity.class,
+            on = @JoinEntity.On(column = "twinReferrerId"))
+    @JoinEntity(name = "twinCustomer", entity = CustomerEntity.class,
+            on = @JoinEntity.On(column = "TWIN_CUSTOMER_ID"))
+    @FilterColumn(name = "TWIN_CUSTOMER_ID", path = "customer.id", entityJoin = "twin")
+    public record ChainedEntityJoinDetail(
+            @PrimaryKey Long id,
+            Long referrerId,
+            @Column(entityJoin = "referred", attribute = "id") Long referredId,
+            @Column(entityJoin = "referred", attribute = "name") String referredName,
+            @Column(entityJoin = "twin", attribute = "referrerId") Long twinReferrerId,
+            @Column(entityJoin = "twinReferred", attribute = "name") String twinReferredName,
+            @Column(entityJoin = "twinCustomer", attribute = "name") String twinCustomerName) {}
+    ```
+
+    A join read before it is created, a join reading itself, an `INNER` join reading a `LEFT` one (it would drop
+    every row the `LEFT` join misses; make it `LEFT`, or the first `INNER`) and a join reading a source-anchored entity
+    join are refused, `MQ1911` at build and `MQ3046` from the processor. A source-anchored join's `when` reads the
+    root only. A `joinFilter` on the first join renders in its `ON`, and the joins after it miss where it blanks their
+    anchor.
 - **The static `when` term.** `@JoinEntity.When(column, value)` and `EntityJoin#when(column, value)` AND one constant
   equality into the join's one `ON`, for a polymorphic reference whose ids collide across tables. The column follows
   the anchor rule, and the value must have the column's boxed type and be bindable (a `java.time` value binds; an

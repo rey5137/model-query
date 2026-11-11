@@ -137,17 +137,20 @@ public `FilterDefinition<Model>` or has neither `INSTANCE` nor a no-arg construc
 field that is not a `BigDecimal`, and an `AVG` field typed `BigDecimal` over an input type `Agg.avgExact` refuses
 (`Double`, `Float`).
 
-**R-PROC-46** *(D-193, D-197, `@Incubating`)* `@JoinEntity` (repeatable through `@JoinEntities`, on a model type)
+**R-PROC-46** *(D-193, D-197, D-215, `@Incubating`)* `@JoinEntity` (repeatable through `@JoinEntities`, on a model type)
 declares an entity join of an entity-rooted `@QueryModel` (`api/17` R-SRC-23, R-SRC-25). Its `name` is a Java
 identifier unique across both kinds of join; `entity` names a JPA entity and `type` defaults to `LEFT`. The join has
 one anchor kind. With `source` naming one of the model's `@JoinSource` joins, each nested
 `@JoinEntity.On(field, id = "")` pairs an unconverted field of that joined source with a basic id attribute. With
 `source = ""`, each `@JoinEntity.On(column, id = "")` names a model column or a `@FilterColumn` over the root or a
 to-one path from it (R-COL-25), unconverted and basic: not an expression, a correlated column, or a to-one read by its
-id (R-COL-29), and never one over a joined source or another entity join. Every pair of one join names `field` or
-`column`, never both, and no join mixes the two. `when = @JoinEntity.When(column, value)` adds one static term to the
-join's one `ON`: an anchor-kind column over the root or a to-one path from it, fixed to a value of its boxed type that
-R-COL-18 binds; an enum, `Date`, `Calendar` or entity value does not bind. The value is written as a Java string and
+id (R-COL-29), and never one over a joined source. It may also read an entity join declared before it, or a to-one
+path below that join (`@Column(entityJoin)` or `@FilterColumn(entityJoin)`; a chain, D-215), when that join is itself
+column-anchored and, under an `INNER` join, `INNER` too; a join declared after it or the join itself is refused, as
+entity joins are created in declaration order. Every pair of one join names `field` or `column`, never both, and no
+join mixes the two. `when = @JoinEntity.When(column, value)` adds one static term to the join's one `ON`: an
+anchor-kind column (on a source-anchored join, one over the root or a to-one path from it), fixed to a value of its
+boxed type that R-COL-18 binds; an enum, `Date`, `Calendar` or entity value does not bind. The value is written as a Java string and
 converted to the column's boxed type; one that does not parse is refused, and a second term is refused.
 
 The pairs cover every id attribute exactly once, including flattened `@EmbeddedId` paths such as `key.part`;
@@ -163,8 +166,9 @@ D-196). Generation emits an `EntityJoin.of(...)` constant with
 below it. A field anchor is a `@SourceColumn`'s exposed constant, or an inline `ColumnField.over(...)` when the source
 field is not exposed. A column anchor reads the constant generated for the named model column or `@FilterColumn`. A
 `when` term appends `.when(<column constant>, <literal>)`, the annotation's string converted to the column's boxed
-type. Generated `query(...)` registers each constant with `.joinEntity(NAME)` after binding the sources, and a
-column-anchored join alone adds no source parameter. A LEFT-unmatched entity yields null joined columns.
+type. Generated `query(...)` registers each constant with `.joinEntity(NAME)` after binding the sources, in
+declaration order, and a column-anchored join alone adds no source parameter. A column-anchored join's constant is
+followed by its columns and to-one tables, before the next join, which may be anchored on them. A LEFT-unmatched entity yields null joined columns.
 Joined-entity columns are omitted from generated changes and inserts, like `@SourceColumn` fields.
 
 `MQ3046` rejects an entity that is not a JPA `@Entity`, a name that is not a Java identifier,
@@ -232,9 +236,11 @@ with `attribute` or `treat` (a non-empty combination is `MQ3047`).
 2. `type` is not explicitly written on `@Join`: the join kind is the `@JoinEntity`'s (`MQ3047`).
 3. The nested model has a `@PrimaryKey` (`MQ3006`); its key columns decide presence.
 4. A nested `@Join` with `type = INNER` at any depth below a `LEFT` entity join is refused (`MQ3047`); likewise a nested model's own `INNER` join below a `LEFT` `@Join` is `MQ3044` (D-217).
-5. A nested model under `@Join(entityJoin)` may not declare its own `@JoinEntity` or `@JoinSource` (`MQ3044`): allowed
-under an association `@Join` (R-GEN-43), refused here until chained anchors lift it (D-217, Part C). To-one `@Join`s
-below it are allowed.
+5. A nested model under `@Join(entityJoin)` may declare its own `@JoinEntity`, registered as under an association
+`@Join` (R-GEN-43): re-rooted onto the entity join, it is a chain (R-PROC-46, D-215), registered after it. It is
+`MQ3044` when the named join is anchored on a joined source, and, as rule 4, when it is `INNER` below a `LEFT` join.
+A nested `@JoinSource` there stays `MQ3044`: joined sources are created before every column-anchored entity join, so
+its anchor can't read one (D-217 (1) lifted for entity joins only). To-one `@Join`s below it are allowed.
 6. Two `@Join(entityJoin = ...)` fields may name the same join; each maps through the same joined table.
 7. Flat `@Column(entityJoin = ...)` fields and `@Join(entityJoin = ...)` fields may coexist on one model.
 8. When a `@Join(entityJoin = ...)` field's prefix equals its entity-join constant (for example,
