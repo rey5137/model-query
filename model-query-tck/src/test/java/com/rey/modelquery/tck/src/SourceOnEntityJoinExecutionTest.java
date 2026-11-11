@@ -38,6 +38,7 @@ import jakarta.persistence.criteria.JoinType;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -45,6 +46,7 @@ import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 import javax.sql.DataSource;
 import org.hibernate.SessionFactory;
 
@@ -425,30 +427,55 @@ class SourceOnEntityJoinExecutionTest {
 
     // ---- AC-SRC-67: an outer column through a to-many path repeats each outer row (D-219)
 
+    private static <M> SourceJoin<M, Referrals> onPath(Class<M> model, TableField<?, ?> path) {
+        return SourceJoin.of("referrals", Referrals.class, JoinKind.LEFT,
+                List.of(SourceJoin.on(ColumnField.of(model, path, "id", Long.class), S_REFERRER)));
+    }
+
     @TckTest
     void ac_src_67_a_to_many_outer_column_is_refused_before_any_statement(TckDatabase db) {
         var items = TableField.join(ORDERS, "items", JoinType.LEFT);
-        var onRoot = SourceJoin.of("referrals", Referrals.class, JoinKind.LEFT,
-                List.of(SourceJoin.on(ColumnField.of(Row.class, items, "id", Long.class), S_REFERRER)));
+        var onRoot = onPath(Row.class, items);
         // Below an entity join, a to-many segment is already MQ1911 where the path resolves (D-218).
         var orders = TableField.join(REFERRED.root(), "orders", JoinType.LEFT);
-        var onEntity = SourceJoin.of("referrals", Referrals.class, JoinKind.LEFT,
-                List.of(SourceJoin.on(ColumnField.of(Row.class, orders, "id", Long.class), S_REFERRER)));
+        var onEntity = onPath(Row.class, orders);
+        var groupedOnRoot = onPath(Group.class, items);
+        var groupedReferred = referred(Group.class, JoinKind.LEFT);
+        var groupedOnEntity = onPath(Group.class, TableField.join(groupedReferred.root(), "orders", JoinType.LEFT));
         List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, x -> {
             for (var join : List.of(onRoot, onEntity)) {
-                MqCode expected = join == onRoot ? MqCode.MQ1910 : MqCode.MQ1911;
+                boolean root = join == onRoot;
+                var groupedJoin = root ? groupedOnRoot : groupedOnEntity;
+                MqCode expected = root ? MqCode.MQ1910 : MqCode.MQ1911;
                 var count = ColumnField.over(Row.class, join.root(), S_COUNT).named("referrals");
                 var query = ModelQuery.builder(ORDERS, row -> new Row(row.get(ID), null, row.get(count)))
                         .joinSource(join, REFERRALS).joinEntity(REFERRED).select(SelectSet.of(ID, count))
                         .primaryKey(PrimaryKey.of(ID)).where(f -> f.gte(ID, 990L).lte(ID, 1030L)).orderBy(ID.asc())
                         .build();
-                for (Runnable run : List.<Runnable>of(() -> x.list(query, Limit.unlimited()), () -> x.count(query))) {
-                    assertThatThrownBy(run::run)
-                            .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
-                                    e -> assertThat(e.code()).as(e.getMessage()).isEqualTo(expected))
-                            .hasMessageContaining(join == onRoot ? "outer column id reads through the to-many items"
-                                    : "a path below an entity join must be to-one");
-                }
+                var keyset = ModelQuery.builder(ORDERS, row -> new Row(row.get(ID), null, row.get(count)))
+                        .joinSource(join, REFERRALS).joinEntity(REFERRED).select(SelectSet.of(ID, count))
+                        .primaryKey(PrimaryKey.of(ID)).where(f -> f.gte(ID, 990L).lte(ID, 1030L)).orderBy(ID.asc())
+                        .keyset().build();
+                var groupedCount = ColumnField.over(Group.class, groupedJoin.root(), S_COUNT).named("referrals");
+                var groupedId = ColumnField.of(Group.class, ORDERS, "id", Long.class);
+                var grouped = ModelQuery.builder(ORDERS, row -> new Group(row.get(groupedCount), null))
+                        .joinSource(groupedJoin, REFERRALS).joinEntity(groupedReferred).select(SelectSet.of(groupedCount))
+                        .groupBy(groupedCount).where(f -> f.gte(groupedId, 990L).lte(groupedId, 1030L)).build();
+                var runs = new LinkedHashMap<String, Runnable>();
+                runs.put("list", () -> x.list(query, Limit.unlimited()));
+                runs.put("count", () -> x.count(query));
+                runs.put("page", () -> x.page(query, PageSpec.of(0, 7), CountMode.COUNT));
+                runs.put("stream", () -> x.stream(query, Limit.unlimited(), Stream::count));
+                runs.put("export", () -> x.export(query, ExportOptions.of(13), p -> p, r -> { }));
+                runs.put("keyset", () -> x.page(keyset, KeysetSpec.first(7)));
+                runs.put("grouped list", () -> x.list(grouped, Limit.unlimited()));
+                runs.put("grouped count", () -> x.count(grouped));
+                runs.forEach((shape, run) -> assertThatThrownBy(run::run)
+                        .as(shape)
+                        .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                                e -> assertThat(e.code()).as(shape + ": " + e.getMessage()).isEqualTo(expected))
+                        .hasMessageContaining(root ? "outer column id reads through the to-many items"
+                                : "a path below an entity join must be to-one"));
             }
         }));
         assertThat(sql).isEmpty();

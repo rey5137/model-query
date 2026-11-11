@@ -380,6 +380,65 @@ class JoinSourceModelTest {
     }
 
     @Test
+    void ac_proc_46_an_element_collection_or_map_outer_column_is_mq3044() {
+        Compilation compilation = compile(SALE_ENTITY, DAY_SALES, source("shop.PlaceEntity", """
+                package shop;
+
+                import jakarta.persistence.ElementCollection;
+                import jakarta.persistence.Embeddable;
+                import jakarta.persistence.Entity;
+                import jakarta.persistence.Id;
+                import jakarta.persistence.OneToMany;
+                import java.util.List;
+                import java.util.Map;
+
+                @Entity
+                public class PlaceEntity {
+                    @Embeddable
+                    public static class Address {
+                        String city;
+                    }
+
+                    @Id
+                    Long id;
+                    @ElementCollection
+                    List<String> tags;
+                    @ElementCollection
+                    List<Address> addresses;
+                    @ElementCollection
+                    Map<String, String> labels;
+                    @OneToMany
+                    Map<String, SaleEntity> salesByDay;
+                }
+                """), day("""
+                @QueryModel(root = PlaceEntity.class)
+                @JoinSource(name = "tags", source = DaySales.class,
+                        on = @JoinSource.On(column = "tags", key = "businessDate"))
+                @JoinSource(name = "addresses", source = DaySales.class,
+                        on = @JoinSource.On(column = "addresses.city", key = "businessDate"))
+                @JoinSource(name = "labels", source = DaySales.class,
+                        on = @JoinSource.On(column = "labels", key = "businessDate"))
+                @JoinSource(name = "byDay", source = DaySales.class,
+                        on = @JoinSource.On(column = "salesByDay.businessDate", key = "businessDate"))
+                public record UnreconciledDay(@PrimaryKey Long id) {}
+                """));
+
+        assertThat(errors(compilation)).containsExactlyInAnyOrder(
+                message("UnreconciledDay join 'tags': on(column = \"tags\") traverses the to-many attribute 'tags'; "
+                        + "the join would repeat an outer row for each element, so read a basic column of the root "
+                        + "or of a to-one path"),
+                message("UnreconciledDay join 'addresses': on(column = \"addresses.city\") traverses the to-many attribute 'addresses'; "
+                        + "the join would repeat an outer row for each element, so read a basic column of the root "
+                        + "or of a to-one path"),
+                message("UnreconciledDay join 'labels': on(column = \"labels\") traverses the to-many attribute 'labels'; "
+                        + "the join would repeat an outer row for each element, so read a basic column of the root "
+                        + "or of a to-one path"),
+                message("UnreconciledDay join 'byDay': on(column = \"salesByDay.businessDate\") traverses the to-many attribute 'salesByDay'; "
+                        + "the join would repeat an outer row for each element, so read a basic column of the root "
+                        + "or of a to-one path"));
+    }
+
+    @Test
     void ac_proc_46_a_converted_source_key_in_an_on_pair_is_mq3044() {
         Compilation compilation = compile(DAY_ENTITY, SALE_ENTITY, source("shop.CodeConverter", """
                 package shop;
