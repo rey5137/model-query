@@ -148,3 +148,4 @@ RFC 0004 (rey5137/model-query#29) is mapped the same way, by its own sections, a
 | RFC 0011 (D-133) | §1-§2 declared target vendors, checked per factory and at Spring startup; R-VND-19, R-SPR-17, AC-VND-15, AC-SPR-21, code `MQ4012` | `vendor/40` R-VND-19, `integration/50` R-SPR-17, `reference/90` §5 |
 | RFC 0011 (D-133, D-138, D-139) | §3 the offline boot and the dry run, `PortabilityCheck`, the sweep; R-VND-20, R-INS-10..12, AC-INS-10, AC-INS-12, code `MQ4013` | `api/16` R-INS-10..12, `vendor/40` R-VND-20, `delivery/61` |
 | RFC 0011 (D-133) | §3-§4 the TCK conformance run on both lines, what the dry run cannot decide; AC-INS-11 | `api/16` AC-INS-11, `delivery/60` §2, `docs/site` portability page |
+| RFC 0025 Part A (D-222) | COUNT page content via a second NO_COUNT pass, inline fallback and report line labels; AC-INS-13, amended AC-INS-12 | `api/16` R-INS-11, R-INS-12, AC-INS-12, AC-INS-13 |

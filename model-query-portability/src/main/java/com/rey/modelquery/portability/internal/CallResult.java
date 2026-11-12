@@ -14,17 +14,45 @@ import java.util.Objects;
  * @param firstStatementOnly whether a statement after the first could still be refused, so {@code REACHED} certifies
  *     the first statement only
  * @param detail the SQL reached, or the refusal or error, on one line
+ * @param statement the page statement represented, or {@code NONE}
  * @implSpec R-INS-11, R-INS-12
  */
 @Incubating
-public record CallResult(String label, Target target, Outcome outcome, boolean firstStatementOnly, String detail) {
+public record CallResult(String label, Target target, Outcome outcome, boolean firstStatementOnly, String detail,
+        @Incubating Statement statement) {
+
+    /** Page statement labels (D-222). */
+    @Incubating
+    public enum Statement {
+        NONE(""), COUNT("count"), CONTENT("content"), KEYS("keys"), CONTENT_AND_COUNT("content+count");
+
+        private final String label;
+
+        Statement(String label) {
+            this.label = label;
+        }
+    }
+
+    /** A result with no page statement label. */
+    @Incubating
+    public CallResult(String label, Target target, Outcome outcome, boolean firstStatementOnly, String detail) {
+        this(label, target, outcome, firstStatementOnly, detail, Statement.NONE);
+    }
+
+    /** The same outcome for a particular page statement. */
+    @Incubating
+    public CallResult withStatement(Statement statement) {
+        return new CallResult(label, target, outcome, firstStatementOnly, detail, statement);
+    }
 
     /** Checks the components. */
+    @Incubating
     public CallResult {
         Objects.requireNonNull(label, "label");
         Objects.requireNonNull(target, "target");
         Objects.requireNonNull(outcome, "outcome");
         Objects.requireNonNull(detail, "detail");
+        Objects.requireNonNull(statement, "statement");
     }
 
     /** Whether the call is portable on the target: it reached a statement with no refusal (D-133). */
@@ -35,7 +63,8 @@ public record CallResult(String label, Target target, Outcome outcome, boolean f
     /** The report line: {@code label on target: OUTCOME[ (first statement only)] detail}. */
     public String line() {
         String qualifier = outcome == Outcome.REACHED && firstStatementOnly ? " (first statement only)" : "";
-        return label + " on " + target + ": " + outcome + qualifier + " " + detail;
+        String suffix = statement == Statement.NONE ? "" : " [" + statement.label + "]";
+        return label + suffix + " on " + target + ": " + outcome + qualifier + " " + detail;
     }
 
     @Override

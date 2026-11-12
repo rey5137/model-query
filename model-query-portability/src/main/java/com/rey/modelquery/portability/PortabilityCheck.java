@@ -218,6 +218,7 @@ public final class PortabilityCheck {
             throw new AssertionError("Portability check set up wrongly, nothing ran:\n" + String.join("\n", setup));
         }
         List<CallResult> results = DryRun.run(unit(), chosen, config, all);
+        // A COUNT page contributes separate count and content results (D-222).
         List<String> lines = new ArrayList<>(results.stream().map(CallResult::line).toList());
         lines.addAll(skips);
         long failed = results.stream().filter(result -> !result.passes()).count();
