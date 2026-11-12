@@ -12,7 +12,10 @@ import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
+import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.spring.boot.ModelQueryAutoConfiguration;
+import com.rey.modelquery.spring.data.ExecutorContext;
+import com.rey.modelquery.spring.data.ModelQueryExecutorDecorator;
 import com.rey.modelquery.spring.data.ModelQueryRepository;
 import com.rey.modelquery.tck.col.CustomerEntity;
 import com.rey.modelquery.tck.col.JoinTestSupport;
@@ -23,6 +26,7 @@ import jakarta.persistence.EntityManagerFactory;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.sql.DataSource;
@@ -124,6 +128,23 @@ class PlainFactoryBeanTest {
                     context.getBean(CustomerProfileRepository.class), "AC-SPR-16")).isEqualTo(1);
             assertThat(context.getBean(CustomerProfileRepository.class)
                     .findPage(CUSTOMER_IDS, PageRequest.of(0, 2), CountMode.COUNT).getContent()).hasSize(2);
+        }
+    }
+
+    @TckTest
+    void ac_spr_22_a_decorator_wraps_the_executor_of_a_fragment_on_a_plain_factory_bean_on_its_first_call(
+            TckDatabase db) {
+        try (var context = new AnnotationConfigApplicationContext()) {
+            context.registerBean("dataSource", DataSource.class, () -> JoinTestSupport.dataSource(db));
+            context.register(PlainJpa.class, Decorating.class, ModelQueryAutoConfiguration.class);
+            context.refresh();
+            List<Class<?>> decorated = context.getBean(Decorating.class).roots;
+            assertThat(decorated).isEmpty();
+
+            assertThat(context.getBean(CustomerProfileRepository.class).findAll(CUSTOMER_IDS, Limit.unlimited()))
+                    .isNotEmpty();
+            context.getBean(CustomerProfileRepository.class).count(CUSTOMER_IDS);
+            assertThat(decorated).containsExactly(CustomerEntity.class);
         }
     }
 
@@ -253,6 +274,23 @@ class PlainFactoryBeanTest {
         @Bean
         PlatformTransactionManager transactionManager(EntityManagerFactory entityManagerFactory) {
             return new JpaTransactionManager(entityManagerFactory);
+        }
+    }
+
+    /** A decorator bean noting the root of each executor it wraps, and leaving the executor as it is. */
+    @Configuration(proxyBeanMethods = false)
+    static class Decorating {
+        final List<Class<?>> roots = new CopyOnWriteArrayList<>();
+
+        @Bean
+        ModelQueryExecutorDecorator noting() {
+            return new ModelQueryExecutorDecorator() {
+                @Override
+                public <E> ModelQueryExecutor<E> decorate(ModelQueryExecutor<E> executor, ExecutorContext<E> context) {
+                    roots.add(context.rootEntity());
+                    return executor;
+                }
+            };
         }
     }
 

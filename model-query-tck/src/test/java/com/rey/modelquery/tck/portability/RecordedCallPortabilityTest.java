@@ -8,11 +8,13 @@ import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 import com.rey.modelquery.core.ChunkOptions;
 import com.rey.modelquery.core.ColumnField;
+import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryException;
 import com.rey.modelquery.core.ModelUpdate;
 import com.rey.modelquery.core.MqCode;
+import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
@@ -23,6 +25,10 @@ import com.rey.modelquery.portability.CallRecorder;
 import com.rey.modelquery.portability.PortabilityCheck;
 import com.rey.modelquery.portability.RecordedCall;
 import com.rey.modelquery.portability.Target;
+import com.rey.modelquery.spring.boot.ModelQueryAutoConfiguration;
+import com.rey.modelquery.spring.data.ExecutorContext;
+import com.rey.modelquery.spring.data.ModelQueryExecutorDecorator;
+import com.rey.modelquery.spring.data.ModelQueryRepository;
 import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.col.OrderEntity;
 import com.rey.modelquery.tck.col.SampleValueEntity;
@@ -35,20 +41,39 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.regex.Pattern;
+import javax.sql.DataSource;
+import org.example.orders.OrderController;
 import org.example.orders.OrderService;
+import org.example.orders.TimingExecutor;
+import org.example.orders.TimingHandler;
 import org.hibernate.SessionFactory;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
+import org.springframework.orm.jpa.JpaTransactionManager;
+import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
+import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * AC-INS-14, a wrapped executor's part: calls recorded on H2 through {@code CallRecorder.wrap}, replayed on each
- * Tier-1 target without a container. The Spring repository's part is M37.3's.
+ * AC-INS-14: calls recorded on H2 through {@code CallRecorder.wrap}, on an executor and through a Spring repository's
+ * decorator (R-SPR-18), replayed on each Tier-1 target without a container.
  */
 class RecordedCallPortabilityTest {
 
@@ -330,6 +355,83 @@ class RecordedCallPortabilityTest {
                         + "larger bound");
     }
 
+    @Test
+    void ac_ins_14_calls_through_a_spring_repository_record_as_its_executor_s_calls_and_replay_on_the_targets() {
+        List<RecordedCall> calls;
+        try (var context = new AnnotationConfigApplicationContext()) {
+            context.registerBean("dataSource", DataSource.class,
+                    () -> JoinTestSupport.dataSource(TckDatabases.get(TckTarget.h2())));
+            context.register(RepositoryJpa.class, ModelQueryAutoConfiguration.class, RecordCalls.class);
+            context.refresh();
+            @SuppressWarnings("unchecked")
+            ModelQueryRepository<OrderEntity> orders = context.getBean("orderRepository", ModelQueryRepository.class);
+            OrderController controller = new OrderController(orders);
+
+            assertThat(controller.list(ORDERS, PageRequest.of(0, 2)).getContent()).hasSize(2);
+            assertThat(controller.list(ORDERS, PageRequest.of(1, 2, Sort.by(Sort.Order.desc("status"))))
+                    .getContent()).hasSize(2);
+            assertThat(controller.show(ORDERS, 1L)).isPresent();
+            new TransactionTemplate(context.getBean(PlatformTransactionManager.class))
+                    .executeWithoutResult(status -> assertThat(controller.recent(ORDERS)).hasSize(3));
+            calls = context.getBean(CallRecorder.class).calls();
+        }
+
+        // The executor's calls, after SpringPaging translated each Pageable, from the application's caller.
+        assertThat(calls).extracting(RecordedCall::label).containsExactly(
+                "OrderController.list:28 page", "OrderController.list:28 page", "OrderController.show:33 one",
+                "OrderController.recent:38 list");
+        assertThat(calls).<Object>extracting(call -> call.method().getDeclaringClass())
+                .containsOnly(ModelQueryExecutor.class);
+        assertThat(calls.get(0).arguments().subList(1, 3)).containsExactly(PageSpec.of(0, 2), CountMode.COUNT);
+        assertThat(calls.get(1).arguments().subList(1, 3)).containsExactly(PageSpec.of(1, 2), CountMode.COUNT);
+        assertThat(calls.get(1).arguments().get(0)).isNotEqualTo(calls.get(0).arguments().get(0));
+        // The shared EntityManager the decorator was given reads the repository's transaction.
+        assertThat(calls).extracting(RecordedCall::inTransaction).containsExactly(Optional.of(false),
+                Optional.of(false), Optional.of(false), Optional.of(true));
+
+        // Replayed on the executor, never the repository: the two pages' equal count statements are one line.
+        List<String> lines = report(check(ModelQueryConfig.defaults()).replay(calls));
+        assertThat(lines.get(0)).isEqualTo("Not portable: 3 of 18 results failed");
+        for (Target target : TARGETS) {
+            String on = Pattern.quote(" on " + target + ": REACHED select ");
+            assertThat(lines)
+                    .anyMatch(line -> line.matches("OrderController\\.list:\\d+ page x2 \\[count]" + on + ".*"))
+                    .anyMatch(line -> line.matches("OrderController\\.list:\\d+ page \\[content]" + on
+                            + ".* order by 1 .*"))
+                    .anyMatch(line -> line.matches("OrderController\\.list:\\d+ page \\[content]" + on
+                            + ".* order by 2 desc,1 .*"))
+                    .anyMatch(line -> line.matches("OrderController\\.show:\\d+ one" + on + ".*"))
+                    .anyMatch(line -> line.matches("OrderController\\.recent:\\d+ list" + on + ".*"));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(classes = { TimeByDelegation.class, TimeByProxy.class })
+    void ac_ins_14_an_application_decorator_ordered_outside_the_recorder_is_never_the_call_site(Class<?> timing) {
+        List<RecordedCall> calls;
+        AtomicInteger timed;
+        try (var context = new AnnotationConfigApplicationContext()) {
+            context.registerBean("dataSource", DataSource.class,
+                    () -> JoinTestSupport.dataSource(TckDatabases.get(TckTarget.h2())));
+            context.register(RepositoryJpa.class, ModelQueryAutoConfiguration.class, RecordCalls.class, timing);
+            context.refresh();
+            @SuppressWarnings("unchecked")
+            ModelQueryRepository<OrderEntity> orders = context.getBean("orderRepository", ModelQueryRepository.class);
+            OrderController controller = new OrderController(orders);
+
+            controller.list(ORDERS, PageRequest.of(0, 2));
+            controller.show(ORDERS, 1L);
+            controller.recent(ORDERS);
+            calls = context.getBean(CallRecorder.class).calls();
+            timed = context.getBean("timed", AtomicInteger.class);
+        }
+
+        // Each call passed the application's decorator before the recorder, which read past it to the caller.
+        assertThat(timed).hasValue(3);
+        assertThat(calls).extracting(RecordedCall::label).containsExactly(
+                "OrderController.list:28 page", "OrderController.show:33 one", "OrderController.recent:38 list");
+    }
+
     /** A check of the TCK unit on the targets, with a failing call so the report is thrown. */
     private static PortabilityCheck check(ModelQueryConfig config) {
         return PortabilityCheck.of(classes(), config).targets(TARGETS.toArray(Target[]::new))
@@ -365,6 +467,90 @@ class RecordedCallPortabilityTest {
                 throw new IllegalStateException(e);
             }
         }).toList();
+    }
+
+    /** The TCK's entities on H2 and the {@code tck.spr} repositories, which the starter gives the fragment. */
+    @Configuration(proxyBeanMethods = false)
+    @EnableJpaRepositories(basePackages = "com.rey.modelquery.tck.spr")
+    static class RepositoryJpa {
+
+        @Bean
+        LocalContainerEntityManagerFactoryBean entityManagerFactory(DataSource dataSource) {
+            var factory = new LocalContainerEntityManagerFactoryBean();
+            factory.setDataSource(dataSource);
+            factory.setJpaVendorAdapter(new HibernateJpaVendorAdapter());
+            factory.setPackagesToScan(OrderEntity.class.getPackageName());
+            factory.setJpaPropertyMap(Map.of("hibernate.hbm2ddl.auto", "none"));
+            return factory;
+        }
+
+        @Bean
+        PlatformTransactionManager transactionManager(EntityManagerFactory entityManagerFactory) {
+            return new JpaTransactionManager(entityManagerFactory);
+        }
+    }
+
+    /** A test's recorder of every repository's calls, as R-SPR-18 shows it. */
+    @Configuration(proxyBeanMethods = false)
+    static class RecordCalls {
+
+        @Bean
+        CallRecorder recorder() {
+            return CallRecorder.create();
+        }
+
+        @Bean
+        @Order(1)
+        ModelQueryExecutorDecorator recording(CallRecorder recorder) {
+            return new ModelQueryExecutorDecorator() {
+                @Override
+                public <E> ModelQueryExecutor<E> decorate(ModelQueryExecutor<E> executor, ExecutorContext<E> context) {
+                    return recorder.wrap(context.rootEntity(), executor, context.entityManager());
+                }
+            };
+        }
+    }
+
+    /** The application's timing decorator, an executor delegating to the recorder's, ordered outside it. */
+    @Configuration(proxyBeanMethods = false)
+    static class TimeByDelegation {
+
+        @Bean
+        AtomicInteger timed() {
+            return new AtomicInteger();
+        }
+
+        @Bean
+        @Order(2)
+        ModelQueryExecutorDecorator timing(AtomicInteger timed) {
+            return new ModelQueryExecutorDecorator() {
+                @Override
+                public <E> ModelQueryExecutor<E> decorate(ModelQueryExecutor<E> executor, ExecutorContext<E> context) {
+                    return new TimingExecutor<>(executor, timed);
+                }
+            };
+        }
+    }
+
+    /** The application's timing decorator, a JDK proxy over the recorder's executor, ordered outside it. */
+    @Configuration(proxyBeanMethods = false)
+    static class TimeByProxy {
+
+        @Bean
+        AtomicInteger timed() {
+            return new AtomicInteger();
+        }
+
+        @Bean
+        @Order(2)
+        ModelQueryExecutorDecorator timing(AtomicInteger timed) {
+            return new ModelQueryExecutorDecorator() {
+                @Override
+                public <E> ModelQueryExecutor<E> decorate(ModelQueryExecutor<E> executor, ExecutorContext<E> context) {
+                    return TimingHandler.wrap(executor, timed);
+                }
+            };
+        }
     }
 
     /** The application's callback, which serves its own factory only; the check replaces it with the harness's. */
