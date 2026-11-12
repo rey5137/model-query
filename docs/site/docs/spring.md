@@ -124,6 +124,7 @@ writes do.
 | `modelquery.keyset.null-keys` | `fail` | `keysetNullKeys(...)` | `fail` or `honour-null-precedence`; see below. |
 | `modelquery.bulk-write.persistence-context` | `clear` | `persistenceContextMode(...)` | `clear` or `keep` after a bulk write. |
 | `modelquery.bulk-write.chunk-size` | `1000` | `bulkWriteChunkSize(int)` | Default size for `chunked(...)`, clamped per vendor. |
+| `modelquery.bulk-write.conflict-update-where-on-assigned-columns` | `false` | `conflictUpdateWhereOnAssignedColumns(boolean)` | Lets a conflict update's `where` read two or more assigned columns where the vendor reads the stored row; otherwise `MQ1804`. See [Inserts](inserts.md#conflictupdatewhereonassignedcolumns). |
 
 A value outside its allowed range fails with `MQ4003`.
 
