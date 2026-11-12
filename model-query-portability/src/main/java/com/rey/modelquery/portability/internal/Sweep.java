@@ -1,7 +1,6 @@
 package com.rey.modelquery.portability.internal;
 
 import com.rey.modelquery.annotations.Incubating;
-import com.rey.modelquery.core.FetchPlan;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelInsert;
@@ -18,7 +17,6 @@ import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -72,9 +70,8 @@ public final class Sweep {
         Object definition = read(field);
         String name = field.getDeclaringClass().getSimpleName() + "." + field.getName();
         if (definition instanceof ModelQuery q) {
-            Optional<FetchPlan<?>> plan = q.fetch();
             return DryCall.swept(name + " list", q.rootEntity(), x -> x.list(q, Limit.unlimited()),
-                    (emf, profile) -> q.primaryKeyFirst().isPresent() || loadsChildren(plan));
+                    (emf, profile) -> q.primaryKeyFirst().isPresent());
         }
         if (definition instanceof ModelUpdate u) {
             return DryCall.swept(name + " update", u.rootEntity(), x -> x.update(u),
@@ -98,15 +95,6 @@ public final class Sweep {
         // Every library refusal precedes em.persist, but an id drawn from a sequence or table is the first statement.
         return DryCall.swept(name + " persist", p.rootEntity(), x -> x.persist(p),
                 (emf, profile) -> idDrawn(emf, p.rootEntity()) && !p.writesId(emf.getMetamodel()));
-    }
-
-    /** Whether {@code plan}, through its join plans, loads a child, whose statements follow the parent's. */
-    private static boolean loadsChildren(Optional<FetchPlan<?>> plan) {
-        return plan.map(Sweep::loadsChildren).orElse(false);
-    }
-
-    private static boolean loadsChildren(FetchPlan<?> plan) {
-        return !plan.childLoads().isEmpty() || plan.joinPlans().stream().anyMatch(join -> loadsChildren(join.plan()));
     }
 
     /**

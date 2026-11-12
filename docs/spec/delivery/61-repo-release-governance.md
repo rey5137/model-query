@@ -57,8 +57,8 @@ source tree ships in 0.1 and CI builds it (D-76); it is published to GitHub Page
 - `portability` depends on `jpa` only: jakarta types, the JDK and the public types of `jpa`, `core` and
   `annotations`; never `org.hibernate`, `org.springframework`, `org.junit` or `org.assertj`, nor the `hibernate`,
   `spring`, `test` or `processor` modules; and no module depends on it (D-133). It also uses the not-API
-  `jpa.vendor` members `VendorResolver.productNameOf`, `resolve` and `withSupplied`, `ResolvedVendor.profile()`
-  and `InlineCountFallback.observe` (D-222)
+  `jpa.vendor` members `VendorResolver.productNameOf`, `resolve` and `withSupplied`, `ResolvedVendor.profile()`,
+  `InlineCountFallback.observe` (D-222) and `ChildStatements.run` (D-224)
   (allow-listed in the INV-7 rule, D-139), so it is released and resolved at `model-query-jpa`'s exact version, through
   the BOM. It is meant for test scope, which only
   the consumer's POM can set: INV-7 cannot enforce it.
@@ -155,7 +155,9 @@ minor release. Its `portability.internal` package, the dry run's outcomes and ca
 
 The recorded-call members (D-223, M37, 0.14.0) are `@Incubating` through 1.0: `model-query-portability`'s
 `CallRecorder` and `RecordedCall` (`api/16` R-INS-14), and `PortabilityCheck#replay` and `#leaveOut` (R-INS-15).
-`RecordedCall` is a final class with no public constructor, so components can be added before 1.0.
+`RecordedCall` is a final class with no public constructor, so components can be added before 1.0. The child
+statements on placeholder keys (D-224) add no public member: their report lines may change in a minor release like
+the others, and their engine entry `ChildStatements.run` is a not-API `jpa.vendor` member (R-REL-10).
 
 The model-binding annotations (D-134, D-140, D-141, D-142, 0.9.0) are `@Incubating` through 1.0: `@BindQueryModel`,
 `@BindUpdateModel`, `@BindInsertModel` and `@BindExpression`, their containers `@BindQueryModels`,
@@ -266,11 +268,11 @@ through the `rey5137` GitHub account. The Java package `com.rey.modelquery` inte
 
 **R-REL-10** Sub-packages follow the modules: `.core`, `.test`, `.jpa`, `.hibernate`, `.processor`, `.spring.data`,
 `.spring.boot`, `.portability`. `com.rey.modelquery.jpa.vendor` (the built-in profiles, `VendorResolver`,
-`ResolvedVendor`, `InlineCountFallback`) and `com.rey.modelquery.portability.internal` (the dry run's factory, stub
-and recording) are not
-API, whatever the visibility of their types: they may change in any release, and extensions go through `jpa.spi`.
-The one exception in use is `model-query-portability`, which calls `VendorResolver.productNameOf`, `resolve` and
-`withSupplied`, `ResolvedVendor.profile()` and `InlineCountFallback.observe` (D-222) and so must be resolved at
+`ResolvedVendor`, `InlineCountFallback`, `ChildStatements`) and `com.rey.modelquery.portability.internal` (the dry
+run's factory, stub and recording) are not API, whatever the visibility of their types: they may change in any
+release, and extensions go through `jpa.spi`. The one exception in use is `model-query-portability`, which calls
+`VendorResolver.productNameOf`, `resolve` and `withSupplied`, `ResolvedVendor.profile()`,
+`InlineCountFallback.observe` (D-222) and `ChildStatements.run` (D-224) and so must be resolved at
 `model-query-jpa`'s exact version (D-139). A
 type or method marked `@EngineFacing` (`core`; only an executor uses it) is not API either, and may change in any
 release: the types `BuiltQuery`, `RowSelection`, `RenderOptions`, `ChildLoad` and `JoinPlan`, the methods

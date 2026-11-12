@@ -109,7 +109,7 @@ CustomerQueries.RENAME_NOBODY skipped: whereKeys of no key runs no statement
 
 | Outcome | Meaning |
 |---|---|
-| `REACHED` | The call reached its first statement with no refusal; the line shows it. "First statement only" marks a call whose later statements (a fetch plan's children, a primary-key-first second step, a chunk) could still be refused. |
+| `REACHED` | The call reached its first statement with no refusal; the line shows it. "First statement only" marks a call whose later statements (a primary-key-first second step, a chunk) could still be refused. |
 | `REFUSED` | The library, or the provider translating the call, refused it before any statement: target cannot serve it. |
 | `REFUSED_AFTER_STATEMENT` | A refusal came after a statement, which the library's own refusals never do: lambda caught the stop and went on. |
 | `NO_STATEMENT` | The call returned without reaching a statement, so nothing was checked. |
@@ -124,6 +124,33 @@ statement: `MQ4014` is the target's provider having no `SourceRenderer` (`Provid
 source uses (`CTE`, `RECURSIVE`, `WINDOW`, `UNION`, `INTERSECT`, `EXCEPT`) or a `maxDepth + 2` above its
 `maxRecursionDepth()`. The dry run therefore reports `REFUSED` for a target that cannot serve the source and `REACHED`
 for one that can, with no database attached.
+
+### Child statements
+
+A query with a [fetch plan](fetch-plans.md) runs its child loads on the rows it reads, so with no database there are
+no parent keys. Once a call has reached every statement of its own on a target (both of a counted page), the check
+renders each child load on two placeholder keys of the child key's declared Java type (`0` and `1`, `"a"` and `"b"`,
+two dates, two UUIDs, two enum constants), which gives the multi-key shape production sends, `in (?,?)`. It walks the
+plan depth first, a child's own children on placeholders of its key, and reports each child on a line of its own
+under the call, labelled with the child's path:
+
+```text
+CustomerQueries.WITH_ORDERS list on POSTGRESQL 16.4: REACHED select ce1_0.id,ce1_0.name from customers ce1_0 ...
+CustomerQueries.WITH_ORDERS list child orders on POSTGRESQL 16.4: REACHED select ... where oe1_0.customer_id in (?,?)
+CustomerQueries.WITH_ORDERS list child orders.lines on POSTGRESQL 16.4: REACHED select ... in (?,?)
+```
+
+- An enum with one constant is used once (`in (?)`). A key type the check can't build a placeholder for (an empty
+  enum, a value object behind a converter, `byte[]`) is a failing `HARNESS_ERROR` line naming the type: the statement
+  is reachable with real keys, so the line says the checker can't build one rather than skipping it.
+- A [key-grouped](fetch-plans.md#child-loads-over-partitioned-tables) child renders one round on both placeholders,
+  with the catch-all's values when there is one (`groupWhen` or `verifyMissing`), otherwise with the first
+  placeholder's group. Without a catch-all, a group or value function that only knows real keys and fails on a
+  placeholder (`MQ1502`, `MQ2607`, or its own exception, such as a `NullPointerException`) gives a failing line saying
+  it is the checker's limit, not your error.
+- A call refused on a target (a source-rooted parent on MariaDB is `MQ4015`) walks no children there, and neither does
+  a child that failed.
+- `count`, an `ONLY_COUNT` page and a returning write load no children, so they walk none.
 
 ### Muting dry-run log noise
 
@@ -214,9 +241,9 @@ matter, with Testcontainers, for example. It cannot decide:
 - **what depends on data:** `NULL` keyset keys (`MQ2201`, `MQ2202`), a nullable column mapped as non-null, `in` lists
   longer than the values the call was given, and an `Optional.empty()` branch the call did not take (add a second call
   for it);
-- **statements after the first:** export pages after the first, fetch-plan child loads, the second primary-key-first
-  step, the content query of a counted page, and each later round of a chunked write. The checks the library runs up
-  front for these are covered; the SQL itself is not;
+- **statements after the first:** export pages after the first, the second primary-key-first step, each later round
+  of a chunked write, and a child load's further key-group rounds. The checks the library runs up front for these are
+  covered; the SQL itself is not;
 - **other Hibernate lines and providers** than the one on the test class path.
 
 The library's own suite runs the dry run on H2, PostgreSQL and MySQL on both Hibernate lines with no container, and

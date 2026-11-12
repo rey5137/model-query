@@ -171,6 +171,7 @@ class LayeringTest {
                 F + "portability.BadPortabilityVendorMembers",
                 F + "jpa.vendor.InlineCountFallback.decided",
                 F + "jpa.vendor.InlineCountFallback.<init>",
+                F + "jpa.vendor.ChildStatements$Runner.runChildLoad",
                 F + "jpa.vendor.VendorResolver.other",
                 F + "jpa.vendor.ResolvedVendor.other");
         assertThatCode(() -> BAD_RULES.portabilityDependsOnlyOnJpa().check(BAD))

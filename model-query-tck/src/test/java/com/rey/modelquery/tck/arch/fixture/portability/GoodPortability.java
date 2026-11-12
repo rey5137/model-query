@@ -2,6 +2,7 @@ package com.rey.modelquery.tck.arch.fixture.portability;
 
 import com.rey.modelquery.tck.arch.fixture.jpa.GoodJpa;
 import com.rey.modelquery.tck.arch.fixture.jpa.spi.DatabaseVendor;
+import com.rey.modelquery.tck.arch.fixture.jpa.vendor.ChildStatements;
 import com.rey.modelquery.tck.arch.fixture.jpa.vendor.InlineCountFallback;
 import com.rey.modelquery.tck.arch.fixture.jpa.vendor.ResolvedVendor;
 import com.rey.modelquery.tck.arch.fixture.jpa.vendor.VendorResolver;
@@ -13,6 +14,7 @@ public class GoodPortability {
 
     void use(ResolvedVendor resolved) {
         InlineCountFallback.observe(() -> {});
+        ChildStatements.run(() -> {});
         VendorResolver.productNameOf();
         VendorResolver.resolve();
         VendorResolver.withSupplied(() -> {});

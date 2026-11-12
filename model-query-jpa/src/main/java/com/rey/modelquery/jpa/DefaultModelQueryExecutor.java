@@ -71,6 +71,7 @@ import com.rey.modelquery.jpa.spi.ReturningSupport;
 import com.rey.modelquery.jpa.spi.SourceFeature;
 import com.rey.modelquery.jpa.spi.VendorProfile;
 import com.rey.modelquery.jpa.spi.WriteStatement;
+import com.rey.modelquery.jpa.vendor.ChildStatements;
 import com.rey.modelquery.jpa.vendor.InlineCountFallback;
 import com.rey.modelquery.jpa.vendor.ResolvedVendor;
 import com.rey.modelquery.jpa.vendor.VendorResolver;
@@ -156,7 +157,7 @@ import java.util.stream.StreamSupport;
  *     R-WRT-18, R-WRT-19, R-WRT-20, R-WRT-23, R-FCH-04, R-FCH-05, R-FCH-06, R-FCH-09, R-FCH-11, R-FCH-12, D-61,
  *     D-62, D-63, D-99, R-WRT-26, R-WRT-33, R-VND-14
  */
-final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
+final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, ChildStatements.Runner {
 
     private static final System.Logger LOG = System.getLogger(DefaultModelQueryExecutor.class.getName());
 
@@ -4036,6 +4037,32 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 rounds.foundAmong(missing).ifPresent(key -> warnOfRowOutsideGroup(load, load, groups, key));
             }
         }
+        return rounds.children();
+    }
+
+    /**
+     * {@code load}'s children of {@code keys} in one run, for the portability dry run (RFC 0025 Part C, D-224): the
+     * child's own checks, then one {@link KeyRun} of every key, in rounds of the size {@link ChildRounds#size} gives.
+     * With key groups the run binds the catch-all's values, or else those of the first key's group, asked with
+     * {@code load} as the owner as {@link #keyRuns} asks: grouping keys of no real parent would split them into
+     * rounds of one key, which is not a page's shape. The child's own children are not loaded.
+     */
+    @Override
+    public <C> Map<Object, List<C>> runChildLoad(ChildLoad<?, C> load, List<Object> keys) {
+        return childRun(load, load.query(), keys);
+    }
+
+    private <E2, C> Map<Object, List<C>> childRun(ChildLoad<?, C> load, ModelQuery<E2, ?, C> q, List<Object> keys) {
+        checkFirstRun(q);
+        KeyGroups<?, ?> groups = load.keyGroups().orElse(null);
+        Map<QueryParam<?>, Object> values = groups == null ? Map.of() : groups.catchAll().orElseGet(() -> groups
+                .values(groups.groupOf(keys.get(0), load), load + ", the group of key " + keys.get(0)));
+        var run = new KeyRun(keys, values);
+        var rounds = new ChildRounds<>(load, q, em.getCriteriaBuilder());
+        int size = rounds.size(run);
+        LOG.log(DEBUG, () -> "child " + load + ": a child run of " + keys.size() + " key(s) in "
+                + chunks(keys.size(), size) + " round(s)");
+        rounds.read(run);
         return rounds.children();
     }
 

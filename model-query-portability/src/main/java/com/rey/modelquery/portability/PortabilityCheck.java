@@ -37,12 +37,13 @@ import java.util.stream.Collectors;
  * if it reached a statement with no refusal; a refusal before any statement reports the target unserved, and a
  * refusal after a statement, a call that reached none, or any other throwable fails the check (D-133).
  * {@code REACHED} certifies the refusals before the first statement and that statement's rendering only; a sweep marks
- * a definition whose later statements could still be refused "first statement only" (D-138). Calls a
+ * a definition whose later statements could still be refused "first statement only" (D-138). A reached query's
+ * fetch plan child loads run after it on placeholder keys, each reported on a line of its own (D-224). Calls a
  * {@link CallRecorder} recorded {@linkplain #replay(Collection) replay} as calls (D-223).
  *
  * <p>Collects calls, runs them all in {@link #assertPortable()}; not thread-safe. Add the module in test scope.
  *
- * @implSpec R-INS-11, R-INS-12, R-INS-15, R-INS-16
+ * @implSpec R-INS-11, R-INS-12, R-INS-15, R-INS-16, R-INS-17
  */
 @Incubating
 public final class PortabilityCheck {
@@ -417,8 +418,8 @@ public final class PortabilityCheck {
     }
 
     /**
-     * {@code results} with identical replayed lines (call site, method, target, outcome, SQL) collapsed into the first,
-     * labelled with the calls' summed times; every other result as it is.
+     * {@code results} with identical replayed lines (call site, method, child path, target, outcome, SQL) collapsed
+     * into the first, labelled with the calls' summed times; every other result as it is.
      */
     private List<CallResult> collapse(List<DryCall> all, List<List<CallResult>> results) {
         List<CallResult> collapsed = new ArrayList<>();
@@ -432,12 +433,12 @@ public final class PortabilityCheck {
                     continue;
                 }
                 List<Object> line = List.of(call.site(), result.target(), result.outcome(),
-                        result.firstStatementOnly(), result.detail(), result.statement());
+                        result.firstStatementOnly(), result.detail(), result.statement(), result.child());
                 Integer slot = slots.putIfAbsent(line, collapsed.size());
                 if (slot == null) {
                     times.put(collapsed.size(), call.times());
                     collapsed.add(new CallResult(call.site(), result.target(), result.outcome(),
-                            result.firstStatementOnly(), result.detail(), result.statement()));
+                            result.firstStatementOnly(), result.detail(), result.statement(), result.child()));
                 } else {
                     times.merge(slot, call.times(), Integer::sum);
                 }
@@ -446,7 +447,8 @@ public final class PortabilityCheck {
         times.forEach((slot, sum) -> {
             CallResult result = collapsed.get(slot);
             collapsed.set(slot, new CallResult(RecordedCall.label(result.label(), sum), result.target(),
-                    result.outcome(), result.firstStatementOnly(), result.detail(), result.statement()));
+                    result.outcome(), result.firstStatementOnly(), result.detail(), result.statement(),
+                    result.child()));
         });
         return collapsed;
     }
