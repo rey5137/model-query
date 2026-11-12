@@ -24,6 +24,7 @@ import jakarta.persistence.TypedQuery;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
+import com.rey.modelquery.jpa.vendor.InlineCountFallback;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -195,6 +196,31 @@ class InlineCountTest {
 
     /** Held, so the level the logging tests set is not lost with a collected logger. */
     private static final Logger EXECUTOR_LOG = Logger.getLogger(DefaultModelQueryExecutor.class.getName());
+
+    @Test
+    void ac_ins_13_observes_the_actual_inline_decision_before_any_statement() {
+        for (String marker : new String[] {null, WINDOWED}) {
+            try (SessionFactory sessions = factory("observed-" + marker, marker)) {
+                List<Boolean> decisions = new ArrayList<>();
+                for (var query : List.of(FLAT, DISTINCT)) {
+                    SQL.clear();
+                    InlineCountFallback.observe(fallback -> {
+                        assertThat(SQL).isEmpty();
+                        decisions.add(fallback);
+                    }, () -> withExecutor(sessions,
+                            executor -> executor.page(query, PageSpec.of(0, 2), CountMode.INLINE_COUNT)));
+                }
+                assertThat(decisions).containsExactly(marker == null, true);
+                decisions.clear();
+                InlineCountFallback.observe(decisions::add, () -> withExecutor(sessions, executor -> {
+                    executor.page(FLAT, PageSpec.of(0, 2), CountMode.COUNT);
+                    executor.page(FLAT, PageSpec.of(0, 2), CountMode.NO_COUNT);
+                    executor.page(FLAT, PageSpec.of(0, 2), CountMode.ONLY_COUNT);
+                }));
+                assertThat(decisions).isEmpty();
+            }
+        }
+    }
 
     // ---- AC-EXE-21
 

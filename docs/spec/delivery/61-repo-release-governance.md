@@ -57,7 +57,8 @@ source tree ships in 0.1 and CI builds it (D-76); it is published to GitHub Page
 - `portability` depends on `jpa` only: jakarta types, the JDK and the public types of `jpa`, `core` and
   `annotations`; never `org.hibernate`, `org.springframework`, `org.junit` or `org.assertj`, nor the `hibernate`,
   `spring`, `test` or `processor` modules; and no module depends on it (D-133). It also uses the not-API
-  `jpa.vendor` members `VendorResolver.productNameOf`, `resolve` and `withSupplied` and `ResolvedVendor.profile()`
+  `jpa.vendor` members `VendorResolver.productNameOf`, `resolve` and `withSupplied`, `ResolvedVendor.profile()`
+  and `InlineCountFallback.observe` (D-222)
   (allow-listed in the INV-7 rule, D-139), so it is released and resolved at `model-query-jpa`'s exact version, through
   the BOM. It is meant for test scope, which only
   the consumer's POM can set: INV-7 cannot enforce it.
@@ -261,10 +262,12 @@ through the `rey5137` GitHub account. The Java package `com.rey.modelquery` inte
 
 **R-REL-10** Sub-packages follow the modules: `.core`, `.test`, `.jpa`, `.hibernate`, `.processor`, `.spring.data`,
 `.spring.boot`, `.portability`. `com.rey.modelquery.jpa.vendor` (the built-in profiles, `VendorResolver`,
-`ResolvedVendor`) and `com.rey.modelquery.portability.internal` (the dry run's factory, stub and recording) are not
+`ResolvedVendor`, `InlineCountFallback`) and `com.rey.modelquery.portability.internal` (the dry run's factory, stub
+and recording) are not
 API, whatever the visibility of their types: they may change in any release, and extensions go through `jpa.spi`.
 The one exception in use is `model-query-portability`, which calls `VendorResolver.productNameOf`, `resolve` and
-`withSupplied` and `ResolvedVendor.profile()` and so must be resolved at `model-query-jpa`'s exact version (D-139). A
+`withSupplied`, `ResolvedVendor.profile()` and `InlineCountFallback.observe` (D-222) and so must be resolved at
+`model-query-jpa`'s exact version (D-139). A
 type or method marked `@EngineFacing` (`core`; only an executor uses it) is not API either, and may change in any
 release: the types `BuiltQuery`, `RowSelection`, `RenderOptions`, `ChildLoad` and `JoinPlan`, the methods
 `JoinContext.of`, `OrderField.toOrders`, `FetchPlan.childLoads`, `joinPlans`, `enrichers` and `isSelectionOnly`,

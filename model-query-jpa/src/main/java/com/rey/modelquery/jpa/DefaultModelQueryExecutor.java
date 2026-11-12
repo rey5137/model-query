@@ -71,6 +71,7 @@ import com.rey.modelquery.jpa.spi.ReturningSupport;
 import com.rey.modelquery.jpa.spi.SourceFeature;
 import com.rey.modelquery.jpa.spi.VendorProfile;
 import com.rey.modelquery.jpa.spi.WriteStatement;
+import com.rey.modelquery.jpa.vendor.InlineCountFallback;
 import com.rey.modelquery.jpa.vendor.ResolvedVendor;
 import com.rey.modelquery.jpa.vendor.VendorResolver;
 import jakarta.persistence.EntityManager;
@@ -1570,6 +1571,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         // the preflight, so the statement checked is the one run (R-EXE-15).
         Optional<String> inlineFallback = mode == CountMode.INLINE_COUNT
                 ? inlineCountFallback(counting, first, primaryKeyFirst(q, offset)) : Optional.empty();
+        if (mode == CountMode.INLINE_COUNT) {
+            InlineCountFallback.decided(inlineFallback.isPresent());
+        }
         if (mode == CountMode.INLINE_COUNT && inlineFallback.isEmpty()) {
             selectInlineTotal(first);
         }

@@ -166,6 +166,18 @@ class LayeringTest {
     }
 
     @Test
+    void ac_ins_13_portability_calls_only_the_d139_vendor_members() {
+        proves(LayeringRules::portabilityDependsOnlyOnJpa,
+                F + "portability.BadPortabilityVendorMembers",
+                F + "jpa.vendor.InlineCountFallback.decided",
+                F + "jpa.vendor.InlineCountFallback.<init>",
+                F + "jpa.vendor.VendorResolver.other",
+                F + "jpa.vendor.ResolvedVendor.other");
+        assertThatCode(() -> BAD_RULES.portabilityDependsOnlyOnJpa().check(BAD))
+                .hasMessageNotContaining(F + "portability.GoodPortability");
+    }
+
+    @Test
     void ac_qa_05_coreAndJpaHibernateEdgesFail() {
         proves(
                 LayeringRules::coreImportsOnlyJakartaPersistenceAndJdk,

@@ -182,7 +182,7 @@ any other vendor, or a version not starting with a major number, is `MQ4013`.
   first requesting thread, through a memoised `FutureTask`, never inside `computeIfAbsent`; a failed boot is not kept.
   No per-call state lives on the factory or the `DataSource`. Factories close in a JVM shutdown hook.
 
-**R-INS-11** *(D-133, D-138, `@Incubating`)* **A portability check call.** `PortabilityCheck.of(unit, config)` or
+**R-INS-11** *(D-133, D-138, D-222, `@Incubating`)* **A portability check call.** `PortabilityCheck.of(unit, config)` or
 `PortabilityCheck.of(List<Class<?>>, config)`, with `properties(Map<String, ?>)` and, for a class list only,
 `mappingFiles(String...)` (R-INS-10), runs calls on every target: `targets(Target...)`, by default each of
 `config.targetVendors()` at the line's minimum dialect version. A target outside a declared `targetVendors()` is
@@ -190,7 +190,7 @@ any other vendor, or a version not starting with a major number, is `MQ4013`.
 Function<ModelQueryExecutor<E>, ?>)` and `call(String label, Class<E>, Function<...>)` take the real executor
 signature; `callOutsideTransaction(...)`, in the same two forms, runs the call with no transaction, as the application
 runs a `commitEachChunk()` write or a call R-QRY-17 checks. Calls collect, and `assertPortable()` runs each on each
-target with one `EntityManager` and one recording per call and target, in a stub transaction unless outside one. After
+target with one `EntityManager` and one recording per pass, in a stub transaction unless outside one. After
 the function returns, a lazy result (`Stream`, `Iterator`) is drawn by one element, an `AutoCloseable` one is closed,
 and a call in a transaction is flushed, all as part of the call; the transaction then rolls back.
 
@@ -209,11 +209,22 @@ and a call in a transaction is flushed, all as part of the call; the transaction
   `HARNESS_ERROR`. With a statement recorded: a return, or the stub's stop in the chain, is `REACHED` with the first
   statement's SQL; else a `ModelQueryException` in the chain is `REFUSED_AFTER_STATEMENT`, an INV-5 or spec bug or a
   call that swallowed the stop then refused; else `HARNESS_ERROR`.
+- **COUNT pages (D-222).** A per-run `java.lang.reflect.Proxy` over `ModelQueryExecutor` observes whether the first
+  statement came from `page(q, spec, COUNT|INLINE_COUNT)`. Default methods use `InvocationHandler.invokeDefault`;
+  `Object` methods use the proxy's identity (`equals`, `hashCode` and `toString`) without delegation or recording;
+  a delegated throwable is rethrown unchanged, unwrapping
+  `InvocationTargetException`. When the first pass is `REACHED` from that page's count statement, the same call runs
+  again with a fresh `EntityManager` and recording, rewriting that page to `NO_COUNT`. Its first statement is the
+  content select, or step 1's keys under `primaryKeyFirst`; each pass is classified independently. The not-API
+  `jpa.vendor.InlineCountFallback.observe` entry reports the executor's actual pre-statement fallback decision:
+  an `INLINE_COUNT` fallback before any statement gets both passes; a kept window gets one. `ONLY_COUNT` gets one
+  pass. A first statement issued before entering the page, even when its stop was swallowed, gets no second pass.
 - **Portable** means `REACHED` (D-133): `assertPortable()` throws the JDK's `AssertionError` when any result is not,
   `REFUSED` reporting the target unserved. `REACHED(sql)` certifies the refusals placed before the first statement and
-  that statement's rendering only, not a statement after it (R-INS-12's limits list).
+  that statement's rendering only; a COUNT page certifies both passes, with later statements still outside the check
+  (R-INS-12's limits list).
 
-**R-INS-12** *(D-133, D-138, `@Incubating`)* **The sweep, the skip and the report.** `sweep(Class<?>... holders)` reads
+**R-INS-12** *(D-133, D-138, D-222, `@Incubating`)* **The sweep, the skip and the report.** `sweep(Class<?>... holders)` reads
 each holder's `static final` fields that hold a definition, in field-name order, and runs one default operation per
 definition, labelled `Holder.FIELD operation`: `list(query, Limit.unlimited())` for a `ModelQuery`, `update` or
 `delete` for a `ModelUpdate` or `ModelDelete`, `insert` for a `ModelInsert` or `ValuesInsert`, and `persist` for a
@@ -221,10 +232,11 @@ definition, labelled `Holder.FIELD operation`: `list(query, Limit.unlimited())` 
 writes and argument-dependent calls need `call`. Holders are explicit; there is no package scan (P-7).
 `skip(holder, "FIELD", reason)` leaves one definition out; the reason is required.
 
-- **Limits list: first statement only.** The check sees the first statement a call reaches and the refusals before it.
+- **Limits list: first statement only.** The check sees the first statement of each pass and the refusals before it.
   What follows a first statement is not checked: a fetch plan's child statements, each key-group round and
   `verifyMissing` re-read among them, and the group, value and rule calls before them (`api/15` R-FCH-18); the
-  second step of primary-key-first paging; the content statement of `page(..., COUNT)`; each round of a chunked, key-first or
+  second step of primary-key-first paging; fallback 5 of `INLINE_COUNT` (a page past the end, which needs the
+  result to decide to count); each round of a chunked, key-first or
   `throughEntities()` write, and their returning or conflict-arbiter translation; a values insert or persist whose id
   is drawn from a sequence or table (the reached statement is the draw); export pages after the first. The library's
   own refusals that depend on the vendor run before the first statement (D-138); what still follows one depends on
@@ -237,9 +249,13 @@ writes and argument-dependent calls need `call`. Holders are explicit; there is 
   R-WRT-11); an insert with chunk options; a values insert, or a persist not writing its id, whose root's id has a
   `@GeneratedValue` of `SEQUENCE`, `TABLE` or `AUTO` (one declared in `orm.xml` is missed). A `call` prints its
   reached SQL with no mark: the caller chose the operation.
-- **Report.** One line per call and target, call by call, each call's targets in the order given:
+- **Report.** A call may give several lines per target, call by call, each call's targets in the order given,
+  with the count before the content (or keys):
   `label on TARGET VERSION: OUTCOME[ (first statement only)] detail`, the detail being the SQL reached, the refusal's
-  message (`... after SQL` for `REFUSED_AFTER_STATEMENT`), or the throwable. An unlabelled call is
+  message (`... after SQL` for `REFUSED_AFTER_STATEMENT`), or the throwable. A COUNT page adds `[count]` and
+  `[content]` (or `[keys]`) after the label; an `INLINE_COUNT` keeping its window adds `[content+count]`, and one
+  falling back before any statement adds `[count]` and `[content]` (or `[keys]`). `ONLY_COUNT` has no such label.
+  An unlabelled call is
   `call N (Entity)`. After the results, one line per skipped definition, in sweep order: `Holder.FIELD skipped:
   reason`; a skip is not a result and is not counted. A failing check's `AssertionError` starts with
   `Not portable: F of N results failed`; a passing report is logged at `INFO`.
@@ -272,4 +288,5 @@ identity; a different operator of the same name doesn't match.
 | AC-INS-09 | A filter over an expression records its kind with the expression as `column()`. `toString` and the build log show `?` for its values. An `eq` matcher built from equal `Expr` calls matches, and a failing one prints the tree (R-INS-09, R-INS-04, R-INS-05). |
 | AC-INS-10 | On both Hibernate lines with no container, the TCK unit boots offline for H2, PostgreSQL, MySQL and MariaDB, with no version and with a full one (the dialect then at that version), recording no JDBC call, booted once per unit and target however many threads ask, a failed boot booted again on the next request; a unit's `hibernate.hbm2ddl.auto=create` and `scripts.action=create` are overridden (no script written), an explicit `hibernate.dialect` is overridden by the target's, and a unit `hibernate.connection.provider_class` is overridden so a call reaches the stub; a reached statement is recorded once through Hibernate's exception wrapping; a `ProviderSupport` without `offlineProperties`, and a boot that reaches JDBC (the metadata flag or H2's temporary-table settings dropped), are `MQ4013`, and so is a class list naming a provider not on the class path (R-INS-10, `vendor/40` R-VND-20). |
 | AC-INS-11 | On both Hibernate lines with no container, the dry run on H2, PostgreSQL and MySQL reproduces every vendor-dependent refusal of M18 to M22 before any statement: a lock the provider would drop is `MQ4010` per line (H2's shared waits on both lines, its exclusive ones on 6.6 only) and a root on two tables is `MQ4010` everywhere (AC-VND-13); a returning update, delete, insert and upsert is `MQ4011` on MySQL (AC-VND-14, AC-WRT-42, AC-WRT-43); an arbiter or a named constraint is `MQ1804` on H2 and MySQL (AC-WRT-45); `nextval` is `MQ1509` in a select and at every write site on MySQL and in a filter, a having, an order, a group key or a distinct query everywhere (AC-COL-33, AC-WRT-46); a write filtering on a non-key reference is `MQ1004` everywhere and a returning write reading it `MQ1809`, or `MQ4011` on MySQL (AC-COL-34). Conversely, on each target that serves a call (the returning writes on H2 and PostgreSQL, a conflict `setExpression` everywhere (AC-WRT-44), the arbiter and named constraint on PostgreSQL, `nextval` selected, and written by a chunked update, a values insert and an insert-select, on H2 and PostgreSQL, an exclusive lock, a returning write reading a to-one id), the first statement equals that call's statement in the TCK's committed SQL snapshot for that vendor and Hibernate line (R-INS-11, D-133). |
-| AC-INS-12 | On both Hibernate lines with no container: a sweep runs each `static final` definition of a holder once per target and reports one line each, marking a primary-key-first query, a child-loading query, a drawn-id persist and, on MySQL, an update and a delete "first statement only", and an identity persist and a plain list not; `skip` leaves a definition out and the report prints it once, `Holder.FIELD skipped: reason`; the report has one line per call and target with each outcome: `REACHED` with the SQL, `REFUSED` with the code, `REFUSED_AFTER_STATEMENT` when the lambda swallows the stop then refuses, `NO_STATEMENT` and `HARNESS_ERROR`; a lazy `Stream` and `Iterator` are drawn by one element and the stream closed; a `commitEachChunk()` call outside a transaction runs on the harness's `ChunkTransactions` where the application's fails `checkServes`, and is `MQ4004` with none; an explicit `vendor(...)` is left out; the targets default to `targetVendors()` and one outside them is `MQ4012`; no target, no call, a holder with no definition and a bad `skip` fail loudly before any call runs; the harness keeps every configuration setting but the vendor and `ChunkTransactions` (R-INS-11, R-INS-12, D-138). |
+| AC-INS-12 | On both Hibernate lines with no container: a sweep runs each `static final` definition of a holder once per target and reports one line each, marking a primary-key-first query, a child-loading query, a drawn-id persist and, on MySQL, an update and a delete "first statement only", and an identity persist and a plain list not; `skip` leaves a definition out and the report prints it once, `Holder.FIELD skipped: reason`; a call may give several report lines per target, with each outcome: `REACHED` with the SQL, `REFUSED` with the code, `REFUSED_AFTER_STATEMENT` when the lambda swallows the stop then refuses, `NO_STATEMENT` and `HARNESS_ERROR`; a lazy `Stream` and `Iterator` are drawn by one element and the stream closed; a `commitEachChunk()` call outside a transaction runs on the harness's `ChunkTransactions` where the application's fails `checkServes`, and is `MQ4004` with none; an explicit `vendor(...)` is left out; the targets default to `targetVendors()` and one outside them is `MQ4012`; no target, no call, a holder with no definition and a bad `skip` fail loudly before any call runs; the harness keeps every configuration setting but the vendor and `ChunkTransactions` (R-INS-11, R-INS-12, D-138). |
+| AC-INS-13 | On both Hibernate lines with no container, on H2, PostgreSQL and MySQL: a `COUNT` page reports `[count]` and `[content]`, the content SQL matching the TCK's committed snapshot of COUNT's content statement for that vendor and line; `[keys]` under `primaryKeyFirst`; `INLINE_COUNT` keeping its window reports one `[content+count]` line and a fallback before any statement reports two lines; `ONLY_COUNT` reports one unlabelled line; a swallowed earlier stop gets no second pass (R-INS-11, R-INS-12, D-222). |

@@ -57,7 +57,7 @@ public final class DryRun {
         }
         List<CallResult> results = new ArrayList<>();
         for (DryCall call : calls) {
-            factories.forEach((target, emf) -> results.add(run(emf, target, harness, call)));
+            factories.forEach((target, emf) -> results.addAll(run(emf, target, harness, call)));
         }
         return results;
     }
@@ -97,13 +97,31 @@ public final class DryRun {
     }
 
     /** {@code call} on {@code emf}, the factory of {@code target}, classified. */
+    static List<CallResult> run(EntityManagerFactory emf, Target target, ModelQueryConfig config, DryCall call) {
+        Pass first = pass(emf, target, config, call, 0);
+        CallResult result = first.result();
+        if (result.outcome() != Outcome.REACHED) {
+            return List.of(result);
+        }
+        result = result.withStatement(first.page().statement());
+        if (first.page().countedPage() == 0) {
+            return List.of(result);
+        }
+        Pass second = pass(emf, target, config, call, first.page().countedPage());
+        return List.of(result, second.result().withStatement(first.page().content()));
+    }
+
+    private record Pass(CallResult result, PagePass page) {}
+
     @SuppressWarnings("unchecked")
-    static CallResult run(EntityManagerFactory emf, Target target, ModelQueryConfig config, DryCall call) {
+    private static Pass pass(EntityManagerFactory emf, Target target, ModelQueryConfig config, DryCall call,
+            int rewrite) {
         Throwable thrown = null;
         boolean firstStatementOnly = false;
         try (JdbcRecording recording = JdbcRecording.call()) {
             EntityManager em = emf.createEntityManager();
             Object result = null;
+            PagePass page = null;
             try {
                 if (!call.outsideTransaction()) {
                     em.getTransaction().begin();
@@ -111,7 +129,8 @@ public final class DryRun {
                 ModelQueryExecutor<Object> executor = ModelQueryExecutor.create(em, (Class<Object>) call.root(),
                         config);
                 firstStatementOnly = call.firstStatementOnly(emf, profile(emf, config));
-                result = call.body().apply(executor);
+                page = new PagePass(executor, recording, rewrite);
+                result = call.body().apply(page.executor());
                 drainOne(result);
                 Object done = result;
                 result = null;
@@ -126,7 +145,8 @@ public final class DryRun {
             } finally {
                 thrown = end(em, result, thrown);
             }
-            return classify(call.label(), target, firstStatementOnly, recording, thrown, providerPackage(emf));
+            return new Pass(classify(call.label(), target, firstStatementOnly, recording, thrown,
+                    providerPackage(emf)), page);
         }
     }
 

@@ -331,7 +331,7 @@ final class LayeringRules {
      * {@code processor} modules.
      */
     ArchRule portabilityDependsOnlyOnJpa() {
-        return noClasses()
+        ArchRule dependencies = noClasses()
                 .that()
                 .resideInAPackage(pkg("portability"))
                 .should()
@@ -341,13 +341,37 @@ final class LayeringRules {
                                 c -> c.getPackageName().startsWith(root + ".jpa")
                                         && !c.getModifiers().contains(JavaModifier.PUBLIC)))
                         // jpa.vendor is not API (delivery/61 R-REL-10, D-139): only the members in use, via
-                        // VendorResolver.productNameOf, resolve and withSupplied and ResolvedVendor.profile()
-                        .or(describe("are jpa.vendor types other than VendorResolver and ResolvedVendor",
+                        // VendorResolver.productNameOf, resolve and withSupplied, ResolvedVendor.profile(),
+                        // and InlineCountFallback.observe (D-222)
+                        .or(describe("are jpa.vendor types outside D-139",
                                 c -> c.getPackageName().startsWith(root + ".jpa.vendor")
                                         && !c.getName().equals(root + ".jpa.vendor.VendorResolver")
-                                        && !c.getName().equals(root + ".jpa.vendor.ResolvedVendor"))))
+                                        && !c.getName().equals(root + ".jpa.vendor.ResolvedVendor")
+                                        && !c.getName().equals(root + ".jpa.vendor.InlineCountFallback"))))
                 .as("portability depends on jpa only")
                 .allowEmptyShould(allowEmptyShould);
+        ArchRule members = noClasses().that().resideInAPackage(pkg("portability"))
+                .should(useVendorMembersOutsideD139())
+                .allowEmptyShould(allowEmptyShould);
+        return CompositeArchRule.of(dependencies).and(members).as("portability depends on jpa only");
+    }
+
+    private ArchCondition<JavaClass> useVendorMembersOutsideD139() {
+        Set<String> allowed = Set.of(root + ".jpa.vendor.VendorResolver.productNameOf",
+                root + ".jpa.vendor.VendorResolver.resolve", root + ".jpa.vendor.VendorResolver.withSupplied",
+                root + ".jpa.vendor.ResolvedVendor.profile", root + ".jpa.vendor.InlineCountFallback.observe");
+        return new ArchCondition<>("use jpa.vendor members outside D-139") {
+            @Override
+            public void check(JavaClass origin, ConditionEvents events) {
+                for (JavaAccess<?> access : origin.getAccessesFromSelf()) {
+                    AccessTarget target = access.getTarget();
+                    if (target.getOwner().getPackageName().startsWith(root + ".jpa.vendor")
+                            && !allowed.contains(target.getOwner().getName() + "." + target.getName())) {
+                        events.add(SimpleConditionEvent.satisfied(access, access.getDescription()));
+                    }
+                }
+            }
+        };
     }
 
     /**
