@@ -6,7 +6,9 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
 ## [Unreleased]
 
-The coming 0.13.0 covers milestone M36 (RFC 0024, D-213 to D-220): nested models over declared joins. A `@Join` may
+## [0.13.0] - 2026-11-12
+
+0.13.0 covers milestone M36 (RFC 0024, D-213 to D-220): nested models over declared joins. A `@Join` may
 nest a model over an entity join, a nested model may declare its own joins, and an entity join or a joined source may
 be anchored on an earlier entity join. Every API addition below is `@Incubating`.
 
