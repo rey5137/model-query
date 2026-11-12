@@ -168,6 +168,21 @@ class ExecutorDecoratorTest {
     }
 
     @Test
+    void ac_spr_22_two_repositories_of_one_root_get_contexts_with_different_repository_interfaces() {
+        Trace trace = new Trace();
+        try (var context = context(trace, Repositories.class, CountedDecorator.class)) {
+            context.getBean(OrderRepository.class).findAll(ORDER_ROWS, Limit.of(1));
+            context.getBean(OrderReportRepository.class).findAll(ORDER_ROWS, Limit.of(1));
+            context.getBean(CustomerRepository.class).count(CUSTOMER_IDS);
+        }
+
+        assertThat(trace.contexts).<Object>extracting(ExecutorContext::rootEntity)
+                .containsExactly(OrderEntity.class, OrderEntity.class, CustomerEntity.class);
+        assertThat(trace.contexts).<Object>extracting(ExecutorContext::repositoryInterface)
+                .containsExactly(OrderRepository.class, OrderReportRepository.class, CustomerRepository.class);
+    }
+
+    @Test
     void ac_spr_22_a_decorator_bean_that_needs_a_repository_makes_no_creation_cycle() {
         Trace trace = new Trace();
         try (var context = context(trace, Repositories.class, RepositoryDecorator.class)) {

@@ -1,6 +1,5 @@
 package com.rey.modelquery.portability.internal;
 
-import com.rey.modelquery.annotations.Incubating;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -16,7 +15,6 @@ import java.util.Optional;
  *
  * @implSpec R-INS-10
  */
-@Incubating
 public final class OfflineUnit {
 
     private final String name;

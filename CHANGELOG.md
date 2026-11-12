@@ -6,7 +6,7 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
 ## [0.14.0] - Unreleased
 
-0.14.0 covers milestone M37 (RFC 0025, D-222 to D-224): the portability check sees more than a call's first
+0.14.0 covers milestone M37 (RFC 0025, D-222 to D-226): the portability check sees more than a call's first
 statement and checks calls an application recorded. Every API addition below is `@Incubating`.
 
 ### Added (incubating)
@@ -35,11 +35,22 @@ statement and checks calls an application recorded. Every API addition below is 
   is reported on its own line, `label child orders.lines on TARGET: ...`. A key-grouped child renders one round; a
   key type with no placeholder, or a group function failing on one, is a failing line naming the checker's limit;
   a parent refused on a target walks no children.
+- `ExecutorContext#repositoryInterface()` (R-SPR-18): the repository interface a decorator's executor serves, so two
+  repositories of one root can be told apart.
+- `TransactionState` (`IN`, `OUTSIDE`, `UNKNOWN`) in `model-query-portability` (R-INS-14, D-226): what
+  `RecordedCall.inTransaction()` returns, instead of an `Optional<Boolean>`; `RecordedCall.times()` is a `long`, and
+  `CallRecorder.create(int)` throws `IllegalArgumentException` for a negative bound.
+- `ForwardingModelQueryExecutor` in `model-query-jpa` (R-SPR-18, D-225): an abstract base that forwards every
+  `ModelQueryExecutor` method to a delegate, for an executor decorator to extend and override the calls it wraps. A
+  method added to `ModelQueryExecutor` is added to it in the same release, so such a decorator stays compatible; a
+  class implementing the interface directly breaks on a new method.
 - User guide: [child statements](docs/site/docs/portability.md#child-statements) and
   [record and replay calls](docs/site/docs/portability.md#record-and-replay-calls).
 
 ### Changed
 
+- `ChildStatements.run` (not API) renders a child load's statement and returns nothing, and every way into the
+  child run checks for one or more distinct keys (D-224).
 - The sweep no longer marks a query loading children "first statement only": its child statements get report lines
   of their own (D-224).
 - The offline boot blanks the provider's connection keys over every unit source, named `persistence.xml` units and a

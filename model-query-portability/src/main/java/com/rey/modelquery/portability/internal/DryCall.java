@@ -1,6 +1,5 @@
 package com.rey.modelquery.portability.internal;
 
-import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.jpa.spi.VendorProfile;
 import jakarta.persistence.EntityManagerFactory;
@@ -16,7 +15,6 @@ import java.util.function.Function;
  *
  * @implSpec R-INS-11, R-INS-12
  */
-@Incubating
 public final class DryCall {
 
     private final String label;

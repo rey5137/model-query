@@ -1,6 +1,5 @@
 package com.rey.modelquery.portability.internal;
 
-import com.rey.modelquery.annotations.Incubating;
 
 /**
  * How one call ended on one target, read from its JDBC recording first and its cause chain second, never from the
@@ -8,7 +7,6 @@ import com.rey.modelquery.annotations.Incubating;
  *
  * @implSpec R-INS-11
  */
-@Incubating
 public enum Outcome {
     /** A statement was reached and no refusal was met: the refusals before it, and its rendering, passed. */
     REACHED,

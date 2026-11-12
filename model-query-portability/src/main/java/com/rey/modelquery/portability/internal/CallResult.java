@@ -1,6 +1,5 @@
 package com.rey.modelquery.portability.internal;
 
-import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.portability.Target;
 import java.util.Objects;
 
@@ -19,12 +18,10 @@ import java.util.Objects;
  *     own statement (D-224)
  * @implSpec R-INS-11, R-INS-12, R-INS-17
  */
-@Incubating
 public record CallResult(String label, Target target, Outcome outcome, boolean firstStatementOnly, String detail,
-        @Incubating Statement statement, @Incubating String child) {
+        Statement statement, String child) {
 
     /** Page statement labels (D-222). */
-    @Incubating
     public enum Statement {
         NONE(""), COUNT("count"), CONTENT("content"), KEYS("keys"), CONTENT_AND_COUNT("content+count");
 
@@ -36,32 +33,27 @@ public record CallResult(String label, Target target, Outcome outcome, boolean f
     }
 
     /** A result with no page statement label. */
-    @Incubating
     public CallResult(String label, Target target, Outcome outcome, boolean firstStatementOnly, String detail) {
         this(label, target, outcome, firstStatementOnly, detail, Statement.NONE);
     }
 
     /** A result of the call's own statement, with no child path. */
-    @Incubating
     public CallResult(String label, Target target, Outcome outcome, boolean firstStatementOnly, String detail,
             Statement statement) {
         this(label, target, outcome, firstStatementOnly, detail, statement, "");
     }
 
     /** The same outcome for a particular page statement. */
-    @Incubating
     public CallResult withStatement(Statement statement) {
         return new CallResult(label, target, outcome, firstStatementOnly, detail, statement, child);
     }
 
     /** The same outcome reported for the child load at {@code path} (D-224). */
-    @Incubating
     public CallResult withChild(String path) {
         return new CallResult(label, target, outcome, firstStatementOnly, detail, statement, path);
     }
 
     /** Checks the components. */
-    @Incubating
     public CallResult {
         Objects.requireNonNull(label, "label");
         Objects.requireNonNull(target, "target");

@@ -25,6 +25,7 @@ import com.rey.modelquery.portability.CallRecorder;
 import com.rey.modelquery.portability.PortabilityCheck;
 import com.rey.modelquery.portability.RecordedCall;
 import com.rey.modelquery.portability.Target;
+import com.rey.modelquery.portability.TransactionState;
 import com.rey.modelquery.spring.boot.ModelQueryAutoConfiguration;
 import com.rey.modelquery.spring.data.ExecutorContext;
 import com.rey.modelquery.spring.data.ModelQueryExecutorDecorator;
@@ -42,12 +43,12 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import javax.sql.DataSource;
+import org.example.metrics.Timed;
 import org.example.orders.OrderController;
 import org.example.orders.OrderService;
 import org.example.orders.TimingExecutor;
@@ -139,7 +140,7 @@ class RecordedCallPortabilityTest {
         // The overloads of one are two methods.
         assertThat(calls.get(1).method()).isNotEqualTo(calls.get(2).method());
         assertThat(calls).extracting(call -> call.method().getParameterCount()).containsExactly(3, 1, 2, 3, 4);
-        assertThat(calls).extracting(RecordedCall::inTransaction).containsOnly(Optional.of(true));
+        assertThat(calls).extracting(RecordedCall::inTransaction).containsOnly(TransactionState.IN);
         assertThat(calls).extracting(RecordedCall::label).allMatch(Pattern.compile(
                 "OrderService\\.(search|find|streamed|export):\\d+ (page|one|stream|export)").asMatchPredicate());
         // Each function argument is a marker, not the application's closure.
@@ -176,7 +177,7 @@ class RecordedCallPortabilityTest {
         });
 
         List<RecordedCall> calls = recorder.calls();
-        assertThat(calls).extracting(RecordedCall::times).containsExactly(3, 1, 1);
+        assertThat(calls).extracting(RecordedCall::times).containsExactly(3L, 1L, 1L);
         assertThat(calls.get(0).label()).matches("OrderService\\.find:\\d+ one x3");
 
         List<String> lines = report(check(ModelQueryConfig.defaults()).replay(calls));
@@ -254,9 +255,9 @@ class RecordedCallPortabilityTest {
         }
 
         List<RecordedCall> calls = recorder.calls();
-        assertThat(calls).extracting(RecordedCall::inTransaction).containsExactly(Optional.of(false),
-                Optional.of(true));
-        assertThat(plain.calls()).extracting(RecordedCall::inTransaction).containsOnly(Optional.empty());
+        assertThat(calls).extracting(RecordedCall::inTransaction).containsExactly(TransactionState.OUTSIDE,
+                TransactionState.IN);
+        assertThat(plain.calls()).extracting(RecordedCall::inTransaction).containsOnly(TransactionState.UNKNOWN);
         List<RecordedCall> all = new ArrayList<>(calls);
         all.addAll(plain.calls());
         // The harness's own ChunkTransactions serves a commitEachChunk() write run outside a transaction.
@@ -386,8 +387,8 @@ class RecordedCallPortabilityTest {
         assertThat(calls.get(1).arguments().subList(1, 3)).containsExactly(PageSpec.of(1, 2), CountMode.COUNT);
         assertThat(calls.get(1).arguments().get(0)).isNotEqualTo(calls.get(0).arguments().get(0));
         // The shared EntityManager the decorator was given reads the repository's transaction.
-        assertThat(calls).extracting(RecordedCall::inTransaction).containsExactly(Optional.of(false),
-                Optional.of(false), Optional.of(false), Optional.of(true));
+        assertThat(calls).extracting(RecordedCall::inTransaction).containsExactly(TransactionState.OUTSIDE,
+                TransactionState.OUTSIDE, TransactionState.OUTSIDE, TransactionState.IN);
 
         // Replayed on the executor, never the repository: the two pages' equal count statements are one line.
         List<String> lines = report(check(ModelQueryConfig.defaults()).replay(calls));
@@ -430,6 +431,23 @@ class RecordedCallPortabilityTest {
         assertThat(timed).hasValue(3);
         assertThat(calls).extracting(RecordedCall::label).containsExactly(
                 "OrderController.list:28 page", "OrderController.show:33 one", "OrderController.recent:38 list");
+    }
+
+    @Test
+    void ac_ins_14_a_decorator_delegating_through_a_helper_ordered_outside_makes_the_helper_the_call_site() {
+        @SuppressWarnings("unchecked")
+        ModelQueryExecutor<OrderEntity> stub = (ModelQueryExecutor<OrderEntity>) java.lang.reflect.Proxy
+                .newProxyInstance(getClass().getClassLoader(), new Class<?>[] { ModelQueryExecutor.class },
+                        (proxy, method, args) -> null);
+        CallRecorder recorder = CallRecorder.create();
+        ModelQueryExecutor<OrderEntity> recording = recorder.wrap(OrderEntity.class, stub);
+
+        // What a metrics decorator ordered outside the recorder does: its frame is skipped as an executor's or the
+        // library's, the helper's is the first outside them (documented in R-INS-14).
+        Timed.call(() -> recording.list(ORDERS, Limit.of(1)));
+
+        assertThat(recorder.calls()).extracting(RecordedCall::label).singleElement().asString()
+                .matches("Timed\\.call:\\d+ list");
     }
 
     /** A check of the TCK unit on the targets, with a failing call so the report is thrown. */

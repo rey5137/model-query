@@ -1,6 +1,5 @@
 package com.rey.modelquery.portability.internal;
 
-import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
@@ -14,7 +13,6 @@ import java.lang.reflect.Proxy;
  *
  * @implSpec R-INS-11, R-INS-14
  */
-@Incubating
 public abstract class ExecutorHandler implements InvocationHandler {
 
     /** A handler; {@link #executor()} makes its proxies. */

@@ -31,12 +31,12 @@ public final class RecordedCall {
     private final Method method;
     private final List<Object> arguments;
     private final String callSite;
-    private final int times;
-    private final Boolean inTransaction;
+    private final long times;
+    private final TransactionState inTransaction;
     private final CallRecorder.Tally tally;
 
-    RecordedCall(Class<?> root, Method method, List<Object> arguments, String callSite, int times,
-            Boolean inTransaction, CallRecorder.Tally tally) {
+    RecordedCall(Class<?> root, Method method, List<Object> arguments, String callSite, long times,
+            TransactionState inTransaction, CallRecorder.Tally tally) {
         this.root = root;
         this.method = method;
         this.arguments = arguments;
@@ -67,13 +67,15 @@ public final class RecordedCall {
     }
 
     /** How many times the call was made. */
-    public int times() {
+    public long times() {
         return times;
     }
 
-    /** Whether the call ran in a transaction; empty unless recorded through the three-argument {@code wrap}. */
-    public Optional<Boolean> inTransaction() {
-        return Optional.ofNullable(inTransaction);
+    /**
+     * Whether the call ran in a transaction; {@code UNKNOWN} unless recorded through the three-argument {@code wrap}.
+     */
+    public TransactionState inTransaction() {
+        return inTransaction;
     }
 
     /** The replay's label: {@code callSite method}, then {@code xN} when made {@code N > 1} times. */
@@ -86,7 +88,7 @@ public final class RecordedCall {
         return label();
     }
 
-    static String label(String site, int times) {
+    static String label(String site, long times) {
         return times > 1 ? site + " x" + times : site;
     }
 
@@ -104,8 +106,8 @@ public final class RecordedCall {
      * {@code commitEachChunk()} write only.
      */
     boolean outsideTransaction() {
-        if (inTransaction != null) {
-            return !inTransaction;
+        if (inTransaction != TransactionState.UNKNOWN) {
+            return inTransaction == TransactionState.OUTSIDE;
         }
         return arguments.stream().map(RecordedCall::chunkOptions).flatMap(Optional::stream)
                 .anyMatch(ChunkOptions::commitsEachChunk);

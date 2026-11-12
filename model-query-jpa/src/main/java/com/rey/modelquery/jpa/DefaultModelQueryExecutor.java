@@ -4041,18 +4041,26 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
     }
 
     /**
-     * {@code load}'s children of {@code keys} in one run, for the portability dry run (RFC 0025 Part C, D-224): the
-     * child's own checks, then one {@link KeyRun} of every key, in rounds of the size {@link ChildRounds#size} gives.
+     * {@code load}'s statement of {@code keys} in one run, for the portability dry run (RFC 0025 Part C, D-224): the
+     * keys' check, the child's own checks, then one {@link KeyRun} of every key, in rounds of the size
+     * {@link ChildRounds#size} gives.
      * With key groups the run binds the catch-all's values, or else those of the first key's group, asked with
      * {@code load} as the owner as {@link #keyRuns} asks: grouping keys of no real parent would split them into
-     * rounds of one key, which is not a page's shape. The child's own children are not loaded.
+     * rounds of one key, which is not a page's shape. The child's own children are not loaded, and the rows read are
+     * dropped: under another group's values they are not a page's.
+     *
+     * @throws IllegalArgumentException when {@code keys} is empty, holds a null or holds a key twice
      */
     @Override
-    public <C> Map<Object, List<C>> runChildLoad(ChildLoad<?, C> load, List<Object> keys) {
-        return childRun(load, load.query(), keys);
+    public <C> void runChildLoad(ChildLoad<?, C> load, List<Object> keys) {
+        childRun(load, load.query(), keys);
     }
 
-    private <E2, C> Map<Object, List<C>> childRun(ChildLoad<?, C> load, ModelQuery<E2, ?, C> q, List<Object> keys) {
+    private <E2, C> void childRun(ChildLoad<?, C> load, ModelQuery<E2, ?, C> q, List<Object> keys) {
+        if (keys.isEmpty() || keys.stream().anyMatch(Objects::isNull) || new HashSet<>(keys).size() != keys.size()) {
+            throw new IllegalArgumentException(load + ": a child run takes one or more distinct keys, none null, not "
+                    + keys);
+        }
         checkFirstRun(q);
         KeyGroups<?, ?> groups = load.keyGroups().orElse(null);
         Map<QueryParam<?>, Object> values = groups == null ? Map.of() : groups.catchAll().orElseGet(() -> groups
@@ -4063,7 +4071,6 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
         LOG.log(DEBUG, () -> "child " + load + ": a child run of " + keys.size() + " key(s) in "
                 + chunks(keys.size(), size) + " round(s)");
         rounds.read(run);
-        return rounds.children();
     }
 
     /**

@@ -1,6 +1,5 @@
 package com.rey.modelquery.portability.internal;
 
-import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.ChildLoad;
 import com.rey.modelquery.core.FetchPlan;
 import com.rey.modelquery.core.JoinPlan;
@@ -39,7 +38,6 @@ import java.util.stream.BaseStream;
  *
  * @implSpec R-INS-11, R-INS-17, D-133, D-138, D-224
  */
-@Incubating
 public final class DryRun {
 
     private DryRun() {

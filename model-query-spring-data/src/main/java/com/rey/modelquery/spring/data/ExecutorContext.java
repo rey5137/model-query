@@ -18,6 +18,12 @@ public interface ExecutorContext<E> {
     /** The repository's domain type, the {@code E} of its {@code ModelQueryRepository<E>}. */
     Class<E> rootEntity();
 
+    /**
+     * The repository interface the executor serves, to tell two repositories of one root apart (R-SPR-18).
+     */
+    @Incubating
+    Class<?> repositoryInterface();
+
     /** The shared, transaction-bound {@code EntityManager} the repository's executor runs on. */
     EntityManager entityManager();
 

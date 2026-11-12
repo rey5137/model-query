@@ -89,7 +89,7 @@ public class ModelQueryRepositoryFactoryBean<T extends Repository<S, ID>, S, ID>
     }
 
     private <E> ModelQueryRepositoryFragment<E> fragment(Class<E> rootEntity) {
-        return ModelQueryRepositoryFragmentFactoryBean.fragment(rootEntity, entityManager, beanFactory,
-                transactionManagerName, lazyInit);
+        return ModelQueryRepositoryFragmentFactoryBean.fragment(rootEntity, repositoryInterface, entityManager,
+                beanFactory, transactionManagerName, lazyInit);
     }
 }
