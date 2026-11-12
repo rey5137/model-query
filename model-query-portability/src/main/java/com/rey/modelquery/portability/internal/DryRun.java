@@ -1,11 +1,17 @@
 package com.rey.modelquery.portability.internal;
 
 import com.rey.modelquery.annotations.Incubating;
+import com.rey.modelquery.core.ChildLoad;
+import com.rey.modelquery.core.FetchPlan;
+import com.rey.modelquery.core.JoinPlan;
+import com.rey.modelquery.core.KeyGroups;
+import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryException;
 import com.rey.modelquery.jpa.ChunkTransactions;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.jpa.spi.VendorProfile;
+import com.rey.modelquery.jpa.vendor.ChildStatements;
 import com.rey.modelquery.jpa.vendor.VendorResolver;
 import com.rey.modelquery.portability.Target;
 import jakarta.persistence.EntityManager;
@@ -31,7 +37,7 @@ import java.util.stream.BaseStream;
  * the library wraps a chunk's failure in {@code ChunkedWriteException} and a provider wraps the stub's stop in its
  * own exception.
  *
- * @implSpec R-INS-11, D-133, D-138
+ * @implSpec R-INS-11, R-INS-17, D-133, D-138, D-224
  */
 @Incubating
 public final class DryRun {
@@ -110,22 +116,114 @@ public final class DryRun {
         return Objects.equals(value, get.apply(ModelQueryConfig.defaults())) ? to : set.apply(to, value);
     }
 
-    /** {@code call} on {@code emf}, the factory of {@code target}, classified. */
+    /**
+     * {@code call} on {@code emf}, the factory of {@code target}, classified; when every statement of the call is
+     * reached, then each child statement of the fetch plan its query runs (D-224).
+     */
     static List<CallResult> run(EntityManagerFactory emf, Target target, ModelQueryConfig config, DryCall call) {
         Pass first = pass(emf, target, config, call, 0);
         CallResult result = first.result();
         if (result.outcome() != Outcome.REACHED) {
             return List.of(result);
         }
-        result = result.withStatement(first.page().statement());
-        if (first.page().countedPage() == 0) {
-            return List.of(result);
+        List<CallResult> results = new ArrayList<>();
+        results.add(result.withStatement(first.page().statement()));
+        if (first.page().countedPage() != 0) {
+            Pass second = pass(emf, target, config, call, first.page().countedPage());
+            results.add(second.result().withStatement(first.page().content()));
+            if (second.result().outcome() != Outcome.REACHED) {
+                return results;
+            }
         }
-        Pass second = pass(emf, target, config, call, first.page().countedPage());
-        return List.of(result, second.result().withStatement(first.page().content()));
+        // A parent refused on the target walks no children there; one reached renders them on placeholder keys.
+        first.parent().query().flatMap(ModelQuery::fetch)
+                .ifPresent(plan -> children(emf, target, config, call, plan, "", results));
+        return results;
     }
 
-    private record Pass(CallResult result, PagePass page) {}
+    private record Pass(CallResult result, PagePass page, ParentQuery parent) {}
+
+    /**
+     * Each child load of {@code plan} at {@code path}, depth first, then each of its join plans' (R-INS-17): a child
+     * reached walks its own children on placeholders of their keys; a child whose key type has no placeholder gives a
+     * failing line naming the type.
+     */
+    private static void children(EntityManagerFactory emf, Target target, ModelQueryConfig config, DryCall call,
+            FetchPlan<?> plan, String path, List<CallResult> results) {
+        for (ChildLoad<?, ?> load : plan.childLoads()) {
+            String at = path.isEmpty() ? load.field().name() : path + "." + load.field().name();
+            Class<?> type = Placeholders.boxed(load.field().key().attributeType());
+            Optional<List<Object>> keys = Placeholders.of(type);
+            if (keys.isEmpty()) {
+                results.add(new CallResult(call.label(), target, Outcome.HARNESS_ERROR, false, "the checker can't "
+                        + "build a placeholder key of " + type.getName() + " for " + load + ", so its statement is "
+                        + "not checked; with real keys it runs").withChild(at));
+                continue;
+            }
+            CallResult child = child(emf, target, config, call, load, keys.get()).withChild(at);
+            results.add(child);
+            if (child.outcome() == Outcome.REACHED) {
+                load.query().fetch().ifPresent(own -> children(emf, target, config, call, own, at, results));
+            }
+        }
+        for (JoinPlan<?, ?> join : plan.joinPlans()) {
+            String at = path.isEmpty() ? join.field().name() : path + "." + join.field().name();
+            children(emf, target, config, call, join.plan(), at, results);
+        }
+    }
+
+    /** {@code load} run on {@code keys}, on its own {@code EntityManager} and recording, classified. */
+    private static CallResult child(EntityManagerFactory emf, Target target, ModelQueryConfig config, DryCall call,
+            ChildLoad<?, ?> load, List<Object> keys) {
+        Throwable thrown = null;
+        try (JdbcRecording recording = JdbcRecording.call()) {
+            EntityManager em = emf.createEntityManager();
+            try {
+                if (!call.outsideTransaction()) {
+                    em.getTransaction().begin();
+                }
+                @SuppressWarnings("unchecked")
+                ModelQueryExecutor<Object> executor = ModelQueryExecutor.create(em, (Class<Object>) call.root(),
+                        config);
+                ChildStatements.run(executor, load, keys);
+            } catch (VirtualMachineError fatal) {
+                throw fatal;
+            } catch (Throwable t) { // any other throwable is classified, never propagated
+                thrown = t;
+            } finally {
+                thrown = end(em, null, thrown);
+            }
+            CallResult result = classify(call.label(), target, false, recording, thrown, providerPackage(emf));
+            boolean beforeStatement = thrown != null && recording.statements().isEmpty()
+                    && recording.deniedBeforeStatement().isEmpty();
+            return beforeStatement && placeholderGroupFails(load, keys.get(0))
+                    ? new CallResult(call.label(), target, Outcome.HARNESS_ERROR, false, "the checker's limit, not "
+                            + "the application's error: the key groups of " + load + " have no catch-all, and their "
+                            + "group of the placeholder key " + keys.get(0) + " fails: " + result.detail())
+                    : result;
+        }
+    }
+
+    /**
+     * Whether {@code load}'s key groups have no catch-all and their group or value function fails on the placeholder
+     * {@code key}, asked again after the child run failed before its statement: the child's own checks passed with
+     * the parent's first run (R-FCH-04, D-138), so a group function's {@code MQ2607}, a value's {@code MQ1502}, or
+     * either function's own exception is about a key no real parent sends.
+     */
+    private static boolean placeholderGroupFails(ChildLoad<?, ?> load, Object key) {
+        KeyGroups<?, ?> groups = load.keyGroups().filter(g -> g.catchAll().isEmpty()).orElse(null);
+        if (groups == null) {
+            return false;
+        }
+        try {
+            groups.values(groups.groupOf(key, load), load);
+            return false;
+        } catch (VirtualMachineError fatal) {
+            throw fatal;
+        } catch (Throwable t) { // the functions' own exceptions propagate unwrapped (D-204)
+            return true;
+        }
+    }
 
     @SuppressWarnings("unchecked")
     private static Pass pass(EntityManagerFactory emf, Target target, ModelQueryConfig config, DryCall call,
@@ -136,6 +234,7 @@ public final class DryRun {
             EntityManager em = emf.createEntityManager();
             Object result = null;
             PagePass page = null;
+            ParentQuery parent = null;
             try {
                 if (!call.outsideTransaction()) {
                     em.getTransaction().begin();
@@ -144,7 +243,8 @@ public final class DryRun {
                         config);
                 firstStatementOnly = call.firstStatementOnly(emf, profile(emf, config));
                 page = new PagePass(executor, recording, rewrite);
-                result = call.body().apply(page.executor());
+                parent = new ParentQuery(page.executor(), recording);
+                result = call.body().apply(parent.executor());
                 drainOne(result);
                 Object done = result;
                 result = null;
@@ -160,7 +260,7 @@ public final class DryRun {
                 thrown = end(em, result, thrown);
             }
             return new Pass(classify(call.label(), target, firstStatementOnly, recording, thrown,
-                    providerPackage(emf)), page);
+                    providerPackage(emf)), page, parent);
         }
     }
 

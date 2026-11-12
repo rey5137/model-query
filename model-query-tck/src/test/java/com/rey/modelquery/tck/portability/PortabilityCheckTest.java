@@ -145,20 +145,24 @@ class PortabilityCheckTest {
     void ac_ins_12_a_sweep_runs_each_definition_once_per_target_and_reports_one_line_each() {
         List<String> lines = report(check().sweep(Swept.class));
 
-        // Eight definitions on three targets; the update of no key reaches no statement on any of them.
-        assertThat(lines.get(0)).isEqualTo("Not portable: 3 of 24 results failed");
-        assertThat(lines.subList(1, lines.size())).hasSize(24);
+        // Eight definitions on three targets, and the child statement of WITH_ORDERS on each (D-224); the update of
+        // no key reaches no statement on any of them.
+        assertThat(lines.get(0)).isEqualTo("Not portable: 3 of 27 results failed");
+        assertThat(lines.subList(1, lines.size())).hasSize(27);
         for (Target target : List.of(H2, POSTGRESQL, MYSQL)) {
             String on = " on " + target + ": ";
             assertThat(lines).contains("Swept.RENAME_NOBODY update" + on + "NO_STATEMENT the call returned having "
                     + "reached no statement");
             assertThat(lines).anySatisfy(line -> assertThat(line).startsWith("Swept.ALL list" + on + "REACHED select")
                     .contains("customers"));
-            // A primary-key-first query and a query loading children read statements after the first.
+            // A primary-key-first query reads statements after the first; a query loading children is not marked,
+            // its child statements getting lines of their own.
             assertThat(lines).anySatisfy(line -> assertThat(line)
                     .startsWith("Swept.DEEP list" + on + "REACHED (first statement only) select"));
             assertThat(lines).anySatisfy(line -> assertThat(line)
-                    .startsWith("Swept.WITH_ORDERS list" + on + "REACHED (first statement only) select"));
+                    .startsWith("Swept.WITH_ORDERS list" + on + "REACHED select"));
+            assertThat(lines).anySatisfy(line -> assertThat(line)
+                    .startsWith("Swept.WITH_ORDERS list child orders" + on + "REACHED select").contains("in (?,?)"));
             // A drawn id's first statement is the draw; an identity insert's is the insert.
             assertThat(lines).anySatisfy(line -> assertThat(line)
                     .startsWith("Swept.PERSIST_SEQUENCED persist" + on + "REACHED (first statement only) ")

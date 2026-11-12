@@ -1981,11 +1981,11 @@ user at the M23.3 audit stop point. → INV-5, D-82, D-132, D-133, `api/15` R-FC
 `MQ1502`, a group function's exception and a grouping rule's exception; all run before the child's first round.
 
 **D-139 — `model-query-portability` and `jpa.vendor` (2026-10-14).** `model-query-portability` uses the not-API
-`jpa.vendor` members `VendorResolver.productNameOf`, `VendorResolver.resolve`, `VendorResolver.withSupplied` and
-`ResolvedVendor.profile()` and `InlineCountFallback.observe` (D-222), and is released and resolved at
-`model-query-jpa`'s exact version through the BOM; the INV-7
-rule allows dependencies on those three types and access only to the named members above, no other `jpa.vendor`
-type or member. The Spring startup check of D-133 leaves a factory with a
+`jpa.vendor` members `VendorResolver.productNameOf`, `VendorResolver.resolve`, `VendorResolver.withSupplied`,
+`ResolvedVendor.profile()`, `InlineCountFallback.observe` (D-222) and `ChildStatements.run` (D-224), and is
+released and resolved at `model-query-jpa`'s exact version through the BOM; the INV-7
+rule allows dependencies on those four types and access only to the named members above, no other `jpa.vendor`
+type or member (`ChildStatements.Runner` included). The Spring startup check of D-133 leaves a factory with a
 bootstrap executor to run after the singletons are instantiated, so a deferred JPA bootstrap stays in the background, and
 reports an application `ModelQueryConfig` bean as `MQ4006` before any `MQ4012`. → INV-7, R-INS-10, R-SPR-17, `delivery/61`.
 

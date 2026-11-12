@@ -15,11 +15,13 @@ import java.util.Objects;
  *     the first statement only
  * @param detail the SQL reached, or the refusal or error, on one line
  * @param statement the page statement represented, or {@code NONE}
- * @implSpec R-INS-11, R-INS-12
+ * @param child the path of the fetch plan's child load the line reports, {@code orders.lines}, or empty for the call's
+ *     own statement (D-224)
+ * @implSpec R-INS-11, R-INS-12, R-INS-17
  */
 @Incubating
 public record CallResult(String label, Target target, Outcome outcome, boolean firstStatementOnly, String detail,
-        @Incubating Statement statement) {
+        @Incubating Statement statement, @Incubating String child) {
 
     /** Page statement labels (D-222). */
     @Incubating
@@ -39,10 +41,23 @@ public record CallResult(String label, Target target, Outcome outcome, boolean f
         this(label, target, outcome, firstStatementOnly, detail, Statement.NONE);
     }
 
+    /** A result of the call's own statement, with no child path. */
+    @Incubating
+    public CallResult(String label, Target target, Outcome outcome, boolean firstStatementOnly, String detail,
+            Statement statement) {
+        this(label, target, outcome, firstStatementOnly, detail, statement, "");
+    }
+
     /** The same outcome for a particular page statement. */
     @Incubating
     public CallResult withStatement(Statement statement) {
-        return new CallResult(label, target, outcome, firstStatementOnly, detail, statement);
+        return new CallResult(label, target, outcome, firstStatementOnly, detail, statement, child);
+    }
+
+    /** The same outcome reported for the child load at {@code path} (D-224). */
+    @Incubating
+    public CallResult withChild(String path) {
+        return new CallResult(label, target, outcome, firstStatementOnly, detail, statement, path);
     }
 
     /** Checks the components. */
@@ -53,6 +68,7 @@ public record CallResult(String label, Target target, Outcome outcome, boolean f
         Objects.requireNonNull(outcome, "outcome");
         Objects.requireNonNull(detail, "detail");
         Objects.requireNonNull(statement, "statement");
+        Objects.requireNonNull(child, "child");
     }
 
     /** Whether the call is portable on the target: it reached a statement with no refusal (D-133). */
@@ -60,11 +76,14 @@ public record CallResult(String label, Target target, Outcome outcome, boolean f
         return outcome == Outcome.REACHED;
     }
 
-    /** The report line: {@code label on target: OUTCOME[ (first statement only)] detail}. */
+    /**
+     * The report line: {@code label[ [statement]][ child path] on target: OUTCOME[ (first statement only)] detail}.
+     */
     public String line() {
         String qualifier = outcome == Outcome.REACHED && firstStatementOnly ? " (first statement only)" : "";
         String suffix = statement == Statement.NONE ? "" : " [" + statement.label + "]";
-        return label + suffix + " on " + target + ": " + outcome + qualifier + " " + detail;
+        String at = child.isEmpty() ? "" : " child " + child;
+        return label + suffix + at + " on " + target + ": " + outcome + qualifier + " " + detail;
     }
 
     @Override

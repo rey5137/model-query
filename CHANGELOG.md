@@ -4,7 +4,48 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html); the public API may change in any `0.x`
 release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
-## [Unreleased]
+## [0.14.0] - Unreleased
+
+0.14.0 covers milestone M37 (RFC 0025, D-222 to D-224): the portability check sees more than a call's first
+statement and checks calls an application recorded. Every API addition below is `@Incubating`.
+
+### Added (incubating)
+
+- A `COUNT` page's content statement is checked (RFC 0025 Part A, R-INS-11, D-222): `page(..., COUNT)`, and an
+  `INLINE_COUNT` page that falls back to a separate count, runs a second time as `NO_COUNT`, and the report gives
+  `[count]` and `[content]` lines (`[keys]` under `primaryKeyFirst`, one `[content+count]` line for a windowed inline
+  count).
+- `CallRecorder` and `RecordedCall` (RFC 0025 Part B, R-INS-14, D-223): `CallRecorder.wrap(root, executor)` (with an
+  `EntityManager` for the transaction state) records each executor call with its method, copied arguments (functions
+  as markers), the application's call site and a count, deduplicated and bounded; a dropped or failed recording is a
+  failing report line, never a failed application call.
+- `PortabilityCheck.replay(...)` and `leaveOut(root, reason)` (R-INS-15, D-223): recorded calls run on every target
+  with the harness's own functions, identical result lines collapse into one labelled `xN`, and a root outside the unit
+  fails the check unless left out. Replay fidelity joins the limits list.
+- `ModelQueryExecutorDecorator` and `ExecutorContext` in `model-query-spring-data` (RFC 0025 Part D, R-SPR-18,
+  D-223): every decorator bean wraps each repository's executor, in `@Order` order, on the repository's first call,
+  so a recording decorator records repository calls with the application's caller as the call site.
+- `PortabilityCheck.of(PersistenceUnitInfo, config)` and `properties(...)` (R-INS-16, D-223) check a
+  container-managed unit, such as Spring Boot's, from its managed classes and mapping files; values the boot cache
+  can't compare are dropped and listed in the report head, connection keys excepted.
+- `ProviderSupport#dialectVersion(EntityManagerFactory)`: the report head names each target checked at its dialect
+  minimum and how to name the deployed version.
+- A fetch plan's child statements are checked on placeholder keys (RFC 0025 Part C, R-INS-17, D-224): after a call's
+  statements, each child load renders depth first on two placeholder keys of its declared key type (`in (?,?)`) and
+  is reported on its own line, `label child orders.lines on TARGET: ...`. A key-grouped child renders one round; a
+  key type with no placeholder, or a group function failing on one, is a failing line naming the checker's limit;
+  a parent refused on a target walks no children.
+- User guide: [child statements](docs/site/docs/portability.md#child-statements) and
+  [record and replay calls](docs/site/docs/portability.md#record-and-replay-calls).
+
+### Changed
+
+- The sweep no longer marks a query loading children "first statement only": its child statements get report lines
+  of their own (D-224).
+- The offline boot blanks the provider's connection keys over every unit source, named `persistence.xml` units and a
+  multi-tenant connection provider included, so the stub stays the only connection (R-VND-20).
+- `model-query-portability` also calls the not-API `InlineCountFallback.observe` and `ChildStatements.run` of
+  `jpa.vendor` (D-139), so it still resolves at `model-query-jpa`'s exact version through the BOM.
 
 ## [0.13.0] - 2026-11-12
 

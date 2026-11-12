@@ -342,12 +342,13 @@ final class LayeringRules {
                                         && !c.getModifiers().contains(JavaModifier.PUBLIC)))
                         // jpa.vendor is not API (delivery/61 R-REL-10, D-139): only the members in use, via
                         // VendorResolver.productNameOf, resolve and withSupplied, ResolvedVendor.profile(),
-                        // and InlineCountFallback.observe (D-222)
+                        // InlineCountFallback.observe (D-222) and ChildStatements.run (D-224)
                         .or(describe("are jpa.vendor types outside D-139",
                                 c -> c.getPackageName().startsWith(root + ".jpa.vendor")
                                         && !c.getName().equals(root + ".jpa.vendor.VendorResolver")
                                         && !c.getName().equals(root + ".jpa.vendor.ResolvedVendor")
-                                        && !c.getName().equals(root + ".jpa.vendor.InlineCountFallback"))))
+                                        && !c.getName().equals(root + ".jpa.vendor.InlineCountFallback")
+                                        && !c.getName().equals(root + ".jpa.vendor.ChildStatements"))))
                 .as("portability depends on jpa only")
                 .allowEmptyShould(allowEmptyShould);
         ArchRule members = noClasses().that().resideInAPackage(pkg("portability"))
@@ -359,7 +360,8 @@ final class LayeringRules {
     private ArchCondition<JavaClass> useVendorMembersOutsideD139() {
         Set<String> allowed = Set.of(root + ".jpa.vendor.VendorResolver.productNameOf",
                 root + ".jpa.vendor.VendorResolver.resolve", root + ".jpa.vendor.VendorResolver.withSupplied",
-                root + ".jpa.vendor.ResolvedVendor.profile", root + ".jpa.vendor.InlineCountFallback.observe");
+                root + ".jpa.vendor.ResolvedVendor.profile", root + ".jpa.vendor.InlineCountFallback.observe",
+                root + ".jpa.vendor.ChildStatements.run");
         return new ArchCondition<>("use jpa.vendor members outside D-139") {
             @Override
             public void check(JavaClass origin, ConditionEvents events) {
