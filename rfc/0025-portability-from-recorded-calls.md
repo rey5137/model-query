@@ -1,6 +1,6 @@
 # RFC 0025 — Portability from recorded calls, and the statements after the first
 
-- **Status:** draft (2026-11-12), revised after its architect review
+- **Status:** draft (2026-11-12), revised after its architect review and its acceptance spike (`rfc/0025-spike-results.md`)
 - **Affects:**
   - **`api/16`:** R-INS-10 (a Boot unit's properties and the offline overrides), R-INS-11 (a call's passes), R-INS-12
     (the limits list: the content statement of `page(..., COUNT)` and, after Part C, a fetch plan's child statements
@@ -30,7 +30,7 @@ from what the application runs. Second, a call stops at its first statement, so 
   `PortabilityCheck.replay(...)` runs every recorded call on the targets. `PortabilityCheck.of(PersistenceUnitInfo,
   config)` takes the unit the application booted.
 - **Part C — child statements on placeholder keys.** The harness renders each child load of a fetch plan, at every
-  depth, on placeholder parent keys, without running the parent. It needs a spike.
+  depth, on placeholder parent keys, without running the parent. The spike reached every shape on every target.
 - **Part D — smaller items:** a report note on unversioned targets, and two docs notes.
 
 Rejected here: a dry run that answers each select with a synthetic row, and replaying the application's own
@@ -205,47 +205,60 @@ config)`, a `jakarta.persistence.spi` type (INV-7), takes the managed class name
 mapping files the application booted with. A Spring test gets it from `EntityManagerFactoryInfo
 .getPersistenceUnitInfo()`, and the properties from `emf.getProperties()` through the existing `properties(Map)`.
 
-- Values R-INS-10's cache can't compare (an instance, such as a naming-strategy bean) are dropped, and the report's
-  head lists each dropped key, so a check that boots with a different naming strategy says so.
+- Values R-INS-10's cache can't compare (an instance, such as a naming-strategy bean) are dropped. The report's head
+  lists each dropped key outside the connection keys, so a check that boots with a different naming strategy says so.
+  A Boot unit always carries instance-valued connection keys (the data source three times, among five), which the
+  next bullet blanks anyway; listing them would print the same noise on every report.
+- **Both sources are needed** (spike, finding 4): `getPersistenceUnitInfo()` lists the managed classes, an `autoApply`
+  converter and an embeddable among them, and the mapping files, but its own properties are empty; `emf.getProperties()`
+  returns Boot's naming strategies as the class-name strings Boot passed, on both lines, and an instance-valued
+  strategy as that instance.
 - **Connection keys.** Properties taken from a running factory may name a connection provider or a multi-tenant
   connection provider, which the D-133 spike found bypasses the stub. R-VND-20's `offlineProperties` gains the
   provider's connection keys, blanked, so the stub stays the only connection whatever the properties say.
 - R-INS-10's Boot guidance changes: `spring.jpa.properties` does not carry Boot's naming defaults, so it names
   `emf.getProperties()` instead.
 - No new `ProviderSupport` method: fidelity alone doesn't justify one (P-5, as D-138 rejected a translate SPI).
-- A spike item: whether `emf.getProperties()` on both lines includes the naming strategies Boot sets by default.
 
-### Part C — child statements on placeholder keys (spike first)
+### Part C — child statements on placeholder keys
 
 `childrenOf(load, q, keys)` in `DefaultModelQueryExecutor` runs one child load from a key list. The harness, for a
 `REACHED` call whose query carries a fetch plan, runs each child load depth first, on its own recording, and reports
 each reached statement under the call: `label child tiers on MYSQL 8.4.3: REACHED select ...`.
 
-- **Two placeholder keys**, distinct and of the parent key's Java type (`0` and `1`, `"a"` and `"b"`, two dates, two
-  UUIDs; a composite key's components each so), so the `IN` list has production's multi-key shape, including tuple
-  `IN` versus its expanded `OR` form. A child's own children use placeholders of the child's key in turn.
-- A key type with no placeholder (a value object behind a converter, an `@IdClass` the harness can't build, an empty
-  enum, `byte[]`) gives a failing line naming the type, not a skip.
+- **Two placeholder keys**, distinct and of the child key's declared Java type (`0` and `1`, `"a"` and `"b"`, two
+  dates, two UUIDs, two enum constants), so the `IN` list has production's multi-key shape (`in (?,?)`). A child key
+  is always one attribute (a multi-attribute one is `MQ3404`); an `@EmbeddedId` or `@IdClass` parent keys its child
+  on one component, so there is no composite placeholder. A child's own children use placeholders of the child's key
+  in turn. A key of the wrong Java type is refused by the provider before the stub, so the declared type is what
+  matters.
+- An enum with one constant uses that constant once, the only key production can send. A key type with no
+  placeholder (an empty enum, a value object behind a converter, `byte[]`) gives a failing line naming the type, not
+  a skip; their statements are reachable with real keys, so the line says the checker can't build one.
 - **Key groups** can't be enumerated: `KeyGroups.by(keyType, function)` maps a key and its owner to a group at run
-  time. The harness renders the catch-all's values where one exists; without one, it asks the placeholder's group with
-  no owner, and a failure there is a failing line naming the child. Under bound values every group's statement has the
-  same text, so one round is the shape.
+  time. The harness runs both placeholders in one run with the chosen values: the catch-all's where one exists; else
+  the group of the first placeholder, asked with the child load as owner. Left to the engine's own grouping, the two
+  placeholders would split into two `in (?)` rounds. Without a catch-all, a group function that knows only real keys
+  fails on a placeholder (`MQ1502`, `MQ2607`); the failing line says it is the checker's limit, not the application's
+  error. Under bound values every group's statement has the same text, so one round is the shape.
+- **A refused parent walks no children.** A parent statement refused on a target (a source-rooted parent on MariaDB is
+  `MQ4015`, no CTEs) is reported as refused, and its children are not rendered there.
 - **The engine entry** is a not-API `jpa` method running one child load of a plan, at a path, on given keys, in the
   space D-139 allow-lists for the harness. INV-7's parenthetical, D-139's allow-list and the ArchUnit rule are
   amended. It is not `@EngineFacing`, which means "only an executor uses" (D-72, D-86). Per-call state stays in
   `ChildRounds` (INV-1, INV-9).
 
-**Spike questions:** (1) whether every child load's statement can be reached on placeholder keys without the parent's
-`Loaded` rows, including a child under a `@Join` nested model, a child of a source-rooted model, and a key-grouped
-child with and without a catch-all; (2) the stub throws at `prepareStatement`, before any bind, so a placeholder needs
-only the key's Java type; whether that holds under `value_handling_mode=inline` (D-177), where the key renders as a
-literal; (3) whether a refusal the child stage raises today (`MQ2003`, a key group's `MQ1502`) is reported on the
-child's line or must stay on the limits list as data-dependent. A shape that fails (1) stays on the limits list by
-name.
+**Spike** (`rfc/0025-spike-results.md`, 396 cells on each line): every child load listed was reached on placeholder
+keys with no parent rows, at depths 2 and 3, on H2, PostgreSQL, MySQL and MariaDB: a three-level plan, a child under
+a `@Join` nested model, a child of a source-rooted parent, key groups with and without a catch-all and with
+`verifyMissing`. The child statements are the same on all four targets and both lines. The stub's `prepareStatement`
+is the only JDBC call, so nothing is bound; under `value_handling_mode=inline` (D-177) every key stays a parameter, and
+the 37 compared child statements per target match bound mode.
 
-What Part C still cannot see, and R-INS-12 keeps listing: data-dependent refusals (`MQ2201`, `MQ2202`, `MQ2003` on
-real data, `MQ2005`, ...), step 2 of primary-key-first paging, export pages after the first, and every round of a
-chunked or key-first write.
+What Part C still cannot see, and R-INS-12 keeps listing: data-dependent refusals (`MQ2201`, `MQ2202`, `MQ2003`,
+`MQ2005`, `MQ2601`, `MQ2603`, `MQ2604`, which need real rows; a key group's `MQ1502` and `MQ2607` on a key the
+placeholder's group doesn't reach), step 2 of primary-key-first paging, export pages after the first, and every round
+of a chunked or key-first write.
 
 ### Part D — smaller items
 
@@ -265,13 +278,13 @@ chunked or key-first write.
 | R-INS-14 | `CallRecorder`, `RecordedCall`: recording, function markers, call site, transaction state, dedup, bound, loud failures |
 | R-INS-15 | `PortabilityCheck.replay(...)`, `leaveOut(...)`, replay fidelity on the limits list |
 | R-INS-16 | `PortabilityCheck.of(PersistenceUnitInfo, ModelQueryConfig)`, dropped keys, blanked connection keys |
-| R-INS-17 | Child statements on placeholder keys (Part C, after its spike) |
+| R-INS-17 | Child statements on placeholder keys (Part C) |
 | R-SPR-18 | `ModelQueryExecutorDecorator`, `ExecutorContext` |
 | AC-INS-13 | Part A on both lines: a `COUNT` page reports `[count]` and `[content]`, the content SQL matching the TCK's snapshot of `COUNT`'s content statement per vendor and line; `[keys]` under `primaryKeyFirst`; `INLINE_COUNT` with the window one `[content+count]` line, with a fallback two; `ONLY_COUNT` one; a swallowed earlier stop gets no second pass |
 | AC-INS-14 | Part B: recording through a Spring repository and a wrapped executor, overloads told apart, function markers replaced at replay, dedup, the bound's and a failed recording's failing lines, transaction state replayed, a root outside the unit failing unless left out |
 | AC-INS-15 | `of(PersistenceUnitInfo)` from a Boot-configured unit renders as `of(classList)` with the same properties; a dropped instance value is listed |
 | AC-INS-16 | A unit naming a multi-tenant connection provider reaches only the stub |
-| AC-INS-17 | Part C: a three-level fetch plan and a key-grouped child report each child statement on each Tier-1 target; an unsupported key type fails by name |
+| AC-INS-17 | Part C on both lines: a three-level fetch plan, a child under a `@Join` nested model, a child of a source-rooted parent and a key-grouped child (with and without a catch-all) report each child statement as `in (?,?)` on each Tier-1 target, bound and inline; a one-constant enum key renders `in (?)`; an empty enum, a converted value object and `byte[]` fail by name; a parent refused on a target walks no children |
 | AC-SPR-22 | Decorators apply lazily, in order, to every repository's executor and rethrow unchanged; a `LAZY` bootstrap stays lazy |
 
 No new `MQnnnn` code: the harness's own problems are `AssertionError`s (R-INS-12) or `HARNESS_ERROR`.
@@ -315,11 +328,11 @@ amended; the head gains lines for unversioned targets, dropped properties and re
 
 ## Unresolved questions
 
-None left open: the spike answers Part C's three questions and the naming-strategy item in R-INS-16, and a shape that
-fails stays on the limits list by name.
+None left open: the spike answered Part C's questions and the naming-strategy item in R-INS-16 (every shape reached;
+the changes it called for are folded into Part B and Part C above).
 
 ## Milestone
 
 Proposed: M37 in 0.14.0, the freeze moving to M38 (as D-213 moved it to M37). Slices, roughly: M37.1 Part A; M37.2
 `CallRecorder`, `RecordedCall` and replay; M37.3 the Spring decorator; M37.4 `of(PersistenceUnitInfo)` and Part D;
-M37.5 Part C after its spike. Parts A, B and D can ship without Part C if the spike says no.
+M37.5 Part C.
