@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- R-INS-16 item: a mapping file the factory bean is given, to see it in getPersistenceUnitInfo(). Maps nothing. -->
+<entity-mappings xmlns="https://jakarta.ee/xml/ns/persistence/orm" version="3.0">
+</entity-mappings>
