@@ -5,6 +5,7 @@ import com.rey.modelquery.core.ModelQueryConfigurationException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
+import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import com.rey.modelquery.portability.internal.CallResult;
 import com.rey.modelquery.portability.internal.DryCall;
 import com.rey.modelquery.portability.internal.DryRun;
@@ -12,7 +13,9 @@ import com.rey.modelquery.portability.internal.OfflineFactory;
 import com.rey.modelquery.portability.internal.OfflineUnit;
 import com.rey.modelquery.portability.internal.Sweep;
 import jakarta.persistence.metamodel.Type;
+import jakarta.persistence.spi.PersistenceUnitInfo;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -22,7 +25,9 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -37,7 +42,7 @@ import java.util.stream.Collectors;
  *
  * <p>Collects calls, runs them all in {@link #assertPortable()}; not thread-safe. Add the module in test scope.
  *
- * @implSpec R-INS-11, R-INS-12, R-INS-15
+ * @implSpec R-INS-11, R-INS-12, R-INS-15, R-INS-16
  */
 @Incubating
 public final class PortabilityCheck {
@@ -46,9 +51,11 @@ public final class PortabilityCheck {
 
     private final String unitName;
     private final List<Class<?>> classes;
+    private final List<String> classNames;
     private final ModelQueryConfig config;
     private final Map<String, Object> properties = new LinkedHashMap<>();
     private final List<String> mappingFiles = new ArrayList<>();
+    private final Set<String> droppedKeys = new TreeSet<>();
     private List<Target> targets;
     private final List<DryCall> calls = new ArrayList<>();
     private final Set<Class<?>> swept = new LinkedHashSet<>();
@@ -59,9 +66,11 @@ public final class PortabilityCheck {
     // One tally per recorder, the latest snapshot's: two snapshots of one recording count it once.
     private final Map<CallRecorder, CallRecorder.Tally> tallies = new LinkedHashMap<>();
 
-    private PortabilityCheck(String unitName, List<Class<?>> classes, ModelQueryConfig config) {
+    private PortabilityCheck(String unitName, List<Class<?>> classes, List<String> classNames,
+            ModelQueryConfig config) {
         this.unitName = unitName;
         this.classes = classes;
+        this.classNames = classNames;
         this.config = Objects.requireNonNull(config, "config");
     }
 
@@ -71,7 +80,7 @@ public final class PortabilityCheck {
      * {@code config.targetVendors()}.
      */
     public static PortabilityCheck of(String unit, ModelQueryConfig config) {
-        return new PortabilityCheck(Objects.requireNonNull(unit, "unit"), null, config);
+        return new PortabilityCheck(Objects.requireNonNull(unit, "unit"), null, null, config);
     }
 
     /**
@@ -79,16 +88,83 @@ public final class PortabilityCheck {
      * {@linkplain #mappingFiles(String...) mapping files} a class list does not carry, under {@code config}.
      */
     public static PortabilityCheck of(List<Class<?>> classes, ModelQueryConfig config) {
-        return new PortabilityCheck(null, List.copyOf(Objects.requireNonNull(classes, "classes")), config);
+        List<Class<?>> copy = List.copyOf(Objects.requireNonNull(classes, "classes"));
+        return new PortabilityCheck(null, copy, copy.stream().map(Class::getName).toList(), config);
+    }
+
+    /**
+     * A check of a container-managed unit from {@code unit}, taking its managed class names (entities, embeddables,
+     * converters) and mapping files, under {@code config}. Application properties are added through
+     * {@link #properties(Map)} (e.g. from {@code emf.getProperties()}).
+     *
+     * @implSpec R-INS-16
+     */
+    @Incubating
+    public static PortabilityCheck of(PersistenceUnitInfo unit, ModelQueryConfig config) {
+        Objects.requireNonNull(unit, "unit");
+        Objects.requireNonNull(config, "config");
+        List<String> classes = new ArrayList<>();
+        if (unit.getManagedClassNames() != null) {
+            classes.addAll(unit.getManagedClassNames());
+        }
+        try {
+            Method getManagedPackages = unit.getClass().getMethod("getManagedPackages");
+            Object packages = getManagedPackages.invoke(unit);
+            if (packages instanceof Collection<?> col) {
+                for (Object pkg : col) {
+                    if (pkg != null) {
+                        classes.add(String.valueOf(pkg));
+                    }
+                }
+            }
+        } catch (ReflectiveOperationException ignored) {
+            // Not a SmartPersistenceUnitInfo
+        }
+        List<String> files = unit.getMappingFileNames();
+        PortabilityCheck check = new PortabilityCheck(null, null, List.copyOf(classes), config);
+        if (files != null) {
+            check.mappingFiles.addAll(files);
+        }
+        if (unit.getProperties() != null) {
+            Map<String, Object> props = new LinkedHashMap<>();
+            unit.getProperties().forEach((k, v) -> props.put(String.valueOf(k), v));
+            check.properties(props);
+        }
+        if (unit.getPersistenceProviderClassName() != null
+                && !check.properties.containsKey("jakarta.persistence.provider")) {
+            check.properties.put("jakarta.persistence.provider", unit.getPersistenceProviderClassName());
+        }
+        return check;
+    }
+
+    private static boolean isConnectionKey(String key) {
+        return OfflineFactory.blankedConnectionKeys().contains(key);
+    }
+
+    private static boolean isComparable(Object value) {
+        return value instanceof String || value instanceof Number || value instanceof Boolean
+                || value instanceof Character || value instanceof Enum<?> || value instanceof Class<?>;
     }
 
     /**
      * Adds the application's own persistence properties, beneath the dry run's overrides (a naming strategy).
-     * Give values as strings, class names, numbers or booleans: the booted factory is cached by these properties, and
-     * an instance value without value equality boots a fresh factory per check.
+     * Give values as strings, class names, numbers or booleans: the booted factory is cached by these properties.
+     * Values the cache cannot compare (an instance, such as a naming-strategy bean) are dropped, and listed in the
+     * report head outside connection keys.
      */
     public PortabilityCheck properties(Map<String, ?> properties) {
-        this.properties.putAll(Objects.requireNonNull(properties, "properties"));
+        Objects.requireNonNull(properties, "properties").forEach((key, value) -> {
+            Objects.requireNonNull(key, "property key");
+            if (isComparable(value)) {
+                this.properties.put(key, value);
+                this.droppedKeys.remove(key);
+            } else {
+                this.properties.remove(key);
+                if (!isConnectionKey(key)) {
+                    droppedKeys.add(key);
+                }
+            }
+        });
         return this;
     }
 
@@ -265,7 +341,9 @@ public final class PortabilityCheck {
         all.removeIf(call -> replayed.containsKey(call) && leftOut.containsKey(replayed.get(call).root()));
         List<String> skips = new ArrayList<>();
         all.addAll(sweptCalls(setup, skips));
-        if (classes != null && classes.isEmpty()) {
+        boolean emptyClasses = (classes != null && classes.isEmpty())
+                || (classNames != null && classNames.isEmpty());
+        if (emptyClasses) {
             setup.add("no entity classes in the unit");
         }
         // The declared vendors at the line's minimum dialect version, unless targets(...) chose.
@@ -277,7 +355,7 @@ public final class PortabilityCheck {
         if (all.isEmpty()) {
             setup.add("no calls: add call(...) or sweep(...)");
         }
-        if (!chosen.isEmpty() && !(classes != null && classes.isEmpty())) {
+        if (!chosen.isEmpty() && !emptyClasses) {
             setup.addAll(rootProblems(chosen.get(0), all));
         }
         List<String> recording = tallies.values().stream().flatMap(tally -> tally.lines().stream()).toList();
@@ -286,9 +364,25 @@ public final class PortabilityCheck {
             setup.addAll(recording);
             throw new AssertionError("Portability check set up wrongly, nothing ran:\n" + String.join("\n", setup));
         }
+        List<String> head = new ArrayList<>();
+        chosen.stream().filter(t -> t.version().isEmpty()).distinct().forEach(target -> {
+            Optional<String> minimum = OfflineFactory.dialectVersion(unit(), target);
+            if (minimum.isPresent()) {
+                head.add(target.vendor() + " checked at the dialect minimum " + minimum.get()
+                        + "; name the deployed version with Target.of(" + target.vendor() + ", \""
+                        + exampleVersion(target.vendor(), minimum.get()) + "\")");
+            } else {
+                head.add(target.vendor() + " checked at the provider's dialect minimum"
+                        + "; name the deployed version with Target.of(" + target.vendor() + ", \""
+                        + exampleVersion(target.vendor(), null) + "\")");
+            }
+        });
+        droppedKeys.forEach(key -> head.add("dropped property: " + key));
+
         // A COUNT page contributes separate count and content results (D-222).
         List<CallResult> results = collapse(all, DryRun.runEach(unit(), chosen, config, all));
-        List<String> lines = new ArrayList<>(results.stream().map(CallResult::line).toList());
+        List<String> lines = new ArrayList<>(head);
+        lines.addAll(results.stream().map(CallResult::line).toList());
         lines.addAll(recording);
         lines.addAll(skips);
         leftOut.forEach((root, reason) -> lines.add(root.getSimpleName() + " left out: " + reason));
@@ -388,7 +482,24 @@ public final class PortabilityCheck {
     }
 
     private OfflineUnit unit() {
-        return unitName != null ? OfflineUnit.named(unitName, properties)
-                : OfflineUnit.ofClasses(classes, mappingFiles, properties);
+        if (unitName != null) {
+            return OfflineUnit.named(unitName, properties);
+        }
+        if (classes != null) {
+            return OfflineUnit.ofClasses(classes, mappingFiles, properties);
+        }
+        return OfflineUnit.ofClassNames(classNames, mappingFiles, properties);
+    }
+
+    private static String exampleVersion(DatabaseVendor vendor, String minimum) {
+        return switch (vendor) {
+            case MYSQL -> "8.4.3";
+            case POSTGRESQL -> "16.4";
+            case H2 -> "2.3.232";
+            case MARIADB -> "10.11.6";
+            case ORACLE -> "19.0";
+            case SQLSERVER -> "16.0";
+            case OTHER -> minimum != null && !minimum.isEmpty() ? minimum : "1.0";
+        };
     }
 }

@@ -302,9 +302,20 @@ overrides, and still records the boot: a boot that reaches JDBC is `MQ4013` what
 resolution by product name, an application's `hibernate.dialect_resolvers` included, so a custom dialect subclass is
 not used in the dry run), `hibernate.connection.provider_class=""` (a unit's connection provider bypasses the stub)
 and `hibernate.query.mutation_strategy.global_temporary.create_tables` and `.drop_tables` `false` (H2's strategy asks
-for a connection per multi-table entity and swallows the failure). A unit's `hibernate.connection.url`,
-`jakarta.persistence.jdbc.url` and JNDI `hibernate.connection.datasource` need no override: the stub `DataSource`
-beats them.
+for a connection per multi-table entity and swallows the failure). The provider's connection keys are blanked beneath
+the stub `DataSource` (D-223): `hibernate.connection.provider_class=""`,
+`hibernate.multi_tenant_connection_provider=null`, `hibernate.connection.datasource=null`,
+`jakarta.persistence.nonJtaDataSource=null`, `jakarta.persistence.jtaDataSource=null`,
+`javax.persistence.nonJtaDataSource=null`, `javax.persistence.jtaDataSource=null`, URL
+(`hibernate.connection.url`, `jakarta.persistence.jdbc.url`, `javax.persistence.jdbc.url` as `""`), and
+username/password/driver (`hibernate.connection.username`, `.password`, `.driver_class`,
+`jakarta.persistence.jdbc.user`, `.password`, `.driver`, `javax.persistence.jdbc.user`, `.password`, `.driver` as
+`""`), so the stub `DataSource` stays the only connection whatever the unit's properties say. Blanking covers every
+unit source, named `persistence.xml` units included: an override value in the integration map (`""` or `null`) wins
+over `<properties>` declared in `persistence.xml` on both Hibernate lines. `ProviderSupport` also gains `@Incubating
+default Optional<String> dialectVersion(EntityManagerFactory emf)`: the database version of the dialect the booted
+factory uses, in format `major.minor[.micro]` (such as `"8.0"` or `"2.1.214"`). Empty, the default, means the provider
+cannot tell, in which case an unversioned target reports checked at the provider's dialect minimum (`api/16` R-INS-12).
 
 **R-VND-21** Which source features a database has is a profile fact (D-143). `VendorProfile` gains `@Incubating
 boolean sources(SourceFeature feature)`, `false` by default: a query whose source uses a feature the target's vendor

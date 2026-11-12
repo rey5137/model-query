@@ -37,6 +37,7 @@ import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -682,26 +683,61 @@ public final class HibernateProviderSupport implements ProviderSupport {
     }
 
     /**
-     * Hibernate's offline boot, for any vendor but {@code OTHER} (R-VND-20, D-133): no JDBC metadata read and no
-     * schema export at boot; the dialect resolved from the target's product name, so a unit's explicit
-     * {@code hibernate.dialect} is overridden while its {@code hibernate.dialect_resolvers} still apply; no unit
-     * connection provider, which would bypass the stub data source; no global temporary tables created or dropped
-     * at boot, whose failure H2's strategy swallows; and {@link #OFFLINE_BOOT}, so no treat preflight runs (D-163).
+     * Hibernate's offline boot, for any vendor but {@code OTHER} (R-VND-20, D-133, D-223): no JDBC metadata read and
+     * no schema export at boot; the dialect resolved from the target's product name, so a unit's explicit
+     * {@code hibernate.dialect} is overridden while its {@code hibernate.dialect_resolvers} still apply; the
+     * provider's connection keys blanked (data source, URL/user/password, connection provider and multi-tenant
+     * connection provider), so the stub DataSource stays the only connection; no global temporary tables created or
+     * dropped at boot, whose failure H2's strategy swallows; and {@link #OFFLINE_BOOT}, so no treat preflight runs.
      */
     @Override
     public Optional<Map<String, Object>> offlineProperties(DatabaseVendor vendor) {
         if (vendor == DatabaseVendor.OTHER) {
             return Optional.empty();
         }
-        return Optional.of(Map.of(
-                AvailableSettings.ALLOW_METADATA_ON_BOOT, "false",
-                AvailableSettings.HBM2DDL_AUTO, "none",
-                AvailableSettings.DIALECT, "",
-                AvailableSettings.CONNECTION_PROVIDER, "",
-                // GlobalTemporaryTableStrategy's keys; the type itself is internal (D-132), the keys are settings.
-                "hibernate.query.mutation_strategy.global_temporary.create_tables", "false",
-                "hibernate.query.mutation_strategy.global_temporary.drop_tables", "false",
-                OFFLINE_BOOT, OFFLINE_TOKEN));
+        Map<String, Object> properties = new LinkedHashMap<>();
+        properties.put(AvailableSettings.ALLOW_METADATA_ON_BOOT, "false");
+        properties.put(AvailableSettings.HBM2DDL_AUTO, "none");
+        properties.put(AvailableSettings.DIALECT, "");
+        properties.put(AvailableSettings.CONNECTION_PROVIDER, "");
+        properties.put(AvailableSettings.MULTI_TENANT_CONNECTION_PROVIDER, null);
+        properties.put(AvailableSettings.DATASOURCE, null);
+        properties.put(AvailableSettings.URL, "");
+        properties.put(AvailableSettings.USER, "");
+        properties.put(AvailableSettings.PASS, "");
+        properties.put(AvailableSettings.DRIVER, "");
+        properties.put(AvailableSettings.JAKARTA_JDBC_URL, "");
+        properties.put(AvailableSettings.JAKARTA_JDBC_USER, "");
+        properties.put(AvailableSettings.JAKARTA_JDBC_PASSWORD, "");
+        properties.put(AvailableSettings.JAKARTA_JDBC_DRIVER, "");
+        properties.put("jakarta.persistence.nonJtaDataSource", null);
+        properties.put("jakarta.persistence.jtaDataSource", null);
+        properties.put("javax.persistence.nonJtaDataSource", null);
+        properties.put("javax.persistence.jtaDataSource", null);
+        properties.put("javax.persistence.jdbc.url", "");
+        properties.put("javax.persistence.jdbc.user", "");
+        properties.put("javax.persistence.jdbc.password", "");
+        properties.put("javax.persistence.jdbc.driver", "");
+        // GlobalTemporaryTableStrategy's keys; the type itself is internal (D-132), the keys are settings.
+        properties.put("hibernate.query.mutation_strategy.global_temporary.create_tables", "false");
+        properties.put("hibernate.query.mutation_strategy.global_temporary.drop_tables", "false");
+        properties.put(OFFLINE_BOOT, OFFLINE_TOKEN);
+        return Optional.of(Collections.unmodifiableMap(properties));
+    }
+
+    /**
+     * The database version of the dialect {@code emf} boots with, such as {@code "8.0"} or {@code "2.1.214"},
+     * read from Hibernate's {@link org.hibernate.dialect.Dialect#getVersion()}.
+     */
+    @Override
+    public Optional<String> dialectVersion(EntityManagerFactory emf) {
+        return sessionFactory(emf).map(sf -> {
+            var version = sf.getJdbcServices().getDialect().getVersion();
+            int major = version.getDatabaseMajorVersion();
+            int minor = version.getDatabaseMinorVersion();
+            int micro = version.getDatabaseMicroVersion();
+            return micro > 0 ? major + "." + minor + "." + micro : major + "." + minor;
+        });
     }
 
     /** The value {@link #OFFLINE_BOOT} holds on the portability dry run's offline boot alone (D-163). */

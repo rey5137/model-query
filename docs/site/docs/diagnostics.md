@@ -371,6 +371,11 @@ If you exclude `spring-boot-starter-logging` and add Logback yourself, nothing c
 below `INFO` is dropped. Add `org.slf4j:slf4j-jdk-platform-logging`, which Spring Boot manages: it sends `System.Logger`
 straight to SLF4J, keeps `TRACE` as `TRACE`, and follows level changes, since SLF4J reads them from Logback each time.
 
+!!! warning "MockServer and `java.util.logging` reset"
+    MockServer 5.x resets the `java.util.logging` (JUL) configuration on startup, which detaches handlers and resets
+    log levels. Set the `java.util.logging.config.file` system property before MockServer starts, or route
+    `System.Logger` directly through SLF4J with `org.slf4j:slf4j-jdk-platform-logging`.
+
 ## Reporting a problem
 
 If you meet a failure without a code, that is a bug: please report it with the stack trace and the model involved.
