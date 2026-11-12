@@ -4,7 +4,7 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html); the public API may change in any `0.x`
 release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
-## [0.14.0] - Unreleased
+## [0.14.0] - 2026-11-12
 
 0.14.0 covers milestone M37 (RFC 0025, D-222 to D-226): the portability check sees more than a call's first
 statement and checks calls an application recorded. Every API addition below is `@Incubating`.

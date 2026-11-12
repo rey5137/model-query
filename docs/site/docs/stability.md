@@ -1,6 +1,6 @@
 # API stability
 
-model-query is at 0.13.0. Until 1.0.0 the public API may change in any minor release, and the commit that does it is
+model-query is at 0.14.0. Until 1.0.0 the public API may change in any minor release, and the commit that does it is
 marked breaking. From 1.0.0 the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Today: everything is `@Incubating`
@@ -22,7 +22,7 @@ fails the build on such a change:
 - in `model-query-jpa`, `ModelQueryExecutor`, `ModelQueryConfig`, `KeysetNullKeys`, `MysqlStreamingMode` and
   `DatabaseVendor`, apart from their bulk-write and insert members;
 - the Spring modules, including the starter's property keys, apart from `ModelQueryRepository.update`, `delete`,
-  `insert`, `insertReturningKeys` and `persist`, and the
+  `insert`, `insertReturningKeys` and `persist`, `ModelQueryExecutorDecorator` and `ExecutorContext`, and the
   `modelquery.bulk-write.*` properties;
 - `OrderedColumnConverter` and the two built-in timestamp converters, because generated code links them;
 - the shape of the generated code, except `changes()`, `update(...)`, `delete()`, `insert(...)`, `insertFrom(...)`
@@ -184,6 +184,14 @@ The nested-join members are new in 0.13.0 and `@Incubating` (D-213 to D-220), an
 `SourceJoin#within`, and `TableField#presentBy` on a joined-entity root. See
 [entity-join chains](source-models.md#joining-an-entity) and
 [nested models with their own joins](models.md#nested-models-with-their-own-joins).
+
+The recorded-call members are new in 0.14.0 and `@Incubating` through 1.0 (D-222 to D-226): in
+`model-query-portability`, `CallRecorder`, `RecordedCall`, `TransactionState`, `PortabilityCheck#replay` and
+`#leaveOut`, and `PortabilityCheck.of(PersistenceUnitInfo, ModelQueryConfig)`; in `model-query-spring-data`,
+`ModelQueryExecutorDecorator` and `ExecutorContext`; in `model-query-jpa`, `ForwardingModelQueryExecutor` and the
+`ProviderSupport` default `dialectVersion(EntityManagerFactory)`. A method added to `ModelQueryExecutor` gets a
+forwarder in `ForwardingModelQueryExecutor` in the same release, so a decorator that extends it keeps compiling. See
+[record and replay calls](portability.md#record-and-replay-calls).
 
 The fetch-plan types are new in 0.2.0, `@Incubating`, and not yet placed in the 1.0 freeze list above:
 `FetchPlan`, `ChildField`, `JoinField`, `ChildQuery`, `Enricher` and the `@Child` annotation. The executor-facing
