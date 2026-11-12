@@ -12,11 +12,24 @@ import com.rey.modelquery.core.RowLock;
 import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
+import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
+import com.rey.modelquery.portability.CallRecorder;
 import com.rey.modelquery.portability.PortabilityCheck;
 import com.rey.modelquery.portability.Target;
+import com.rey.modelquery.spring.boot.ModelQueryAutoConfiguration;
+import com.rey.modelquery.spring.data.ExecutorContext;
+import com.rey.modelquery.spring.data.ModelQueryExecutorDecorator;
+import com.rey.modelquery.spring.data.ModelQueryRepository;
 import com.rey.modelquery.tck.col.CustomerEntity;
+import com.rey.modelquery.tck.col.JoinTestSupport;
+import com.rey.modelquery.tck.harness.TckDatabases;
+import com.rey.modelquery.tck.harness.TckTarget;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
+import jakarta.persistence.spi.PersistenceUnitInfo;
 import java.io.IOException;
+import java.lang.reflect.Proxy;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -24,13 +37,22 @@ import java.util.Collections;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.Map;
+import javax.sql.DataSource;
 import org.hibernate.boot.model.naming.CamelCaseToUnderscoresNamingStrategy;
 import org.hibernate.jpa.HibernatePersistenceProvider;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.orm.jpa.hibernate.SpringImplicitNamingStrategy;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.core.io.DefaultResourceLoader;
+import org.springframework.orm.jpa.EntityManagerFactoryInfo;
+import org.springframework.orm.jpa.persistenceunit.MutablePersistenceUnitInfo;
 import org.springframework.orm.jpa.persistenceunit.PersistenceManagedTypesScanner;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.ClassUtils;
 
 /**
@@ -116,7 +138,130 @@ class PortabilityDocsSnippetTest {
     }
 
     @Test
-    void ac_ins_12_docs_spring_snippet_scans_the_entities_and_passes_on_the_declared_targets() {
+    void ac_ins_15_docs_spring_snippet_with_persistence_unit_info_passes_on_declared_targets() {
+        MutablePersistenceUnitInfo unitInfo = new MutablePersistenceUnitInfo();
+        scanned().forEach(c -> unitInfo.addManagedClassName(c.getName()));
+        EntityManagerFactory emf = (EntityManagerFactory) Proxy.newProxyInstance(
+                getClass().getClassLoader(),
+                new Class<?>[] { EntityManagerFactory.class, EntityManagerFactoryInfo.class },
+                (proxy, method, args) -> switch (method.getName()) {
+                    case "getPersistenceUnitInfo" -> unitInfo;
+                    case "getProperties" -> Map.of(
+                            "hibernate.physical_naming_strategy", CamelCaseToUnderscoresNamingStrategy.class.getName(),
+                            "hibernate.implicit_naming_strategy", SpringImplicitNamingStrategy.class.getName());
+                    default -> null;
+                });
+
+        assertThatCode(() -> {
+            // ---- the page's "Spring repository" tab
+            PersistenceUnitInfo unit = ((EntityManagerFactoryInfo) emf).getPersistenceUnitInfo();
+            PortabilityCheck.of(unit, ModelQueryConfig.defaults().targetVendors("postgresql", "h2"))
+                    .properties(emf.getProperties())
+                    .sweep(CustomerQueries.class)
+                    .skip(CustomerQueries.class, "RENAME_NOBODY", "whereKeys of no key runs no statement")
+                    .call("claim next", CustomerEntity.class,
+                            x -> x.first(CustomerQueries.NEXT_PENDING.withLock(RowLock.exclusive())))
+                    .call("rename returning", CustomerEntity.class,
+                            x -> x.updateReturning(CustomerQueries.RENAME, CustomerQueries.RENAMED))
+                    .assertPortable();
+        }).doesNotThrowAnyException();
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class TestRecordingConfig {
+        @Bean
+        CallRecorder recorder() {
+            return CallRecorder.create();
+        }
+
+        @Bean
+        @Order(1)
+        ModelQueryExecutorDecorator recording(CallRecorder recorder) {
+            return new ModelQueryExecutorDecorator() {
+                @Override
+                public <E> ModelQueryExecutor<E> decorate(ModelQueryExecutor<E> executor, ExecutorContext<E> ctx) {
+                    return recorder.wrap(ctx.rootEntity(), executor, ctx.entityManager());
+                }
+            };
+        }
+    }
+
+    @Test
+    void ac_ins_14_docs_plain_jpa_recording_and_replay_snippet(@TempDir Path dir) throws IOException {
+        Path xml = dir.resolve("persistence.xml");
+        StringBuilder unitXml = new StringBuilder("""
+                <?xml version="1.0" encoding="UTF-8"?>
+                <persistence xmlns="https://jakarta.ee/xml/ns/persistence" version="3.0">
+                <persistence-unit name="shop" transaction-type="RESOURCE_LOCAL">
+                """);
+        unitXml.append("<provider>").append(HibernatePersistenceProvider.class.getName()).append("</provider>\n");
+        scanned().forEach(c -> unitXml.append("<class>").append(c.getName()).append("</class>\n"));
+        unitXml.append("""
+                <exclude-unlisted-classes>true</exclude-unlisted-classes>
+                </persistence-unit>
+                </persistence>
+                """);
+        Files.writeString(xml, unitXml);
+        Thread thread = Thread.currentThread();
+        ClassLoader previous = thread.getContextClassLoader();
+        thread.setContextClassLoader(new PersistenceXmlLoader(previous, xml.toUri().toURL()));
+        try {
+            @SuppressWarnings("unchecked")
+            ModelQueryExecutor<CustomerEntity> plainExecutor = (ModelQueryExecutor<CustomerEntity>) Proxy
+                    .newProxyInstance(CustomerEntity.class.getClassLoader(),
+                            new Class<?>[] { ModelQueryExecutor.class },
+                            (proxy, method, args) -> java.util.Optional.empty());
+            EntityManager em = (EntityManager) Proxy.newProxyInstance(EntityManager.class.getClassLoader(),
+                    new Class<?>[] { EntityManager.class },
+                    (proxy, method, args) -> "isJoinedToTransaction".equals(method.getName()));
+
+            // ---- the page's "Plain JPA" tab in "Record and replay calls"
+            CallRecorder recorder = CallRecorder.create();
+            ModelQueryExecutor<CustomerEntity> executor = recorder.wrap(CustomerEntity.class, plainExecutor, em);
+
+            // Calls executed by application or test code are recorded:
+            executor.first(CustomerQueries.NEXT_PENDING.withLock(RowLock.exclusive()));
+
+            // Replay the recorded calls against all targets:
+            PortabilityCheck.of("shop", ModelQueryConfig.defaults())
+                    .targets(Target.of(DatabaseVendor.H2), Target.of(DatabaseVendor.POSTGRESQL, "16.4"))
+                    .replay(recorder.calls())
+                    .assertPortable();
+        } finally {
+            thread.setContextClassLoader(previous);
+        }
+    }
+
+    @Test
+    void ac_ins_14_docs_spring_recording_and_replay_snippet() {
+        try (var context = new AnnotationConfigApplicationContext()) {
+            context.registerBean("dataSource", DataSource.class,
+                    () -> JoinTestSupport.dataSource(TckDatabases.get(TckTarget.h2())));
+            context.register(RecordedCallPortabilityTest.RepositoryJpa.class, ModelQueryAutoConfiguration.class,
+                    TestRecordingConfig.class);
+            context.refresh();
+            @SuppressWarnings("unchecked")
+            ModelQueryRepository<CustomerEntity> customerRepository = (ModelQueryRepository<CustomerEntity>)
+                    context.getBean("customerRepository", ModelQueryRepository.class);
+            CallRecorder recorder = context.getBean(CallRecorder.class);
+            EntityManagerFactory emf = context.getBean(EntityManagerFactory.class);
+
+            new TransactionTemplate(context.getBean(PlatformTransactionManager.class))
+                    .executeWithoutResult(status -> {
+                        // ---- the page's "Spring repository" tab in "Record and replay calls"
+                        customerRepository.findFirst(CustomerQueries.NEXT_PENDING.withLock(RowLock.exclusive()));
+                    });
+
+            PersistenceUnitInfo unit = ((EntityManagerFactoryInfo) emf).getPersistenceUnitInfo();
+            PortabilityCheck.of(unit, ModelQueryConfig.defaults().targetVendors("postgresql", "h2"))
+                    .properties(emf.getProperties())
+                    .replay(recorder.calls())
+                    .assertPortable();
+        }
+    }
+
+    @Test
+    void ac_ins_12_docs_spring_prose_scans_the_entities_and_passes_on_the_declared_targets() {
         // ---- the page's "Spring repository" tab
         List<Class<?>> entities = new PersistenceManagedTypesScanner(new DefaultResourceLoader())
                 .scan(SCANNED_PACKAGE).getManagedClassNames().stream()
@@ -124,7 +269,8 @@ class PortabilityDocsSnippetTest {
                 .toList();
         assertThat(entities).contains(CustomerEntity.class).allSatisfy(c -> assertThat(c.getPackageName())
                 .isEqualTo(SCANNED_PACKAGE));
-        assertThatCode(() -> PortabilityCheck.of(entities, ModelQueryConfig.defaults().targetVendors("postgresql", "h2"))
+        assertThatCode(() -> PortabilityCheck
+                .of(entities, ModelQueryConfig.defaults().targetVendors("postgresql", "h2"))
                 .properties(Map.of(
                         "hibernate.physical_naming_strategy", CamelCaseToUnderscoresNamingStrategy.class.getName(),
                         "hibernate.implicit_naming_strategy", SpringImplicitNamingStrategy.class.getName()))

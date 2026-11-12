@@ -164,6 +164,15 @@ public interface ProviderSupport {
     }
 
     /**
+     * The database version of the dialect {@code emf} boots with, such as {@code "8.0"} or {@code "2.1.214"},
+     * in format {@code major.minor[.micro]}, or empty when the provider cannot tell (R-VND-20, R-INS-12, Part D).
+     */
+    @Incubating
+    default Optional<String> dialectVersion(EntityManagerFactory emf) {
+        return Optional.empty();
+    }
+
+    /**
      * The name of {@code emf} the provider knows it by, which {@code MQ4012} quotes to say which factory is not on a
      * target vendor. Empty, the default, when the factory has no non-blank name: the message then names it by class
      * and identity, as JPA 3.1 gives a factory no name (R-VND-19, D-133).

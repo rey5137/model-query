@@ -1,6 +1,7 @@
 package com.rey.modelquery.tck.portability;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rey.modelquery.core.ChunkOptions;
@@ -16,6 +17,7 @@ import com.rey.modelquery.core.ModelUpdate;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.PrimaryKeyFirst;
+import com.rey.modelquery.core.RowLock;
 import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ChunkTransactions;
@@ -30,13 +32,21 @@ import com.rey.modelquery.tck.vnd.ins.InsIdentityEntity;
 import com.rey.modelquery.tck.vnd.ins.InsSequenceEntity;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
+import java.lang.reflect.Proxy;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.stream.Stream;
+import javax.sql.DataSource;
+import org.hibernate.Version;
+import org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl;
 import org.junit.jupiter.api.Test;
+import org.springframework.orm.jpa.persistenceunit.MutablePersistenceUnitInfo;
 
 /**
  * AC-INS-12: the portability check runs calls and swept definitions on every target's offline factory with no
@@ -291,7 +301,12 @@ class PortabilityCheckTest {
         var config = ModelQueryConfig.defaults().targetVendors(DatabaseVendor.H2, DatabaseVendor.POSTGRESQL);
         List<String> lines = report(check(config).call("zero limit", CustomerEntity.class,
                 x -> x.list(Swept.ALL, Limit.of(0))));
+        String pgMin = Version.getVersionString().startsWith("7.") ? "14.0" : "12.0";
+        assertThat(lines.get(0)).isEqualTo("Not portable: 2 of 2 results failed");
         assertThat(lines.subList(1, lines.size())).containsExactly(
+                "H2 checked at the dialect minimum 2.1.214; name the deployed version with Target.of(H2, \"2.3.232\")",
+                "POSTGRESQL checked at the dialect minimum " + pgMin + "; name the deployed version with "
+                        + "Target.of(POSTGRESQL, \"16.4\")",
                 "zero limit on H2 (dialect minimum): NO_STATEMENT the call returned having reached no statement",
                 "zero limit on POSTGRESQL (dialect minimum): NO_STATEMENT the call returned having reached no "
                         + "statement");
@@ -327,6 +342,189 @@ class PortabilityCheckTest {
                         + "skip of Swept.NOT_A_DEFINITION: not a static final definition\n"
                         + "skip of Swept.ALL gives no reason\n"
                         + "skip of NoDefinitions.NAME: not a static final definition");
+    }
+
+    @Test
+    void ac_ins_15_of_persistence_unit_info_renders_as_class_list_and_lists_dropped_instance_values() {
+        var unitInfo = new MutablePersistenceUnitInfo();
+        unitInfo.setPersistenceUnitName("boot-unit");
+        for (String className : OfflineBootTest.TCK_UNIT) {
+            unitInfo.addManagedClassName(className);
+        }
+        unitInfo.addMappingFileName("META-INF/shop-orm.xml");
+        unitInfo.getProperties().put("hibernate.physical_naming_strategy", PrefixNamingStrategy.class.getName());
+
+        DataSource dummyDs = (DataSource) Proxy.newProxyInstance(getClass().getClassLoader(),
+                new Class<?>[] {DataSource.class}, (p, m, a) -> null);
+
+        var beanInstance = new Object();
+        Map<String, Object> props = new LinkedHashMap<>();
+        props.put("custom.instance.bean", beanInstance);
+        props.put("hibernate.connection.datasource", dummyDs);
+        props.put("jakarta.persistence.nonJtaDataSource", dummyDs);
+
+        PortabilityCheck unitCheck = PortabilityCheck.of(unitInfo, ModelQueryConfig.defaults())
+                .properties(props)
+                .targets(H2)
+                .call("read", CustomerEntity.class, x -> x.list(Swept.ALL, Limit.unlimited()))
+                .call("fail", CustomerEntity.class, x -> x.list(Swept.ALL, Limit.of(0)));
+
+        List<Class<?>> classes = OfflineBootTest.TCK_UNIT.stream().map(PortabilityCheckTest::load).toList();
+        Map<String, Object> classListProps = new LinkedHashMap<>();
+        unitInfo.getProperties().forEach((k, v) -> classListProps.put(String.valueOf(k), v));
+        classListProps.putAll(props);
+        PortabilityCheck classListCheck = PortabilityCheck.of(classes, ModelQueryConfig.defaults())
+                .mappingFiles("META-INF/shop-orm.xml")
+                .properties(classListProps)
+                .targets(H2)
+                .call("read", CustomerEntity.class, x -> x.list(Swept.ALL, Limit.unlimited()))
+                .call("fail", CustomerEntity.class, x -> x.list(Swept.ALL, Limit.of(0)));
+
+        List<String> unitLines = report(unitCheck);
+        List<String> classListLines = report(classListCheck);
+
+        // Both checks render identically
+        assertThat(unitLines).isEqualTo(classListLines);
+
+        // Reached SQL reflects naming strategy applied
+        assertThat(unitLines).anySatisfy(l -> assertThat(l)
+                .contains("REACHED select")
+                .contains("pfx_customers"));
+
+        // Dropped naming strategy bean instance is listed in head
+        assertThat(unitLines).contains("dropped property: custom.instance.bean");
+        // Data source keys are not listed
+        assertThat(unitLines).noneMatch(l -> l.contains("datasource") || l.contains("DataSource"));
+    }
+
+    @Test
+    void ac_ins_15_comparable_property_clears_earlier_dropped_key() {
+        PortabilityCheck check = check(ModelQueryConfig.defaults())
+                .properties(Map.of("hibernate.physical_naming_strategy", new Object()))
+                .properties(Map.of("hibernate.physical_naming_strategy",
+                        PhysicalNamingStrategyStandardImpl.class.getName()))
+                .targets(H2)
+                .call("read", CustomerEntity.class, x -> x.list(Swept.ALL, Limit.of(0)));
+        List<String> lines = report(check);
+        assertThat(lines).noneMatch(l -> l.contains("dropped property: hibernate.physical_naming_strategy"));
+    }
+
+    @Test
+    void ac_ins_16_unit_naming_multi_tenant_connection_provider_reaches_only_the_stub() {
+        var unitInfo = new MutablePersistenceUnitInfo();
+        for (String className : OfflineBootTest.TCK_UNIT) {
+            unitInfo.addManagedClassName(className);
+        }
+
+        Map<String, Object> props = Map.of(
+                "hibernate.multi_tenant_connection_provider", "org.example.NonExistentMultiTenantProvider",
+                "hibernate.connection.provider_class", "org.example.NonExistentConnectionProvider",
+                "hibernate.connection.url", "jdbc:invalid://localhost/nonexistent");
+
+        PortabilityCheck check = PortabilityCheck.of(unitInfo, ModelQueryConfig.defaults())
+                .properties(props)
+                .targets(H2)
+                .call("claim next", CustomerEntity.class,
+                        x -> x.first(Swept.ALL.withLock(RowLock.exclusive())));
+
+        assertThatCode(check::assertPortable).doesNotThrowAnyException();
+
+        PortabilityCheck namedCheck = PortabilityCheck.of("tck-multi-tenant-unit", ModelQueryConfig.defaults())
+                .targets(H2)
+                .call("claim next", CustomerEntity.class,
+                        x -> x.first(Swept.ALL.withLock(RowLock.exclusive())));
+
+        assertThatCode(namedCheck::assertPortable).doesNotThrowAnyException();
+    }
+
+    @Test
+    void ac_ins_15_unversioned_target_head_line_printed_once_and_omitted_for_versioned_targets() {
+        PortabilityCheck unversioned = check(ModelQueryConfig.defaults())
+                .targets(Target.of(DatabaseVendor.MYSQL))
+                .call("query", CustomerEntity.class, x -> x.list(Swept.ALL, Limit.of(0)));
+        List<String> unversionedLines = report(unversioned);
+        assertThat(unversionedLines).filteredOn(line -> line.contains("checked at the dialect minimum")).hasSize(1);
+        assertThat(unversionedLines).contains(
+                "MYSQL checked at the dialect minimum 8.0; name the deployed version with Target.of(MYSQL, \"8.4.3\")");
+
+        PortabilityCheck versioned = check(ModelQueryConfig.defaults())
+                .targets(MYSQL)
+                .call("query", CustomerEntity.class, x -> x.list(Swept.ALL, Limit.of(0)));
+        List<String> versionedLines = report(versioned);
+        assertThat(versionedLines).noneMatch(line -> line.contains("checked at the dialect minimum"));
+    }
+
+    @Test
+    void ac_ins_15_head_line_logged_at_info_on_passing_check() {
+        List<String> infos = new ArrayList<>();
+        java.util.logging.Logger logger = java.util.logging.Logger.getLogger(PortabilityCheck.class.getName());
+        java.util.logging.Level previousLevel = logger.getLevel();
+        java.util.logging.Handler handler = new java.util.logging.Handler() {
+            @Override
+            public void publish(java.util.logging.LogRecord r) {
+                if (r.getLevel() == java.util.logging.Level.INFO) {
+                    infos.add(new java.util.logging.SimpleFormatter().formatMessage(r));
+                }
+            }
+
+            @Override
+            public void flush() {}
+
+            @Override
+            public void close() {}
+        };
+        logger.setLevel(java.util.logging.Level.INFO);
+        logger.addHandler(handler);
+        try {
+            PortabilityCheck check = check(ModelQueryConfig.defaults())
+                    .targets(Target.of(DatabaseVendor.H2))
+                    .call("query", CustomerEntity.class, x -> x.list(Swept.ALL, Limit.unlimited()));
+            check.assertPortable();
+            assertThat(infos).anySatisfy(msg -> assertThat(msg)
+                    .contains("H2 checked at the dialect minimum 2.1.214; name the deployed version with "
+                            + "Target.of(H2, \"2.3.232\")"));
+        } finally {
+            logger.removeHandler(handler);
+            logger.setLevel(previousLevel);
+        }
+    }
+
+    public static class PrefixNamingStrategy implements org.hibernate.boot.model.naming.PhysicalNamingStrategy {
+        @Override
+        public org.hibernate.boot.model.naming.Identifier toPhysicalCatalogName(
+                org.hibernate.boot.model.naming.Identifier name,
+                org.hibernate.engine.jdbc.env.spi.JdbcEnvironment jdbcEnvironment) {
+            return name;
+        }
+
+        @Override
+        public org.hibernate.boot.model.naming.Identifier toPhysicalSchemaName(
+                org.hibernate.boot.model.naming.Identifier name,
+                org.hibernate.engine.jdbc.env.spi.JdbcEnvironment jdbcEnvironment) {
+            return name;
+        }
+
+        @Override
+        public org.hibernate.boot.model.naming.Identifier toPhysicalTableName(
+                org.hibernate.boot.model.naming.Identifier name,
+                org.hibernate.engine.jdbc.env.spi.JdbcEnvironment jdbcEnvironment) {
+            return name == null ? null
+                    : org.hibernate.boot.model.naming.Identifier.toIdentifier("pfx_" + name.getText());
+        }
+
+        @Override
+        public org.hibernate.boot.model.naming.Identifier toPhysicalSequenceName(
+                org.hibernate.boot.model.naming.Identifier name,
+                org.hibernate.engine.jdbc.env.spi.JdbcEnvironment jdbcEnvironment) {
+            return name;
+        }
+
+        @Override
+        public org.hibernate.boot.model.naming.Identifier toPhysicalColumnName(
+                org.hibernate.boot.model.naming.Identifier name,
+                org.hibernate.engine.jdbc.env.spi.JdbcEnvironment jdbcEnvironment) {
+            return name;
+        }
     }
 
     private static Class<?> load(String name) {

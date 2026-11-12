@@ -3,6 +3,7 @@ package com.rey.modelquery.portability.internal;
 import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.ModelQueryConfigurationException;
 import com.rey.modelquery.core.MqCode;
+import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import com.rey.modelquery.jpa.spi.ProviderSupport;
 import com.rey.modelquery.portability.Target;
 import jakarta.persistence.EntityManagerFactory;
@@ -15,8 +16,10 @@ import jakarta.persistence.spi.PersistenceUnitInfo;
 import jakarta.persistence.spi.PersistenceUnitTransactionType;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -24,6 +27,7 @@ import java.util.Optional;
 import java.util.Properties;
 import java.util.ServiceConfigurationError;
 import java.util.ServiceLoader;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
@@ -91,6 +95,39 @@ public final class OfflineFactory {
      */
     public static EntityManagerFactory boot(OfflineUnit unit, Target target) {
         return boot(unit, target, loadable(ServiceLoader.load(ProviderSupport.class, loader())));
+    }
+
+    /**
+     * The database version of the dialect {@code unit} on {@code target} booted with, or empty when not known.
+     */
+    public static Optional<String> dialectVersion(OfflineUnit unit, Target target) {
+        EntityManagerFactory emf = boot(unit, target);
+        for (ProviderSupport candidate : loadable(ServiceLoader.load(ProviderSupport.class, loader()))) {
+            if (candidate.supports(emf)) {
+                return candidate.dialectVersion(emf);
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * The connection keys that any discovered provider blanks in
+     * {@link ProviderSupport#offlineProperties(DatabaseVendor)}.
+     */
+    public static Set<String> blankedConnectionKeys() {
+        Set<String> blanked = new LinkedHashSet<>();
+        for (ProviderSupport support : loadable(ServiceLoader.load(ProviderSupport.class, loader()))) {
+            for (DatabaseVendor vendor : DatabaseVendor.values()) {
+                support.offlineProperties(vendor).ifPresent(props -> {
+                    props.forEach((key, value) -> {
+                        if (value == null || "".equals(value)) {
+                            blanked.add(key);
+                        }
+                    });
+                });
+            }
+        }
+        return Collections.unmodifiableSet(blanked);
     }
 
     /**

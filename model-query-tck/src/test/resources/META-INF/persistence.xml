@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<persistence xmlns="https://jakarta.ee/xml/ns/persistence"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xsi:schemaLocation="https://jakarta.ee/xml/ns/persistence
+                                 https://jakarta.ee/xml/ns/persistence/persistence_3_0.xsd"
+             version="3.0">
+    <persistence-unit name="tck-multi-tenant-unit" transaction-type="RESOURCE_LOCAL">
+        <description>Persistence unit for AC-INS-16 testing blanking of connection keys</description>
+        <class>com.rey.modelquery.tck.col.CustomerEntity</class>
+        <class>com.rey.modelquery.tck.col.OrderEntity</class>
+        <class>com.rey.modelquery.tck.col.OrderItemEntity</class>
+        <class>com.rey.modelquery.tck.col.LabelEntity</class>
+        <properties>
+            <property name="hibernate.multi_tenant_connection_provider" value="org.example.NonExistentMultiTenantProvider"/>
+            <property name="hibernate.connection.provider_class" value="org.example.NonExistentConnectionProvider"/>
+            <property name="hibernate.connection.url" value="jdbc:invalid://localhost/nonexistent"/>
+        </properties>
+    </persistence-unit>
+</persistence>

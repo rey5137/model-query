@@ -42,7 +42,17 @@ public final class OfflineUnit {
      */
     public static OfflineUnit ofClasses(Collection<Class<?>> classes, List<String> mappingFiles,
             Map<String, ?> properties) {
-        List<String> names = Objects.requireNonNull(classes, "classes").stream().map(Class::getName).sorted()
+        List<String> names = Objects.requireNonNull(classes, "classes").stream().map(Class::getName).toList();
+        return ofClassNames(names, mappingFiles, properties);
+    }
+
+    /**
+     * A unit of {@code classNames}, in any order, with {@code mappingFiles} and {@code properties} beneath the
+     * overrides.
+     */
+    public static OfflineUnit ofClassNames(Collection<String> classNames, List<String> mappingFiles,
+            Map<String, ?> properties) {
+        List<String> names = Objects.requireNonNull(classNames, "classNames").stream().sorted()
                 .distinct().toList();
         List<String> files = List.copyOf(Objects.requireNonNull(mappingFiles, "mappingFiles"));
         return new OfflineUnit(null, names, files, Objects.requireNonNull(properties, "properties"));

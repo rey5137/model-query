@@ -183,10 +183,10 @@ any other vendor, or a version not starting with a major number, is `MQ4013`.
   No per-call state lives on the factory or the `DataSource`. Factories close in a JVM shutdown hook.
 
 **R-INS-11** *(D-133, D-138, D-222, `@Incubating`)* **A portability check call.** `PortabilityCheck.of(unit, config)` or
-`PortabilityCheck.of(List<Class<?>>, config)`, with `properties(Map<String, ?>)` and, for a class list only,
-`mappingFiles(String...)` (R-INS-10), runs calls on every target: `targets(Target...)`, by default each of
-`config.targetVendors()` at the line's minimum dialect version. A target outside a declared `targetVendors()` is
-`MQ4012` when `targets` is called, since production would refuse that factory. `call(Class<E>,
+`PortabilityCheck.of(List<Class<?>>, config)`, with `properties(Map<String, ?>)` and, for a class list or a
+`PersistenceUnitInfo`, `mappingFiles(String...)` (R-INS-10), runs calls on every target: `targets(Target...)`,
+by default each of `config.targetVendors()` at the line's minimum dialect version. A target outside a declared
+`targetVendors()` is `MQ4012` when `targets` is called, since production would refuse that factory. `call(Class<E>,
 Function<ModelQueryExecutor<E>, ?>)` and `call(String label, Class<E>, Function<...>)` take the real executor
 signature; `callOutsideTransaction(...)`, in the same two forms, runs the call with no transaction, as the application
 runs a `commitEachChunk()` write or a call R-QRY-17 checks. Calls collect, and `assertPortable()` runs each on each
@@ -260,9 +260,13 @@ package scan (P-7). `skip(holder, "FIELD", reason)` leaves one definition out; t
   `[content]` (or `[keys]`) after the label; an `INLINE_COUNT` keeping its window adds `[content+count]`, and one
   falling back before any statement adds `[count]` and `[content]` (or `[keys]`). `ONLY_COUNT` has no such label.
   An unlabelled call is
-  `call N (Entity)`. After the results, one line per skipped definition, in sweep order: `Holder.FIELD skipped:
-  reason`; a skip is not a result and is not counted. A failing check's `AssertionError` starts with
-  `Not portable: F of N results failed`; a passing report is logged at `INFO`.
+  `call N (Entity)`. Before the results, the report's head prints each target given without a version (when the dialect
+  version is known, `TARGET checked at the dialect minimum VERSION; name the deployed version with Target.of(TARGET,
+  "VERSION")`; when unknown, `TARGET checked at the provider's dialect minimum; name the deployed version with
+  Target.of(TARGET, "VERSION")`), then each dropped property key outside connection keys (`dropped property: KEY`), on
+  both failing and passing reports (logged at `INFO`). After the results, one line per skipped definition, in sweep
+  order: `Holder.FIELD skipped: reason`; a skip is not a result and is not counted. A failing check's `AssertionError`
+  starts with `Not portable: F of N results failed`; a passing report is logged at `INFO`.
 - **Loud failures.** Before any call runs, `assertPortable()` throws an `AssertionError` listing every setup problem:
   no target, no call, a swept holder with no definition, a `skip` of an unknown field, of a field that is not a
   `static final` definition, with a blank reason or of a holder no sweep reads, mapping files for a named unit, and a
@@ -337,6 +341,15 @@ executor, the COUNT page proxy included, labelled with its `label()`.
   A recorder's counts are reported once, from its latest replayed snapshot, however many of its snapshots a check
   replays.
 
+**R-INS-16** *(D-223, `@Incubating`)* **A check from the booted unit.** `PortabilityCheck.of(PersistenceUnitInfo unit,
+ModelQueryConfig config)` boots a container-managed unit taking the managed class names (converters and embeddables
+included) and the mapping files the unit declares, under `config`. Application properties are passed through
+`properties(Map<String, ?>)` (such as from `emf.getProperties()`). It renders identical SQL to
+`of(List<Class<?>>, config)` with the same mapping files and properties. Values the factory cache cannot compare
+(an instance, such as a naming-strategy bean) are dropped from the unit's properties; the report's head lists each
+dropped key outside the connection keys `offlineProperties` returns as blanked (`vendor/40` R-VND-20), sorted
+alphabetically, so a check that boots with a different naming strategy says so without repeating data source keys.
+
 ## 3. Acceptance criteria
 
 | ID | Criterion |
@@ -355,3 +368,5 @@ executor, the COUNT page proxy included, labelled with its `label()`.
 | AC-INS-12 | On both Hibernate lines with no container: a sweep runs each `static final` definition of a holder once per target and reports one line each, marking a primary-key-first query, a child-loading query, a drawn-id persist and, on MySQL, an update and a delete "first statement only", and an identity persist and a plain list not; `skip` leaves a definition out and the report prints it once, `Holder.FIELD skipped: reason`; a call may give several report lines per target, with each outcome: `REACHED` with the SQL, `REFUSED` with the code, `REFUSED_AFTER_STATEMENT` when the lambda swallows the stop then refuses, `NO_STATEMENT` and `HARNESS_ERROR`; a lazy `Stream` and `Iterator` are drawn by one element and the stream closed; a `commitEachChunk()` call outside a transaction runs on the harness's `ChunkTransactions` where the application's fails `checkServes`, and is `MQ4004` with none; an explicit `vendor(...)` is left out; the targets default to `targetVendors()` and one outside them is `MQ4012`; no target, no call, a holder with no definition and a bad `skip` fail loudly before any call runs; the harness keeps every configuration setting but the vendor and `ChunkTransactions` (R-INS-11, R-INS-12, D-138). |
 | AC-INS-13 | On both Hibernate lines with no container, on H2, PostgreSQL and MySQL: a `COUNT` page reports `[count]` and `[content]`, the content SQL matching the TCK's committed snapshot of COUNT's content statement for that vendor and line; `[keys]` under `primaryKeyFirst`; `INLINE_COUNT` keeping its window reports one `[content+count]` line and a fallback before any statement reports two lines; `ONLY_COUNT` reports one unlabelled line; a swallowed earlier stop gets no second pass (R-INS-11, R-INS-12, D-222). |
 | AC-INS-14 | On both Hibernate lines with no container, calls recorded on H2 through a wrapped executor (`CallRecorder.wrap`) and replayed on H2, PostgreSQL and MySQL: `one(q)` and `one(q, key)` are two records told apart by `Method`; a function argument is recorded as a marker and replay passes the harness's own, never rerunning the application's closure; equal calls are one record with its `times`, and identical result lines collapse into one labelled `xN`; the bound's and a failed recording's lines fail the check while the application's call still runs; the transaction state recorded with an `EntityManager` is replayed (an update recorded outside a transaction is `MQ2501`), and without one a `commitEachChunk()` write replays outside a transaction and a plain one in one; a root outside the unit fails before any call runs unless left out, and a left-out root the unit manages, a blank reason and an empty replay fail too, each setup problem listed with the recording's count lines; two snapshots of one recorder count its recording once, at the latest; a `StackOverflowError` while recording is counted, an `OutOfMemoryError` propagates (R-INS-14, R-INS-15, D-223). Through a Spring repository, a recording `ModelQueryExecutorDecorator` bean (`integration/50` R-SPR-18, AC-SPR-22) records each repository call as its executor's call, `findPage(q, Pageable)` as `page(q, PageSpec, CountMode)` after the `Pageable`'s page and sort are applied, with the application's caller as the call site (no Spring or proxy frame, nor an application decorator's ordered outside the recording one, by delegation or as a JDK proxy) and the repository's transaction as the transaction state, and the records replay on each target as a wrapped executor's do. |
+| AC-INS-15 | On both Hibernate lines with no container: a Boot-configured unit (`PersistenceUnitInfo`) renders the same SQL as `of(classList)` with the same properties; an unversioned target prints a head line with the provider line's dialect minimum and an example deployed version; a dropped instance property outside connection keys is listed in the head; data-source keys are not listed (R-INS-12, R-INS-16, D-223). |
+| AC-INS-16 | On both Hibernate lines with no container: a unit naming a multi-tenant connection provider (`hibernate.multi_tenant_connection_provider` and `hibernate.connection.provider_class`), whether configured on `PersistenceUnitInfo` or in `persistence.xml`, reaches only the stub DataSource, recording calls on the stub and bypassing the configured connection providers (R-INS-16, `vendor/40` R-VND-20, D-223). |
