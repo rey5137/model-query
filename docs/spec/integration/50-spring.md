@@ -85,6 +85,43 @@ matching transaction manager, or more than one, throws `MQ4004`. A user-defined 
 implicitly; it injects the `ChunkTransactions` bean and passes it to `chunkTransactions(...)`.
 This is the plain-JPA callback with a Spring default, not a Spring-only feature (R-SPR-01).
 
+**R-SPR-18** *(D-223)* `model-query-spring-data` has an executor decorator SPI, both interfaces `@Incubating`:
+
+```java
+public interface ModelQueryExecutorDecorator {
+    <E> ModelQueryExecutor<E> decorate(ModelQueryExecutor<E> executor, ExecutorContext<E> context);
+}
+
+public interface ExecutorContext<E> {
+    Class<E> rootEntity();
+    EntityManager entityManager();               // the shared, transaction-bound EntityManager
+    EntityManagerFactory entityManagerFactory();
+    ModelQueryConfig config();                   // after the ModelQueryConfigurer
+}
+```
+
+The fragment, built by `ModelQueryRepositoryFactoryBean` or the starter's `ModelQueryRepositoryFragmentFactoryBean`
+(R-SPR-02), wraps its executor in every `ModelQueryExecutorDecorator` bean of the context on the repository's first
+call, once, through `ObjectProvider.orderedStream()`: in `@Order`/`Ordered` order, the first decorator wraps the
+executor itself (innermost) and the last is the one the repository calls. With no decorator bean the repository calls
+the executor as `ModelQueryExecutor.create` built it. Creating the fragment looks up no decorator bean, so a decorator
+bean that needs a repository makes no creation cycle (D-133); an eager repository still creates its executor, and so
+resolves its vendor, when it is created, and a `LAZY` or `DEFERRED` bootstrap creates neither the executor nor the
+decorators before the first call (D-139). The context names the repository's domain type, the `EntityManager` the
+executor runs on, its factory, and the config after the `ModelQueryConfigurer` (R-SPR-13). A decorator that returns
+`null` fails that first call with a `NullPointerException` naming its class and the root. A failed decoration (a
+decorator returning `null` or throwing, or a decorator bean failing to be created) is kept: every later call of that
+repository rethrows the same throwable and runs no decorator again, and concurrent first calls decorate once (a
+`VirtualMachineError` is not kept, nor is the executor's own creation failing (D-139)). A decorator delegates every call
+and rethrows the delegate's throwable unchanged, so Spring's exception translation and the application see what they see
+without it; the fragment adds no wrapping or translation of its own. Only repository executors are decorated: an
+executor the application creates with `ModelQueryExecutor.create` is the application's to wrap. The method is generic,
+so a lambda cannot implement it (JLS 15.27.3) and the interface is not `@FunctionalInterface`; the signature keeps a
+decorator from returning an executor of another root. Uses beyond recording (`api/16` R-INS-14) are metrics and tracing;
+a recorder takes the application's caller as the call site whatever the decorators' order. A decorator sees the
+executor's calls after `SpringPaging` has translated the `Pageable` (R-SPR-04), so no package-private Spring type
+becomes public. There is no starter property, and the starter does not depend on `model-query-portability` (INV-7).
+
 ## 2. `Pageable` and `Sort`
 
 **R-SPR-04** A `Pageable` converts to a `PageSpec` and its `Sort` to a `SortSpec`, applied with
@@ -224,3 +261,4 @@ configurer that sets either keeps the shared entries only by passing them along.
 | AC-SPR-19 | Through a Spring Data repository, `findAllByKeys` returns the same map as the executor's `byKeys` (key order, missing keys absent), and an `MQ2003`/`MQ2005` failure surfaces as the `ModelQueryException` unchanged (R-SPR-15, D-126). Over a query with key groups, `findAllByKeys` and `findByKey` return what the ungrouped query does, one statement per group; every other repository read of it is `MQ2215` with no statement (the reads' `MQ2215` is AC-EXE-26, tested through the repository), and `findPage` and `findKeysetPage` with an unresolvable sort property are `MQ2301` first (D-207, D-210). |
 | AC-SPR-20 | In a read-write transaction, each locked repository read (`findAll(q, Limit)`, `findOne`, `findFirst`, `findByKey`, `findAllByKeys`) renders the same SQL as the executor (lock clause included) and returns its rows; `findPage` and `findKeysetPage` on a locked query throw `MQ2211` before any statement; a locked `findOne` with no transaction throws `MQ2102`; a locked `findAllByKeys` and `findByKey` over a query with key groups return the ungrouped rows (R-SPR-16, D-210). |
 | AC-SPR-21 | With `modelquery.target-vendors=postgresql`, two eager factories on H2 fail startup with one `MQ4012` naming both beans before any repository is checked; a `ModelQueryConfigurer` declaring the list fails at the repository's `ModelQueryExecutor.create` with `MQ4012`, and is not called by the startup check; with no repository over a factory, a configurer's list does not fail startup; a list holding H2 starts and the repositories work; a lazy factory is skipped and `ModelQueryExecutor.create` over it is `MQ4012`; an unknown name is `MQ4001` and an empty value `MQ4003`; an application `ModelQueryConfig` bean with the property set is `MQ4006`; with an application `ChunkTransactions` bean on the factory's `PlatformTransactionManager`, a list holding H2 starts and a failing list fails startup with `MQ4012`; a second factory created early by a bean and failing is named in the same `MQ4012`; with `spring.data.jpa.repositories.bootstrap-mode=deferred` the wrong-vendor factory is checked after the singletons are instantiated, startup does not wait for its background build before then, and the failure is `MQ4012`; an application `ModelQueryConfig` bean with a wrong-vendor factory is `MQ4006`, not `MQ4012`; these contexts hold no repository, which would check the factory on its own creation (R-SPR-17). |
+| AC-SPR-22 | Two `ModelQueryExecutorDecorator` beans declared against their `@Order` wrap the executor of each of two repositories of different roots on its first call, the first in order innermost over the executor `ModelQueryExecutor.create` builds, and each repository call passes the last first; each decorator is given the repository's root, the shared `EntityManager` bound to the repository's transaction, its factory and the config the `ModelQueryConfigurer` returned; a fragment the starter adds to a plain `JpaRepositoryFactoryBean` subclass is decorated alike. A decorator that rethrows leaves the application the exception, as Spring translated it, that it gets with no decorator. An eager repository creates no `@Lazy` decorator bean at startup and decorates on its first call, once per repository, and off the target vendors still fails startup with `MQ4012`; a decorator bean that needs a repository makes no creation cycle; under a `LAZY` or `DEFERRED` bootstrap neither the executor nor a decorator is created before the first call, and off the target vendors that call is `MQ4012`; a decorator returning `null` fails the first call with a `NullPointerException` naming its class and the root; with a decorator returning `null`, one throwing, or a decorator bean failing to be created, eight concurrent first calls and a later one all fail with the same throwable and each decorator, and the failing bean's creation, runs once (R-SPR-18, D-223). |

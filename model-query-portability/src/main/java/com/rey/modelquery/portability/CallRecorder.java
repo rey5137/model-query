@@ -4,6 +4,7 @@ import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.portability.internal.ExecutorHandler;
 import jakarta.persistence.EntityManager;
+import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.util.AbstractList;
 import java.util.ArrayList;
@@ -35,8 +36,9 @@ import java.util.Set;
 public final class CallRecorder {
 
     private static final int DEFAULT_MAX_CALLS = 10_000;
-    private static final StackWalker WALKER = StackWalker.getInstance();
-    // The library, Spring's proxies and the JDK's reflection and proxy frames: the call site is the first frame past.
+    private static final StackWalker WALKER = StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE);
+    // The library, Spring's proxies and the JDK's reflection and proxy frames: the call site is the first frame past
+    // these and past every executor and invocation handler, so an application's own decorator is never the site.
     private static final List<String> NOT_CALL_SITES = List.of("com.rey.modelquery.", "org.springframework.",
             "java.lang.reflect.", "java.lang.invoke.", "jdk.internal.reflect.", "jdk.proxy", "com.sun.proxy.");
 
@@ -160,15 +162,24 @@ public final class CallRecorder {
         return argument;
     }
 
-    /** The first frame outside the library, Spring and the JDK's reflection, as {@code Class.method:line}. */
+    /**
+     * The first frame outside the library, Spring and the JDK's reflection, and not of a {@code ModelQueryExecutor}
+     * or an {@code InvocationHandler} (a decorator wrapping the recording executor), as {@code Class.method:line}.
+     */
     private static String callSite() {
-        StackWalker.StackFrame frame = WALKER.walk(frames -> frames
-                        .filter(f -> NOT_CALL_SITES.stream().noneMatch(f.getClassName()::startsWith)).findFirst())
+        StackWalker.StackFrame frame = WALKER.walk(frames -> frames.filter(CallRecorder::isCallSite).findFirst())
                 .orElseThrow(() -> new IllegalStateException("no call site: every stack frame is the library's, "
-                        + "Spring's or the JDK's reflection"));
+                        + "Spring's, the JDK's reflection or an executor's"));
         String className = frame.getClassName();
         String site = className.substring(className.lastIndexOf('.') + 1) + "." + frame.getMethodName();
         return frame.getLineNumber() >= 0 ? site + ":" + frame.getLineNumber() : site;
+    }
+
+    private static boolean isCallSite(StackWalker.StackFrame frame) {
+        Class<?> declaring = frame.getDeclaringClass();
+        return NOT_CALL_SITES.stream().noneMatch(frame.getClassName()::startsWith)
+                && !ModelQueryExecutor.class.isAssignableFrom(declaring)
+                && !InvocationHandler.class.isAssignableFrom(declaring);
     }
 
     /** What makes two calls one record: equal arguments by {@code equals}, functions by parameter (R-INS-14). */
