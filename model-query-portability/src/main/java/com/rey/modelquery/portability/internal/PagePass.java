@@ -3,15 +3,11 @@ package com.rey.modelquery.portability.internal;
 import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.PageSpec;
-import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.jpa.vendor.InlineCountFallback;
-import java.lang.reflect.InvocationHandler;
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.lang.reflect.Proxy;
 
 /** Per-pass page observation and the second pass's single NO_COUNT rewrite (D-222). */
-final class PagePass implements InvocationHandler {
+final class PagePass extends ExecutorHandler {
 
     private final Object delegate;
     private final JdbcRecording recording;
@@ -27,12 +23,6 @@ final class PagePass implements InvocationHandler {
         this.rewrite = rewrite;
     }
 
-    @SuppressWarnings("unchecked")
-    <E> ModelQueryExecutor<E> executor() {
-        return (ModelQueryExecutor<E>) Proxy.newProxyInstance(ModelQueryExecutor.class.getClassLoader(),
-                new Class<?>[] {ModelQueryExecutor.class}, this);
-    }
-
     int countedPage() {
         return statement == CallResult.Statement.COUNT ? firstPage : 0;
     }
@@ -46,21 +36,9 @@ final class PagePass implements InvocationHandler {
     }
 
     @Override
-    public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
-        if (method.getDeclaringClass() == Object.class) {
-            return switch (method.getName()) {
-                case "equals" -> proxy == args[0];
-                case "hashCode" -> System.identityHashCode(proxy);
-                case "toString" -> proxy.getClass().getName() + "@"
-                        + Integer.toHexString(System.identityHashCode(proxy));
-                default -> throw new IllegalStateException("Unexpected Object method: " + method.getName());
-            };
-        }
-        if (method.isDefault()) {
-            return InvocationHandler.invokeDefault(proxy, method, args);
-        }
+    protected Object handle(Method method, Object[] args) throws Throwable {
         if (!method.getName().equals("page") || args.length != 3 || !(args[2] instanceof CountMode mode)) {
-            return delegate(method, args);
+            return delegate(delegate, method, args);
         }
         int page = ++pages;
         boolean eligible = recording.statements().isEmpty() && firstPage == 0
@@ -77,7 +55,7 @@ final class PagePass implements InvocationHandler {
                 Throwable[] failure = {null};
                 InlineCountFallback.observe(value -> fallback[0] = value, () -> {
                     try {
-                        result[0] = delegate(method, actual);
+                        result[0] = delegate(delegate, method, actual);
                     } catch (Throwable thrown) {
                         failure[0] = thrown;
                     }
@@ -87,7 +65,7 @@ final class PagePass implements InvocationHandler {
                 }
                 return result[0];
             }
-            return delegate(method, actual);
+            return delegate(delegate, method, actual);
         } finally {
             if (eligible && !recording.statements().isEmpty()) {
                 firstPage = page;
@@ -102,14 +80,6 @@ final class PagePass implements InvocationHandler {
                     statement = CallResult.Statement.CONTENT_AND_COUNT;
                 }
             }
-        }
-    }
-
-    private Object delegate(Method method, Object[] args) throws Throwable {
-        try {
-            return method.invoke(delegate, args);
-        } catch (InvocationTargetException wrapped) {
-            throw wrapped.getCause();
         }
     }
 }

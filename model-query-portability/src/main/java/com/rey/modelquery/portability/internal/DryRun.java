@@ -48,6 +48,18 @@ public final class DryRun {
      */
     public static List<CallResult> run(OfflineUnit unit, List<Target> targets, ModelQueryConfig config,
             List<DryCall> calls) {
+        return runEach(unit, targets, config, calls).stream().flatMap(List::stream).toList();
+    }
+
+    /**
+     * As {@link #run(OfflineUnit, List, ModelQueryConfig, List)}, one list per call in {@code calls}' order, each
+     * call's results target by target.
+     *
+     * @throws com.rey.modelquery.core.ModelQueryConfigurationException {@code MQ4013} when a target's factory cannot
+     *     boot offline
+     */
+    public static List<List<CallResult>> runEach(OfflineUnit unit, List<Target> targets, ModelQueryConfig config,
+            List<DryCall> calls) {
         Objects.requireNonNull(unit, "unit");
         ModelQueryConfig harness = harnessConfig(config);
         // Every target boots before any call runs, so a unit that cannot boot fails before a line is reported.
@@ -55,9 +67,11 @@ public final class DryRun {
         for (Target target : targets) {
             factories.put(target, OfflineFactory.boot(unit, target));
         }
-        List<CallResult> results = new ArrayList<>();
+        List<List<CallResult>> results = new ArrayList<>();
         for (DryCall call : calls) {
-            factories.forEach((target, emf) -> results.addAll(run(emf, target, harness, call)));
+            List<CallResult> each = new ArrayList<>();
+            factories.forEach((target, emf) -> each.addAll(run(emf, target, harness, call)));
+            results.add(each);
         }
         return results;
     }

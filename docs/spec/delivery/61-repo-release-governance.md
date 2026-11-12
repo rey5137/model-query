@@ -153,6 +153,10 @@ factory in `MQ4012`; `ModelQueryConfig#targetVendors`, its three setters and its
 minor release. Its `portability.internal` package, the dry run's outcomes and call results among it, is not API
 (R-REL-10).
 
+The recorded-call members (D-223, M37, 0.14.0) are `@Incubating` through 1.0: `model-query-portability`'s
+`CallRecorder` and `RecordedCall` (`api/16` R-INS-14), and `PortabilityCheck#replay` and `#leaveOut` (R-INS-15).
+`RecordedCall` is a final class with no public constructor, so components can be added before 1.0.
+
 The model-binding annotations (D-134, D-140, D-141, D-142, 0.9.0) are `@Incubating` through 1.0: `@BindQueryModel`,
 `@BindUpdateModel`, `@BindInsertModel` and `@BindExpression`, their containers `@BindQueryModels`,
 `@BindUpdateModels` and `@BindInsertModels`, and the default of `@Computed.value`. Their members and
