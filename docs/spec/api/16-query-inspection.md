@@ -224,13 +224,13 @@ and a call in a transaction is flushed, all as part of the call; the transaction
   that statement's rendering only; a COUNT page certifies both passes, with later statements still outside the check
   (R-INS-12's limits list).
 
-**R-INS-12** *(D-133, D-138, D-222, `@Incubating`)* **The sweep, the skip and the report.** `sweep(Class<?>... holders)` reads
-each holder's `static final` fields that hold a definition, in field-name order, and runs one default operation per
-definition, labelled `Holder.FIELD operation`: `list(query, Limit.unlimited())` for a `ModelQuery`, `update` or
-`delete` for a `ModelUpdate` or `ModelDelete`, `insert` for a `ModelInsert` or `ValuesInsert`, and `persist` for a
-`ModelPersist`, since every library refusal of a persist precedes `em.persist`. Paging, export, stream, returning
-writes and argument-dependent calls need `call`. Holders are explicit; there is no package scan (P-7).
-`skip(holder, "FIELD", reason)` leaves one definition out; the reason is required.
+**R-INS-12** *(D-133, D-138, D-222, D-223, `@Incubating`)* **The sweep, the skip and the report.**
+`sweep(Class<?>... holders)` reads each holder's `static final` fields that hold a definition, in field-name order,
+and runs one default operation per definition, labelled `Holder.FIELD operation`: `list(query, Limit.unlimited())`
+for a `ModelQuery`, `update` or `delete` for a `ModelUpdate` or `ModelDelete`, `insert` for a `ModelInsert` or
+`ValuesInsert`, and `persist` for a `ModelPersist`, since every library refusal of a persist precedes `em.persist`.
+Paging, export, stream, returning writes and argument-dependent calls need `call`. Holders are explicit; there is no
+package scan (P-7). `skip(holder, "FIELD", reason)` leaves one definition out; the reason is required.
 
 - **Limits list: first statement only.** The check sees the first statement of each pass and the refusals before it.
   What follows a first statement is not checked: a fetch plan's child statements, each key-group round and
@@ -243,6 +243,10 @@ writes and argument-dependent calls need `call`. Holders are explicit; there is 
   data (`MQ2201`, `MQ2202`, `MQ2003`, `MQ2005`, `MQ2205`, `MQ2210`, `MQ2601`, `MQ2603`, `MQ2604`, `MQ2607`, a key
   group's `MQ1502`, `MQ2002`, `MQ2503`)
   or on the provider translating a later statement.
+- **Limits list: replay fidelity** (R-INS-15). Replay reruns the call, not the request, so it does not reproduce: a
+  `QueryCustomizer` or config-level customizer reading thread-local state (a tenant, a security context) at build
+  time; Hibernate session filters or a tenant id on the production `EntityManager`; a per-factory config from a
+  `ModelQueryConfigurer` that differs from the check's; row models mutated after the call.
 - **Marks.** The sweep marks a `REACHED` definition "first statement only" from its public facts, per target, erring
   towards marking: a query with a `primaryKeyFirst(...)` or a fetch plan loading a child at any depth; an update or
   delete with chunk options, `throughEntities()`, or on a profile without `targetTableInSubquery()` (key-first,
@@ -273,6 +277,64 @@ and an operator built at each call site makes them unequal. `toString` prints th
 `?` (R-INS-05). `FilterMatchers.op(operator, column, value)` and `op(operator, left, right)` match it, by the same
 identity; a different operator of the same name doesn't match.
 
+**R-INS-14** *(D-223, `@Incubating`)* **Recording calls.** `CallRecorder.create()` keeps at most 10,000 distinct
+calls and `create(maxCalls)` at most `maxCalls` (0 keeps none; a negative bound is an `AssertionError`).
+`wrap(root, executor)` and `wrap(root, executor, em)` return a `ModelQueryExecutor` proxy that records each invocation,
+then delegates, rethrowing what the executor throws unchanged; like R-INS-11's page proxy, it answers `Object` methods
+by its identity, without recording, and runs a default method through `invokeDefault`. `calls()` returns a snapshot
+in first-seen order; `clear()` forgets the calls and both counts. Each call is a `RecordedCall`, a final class with no
+public constructor: `root()`, `method()` (the `ModelQueryExecutor` `Method`, which tells overloads apart),
+`arguments()` (unmodifiable, nulls kept), `callSite()`, `times()`, `inTransaction()` and `label()` (`callSite method`,
+then ` xN` when `times() > 1`). The recorder is shared and thread-safe, not thread-local, so calls on server threads
+are recorded too.
+
+- **Arguments.** A `Collection` or `Map` is copied (a `Set` to a `LinkedHashSet`, any other collection to an
+  `ArrayList`, a map to a `LinkedHashMap`), unmodifiable, nulls kept, so the application changing it later does not
+  change the record. Definitions are kept as they are (INV-9), so a row model mutated after the call is recorded as
+  mutated. A non-null argument of a functional-interface parameter (`stream`'s body, `export`'s `pageTransformer` and
+  sink) is recorded as a marker of its parameter, printed `<Function argument 2>`, never as the object.
+- **Call site:** the first stack frame, read with `StackWalker`, outside `com.rey.modelquery`, `org.springframework`
+  and the JDK's reflection and proxy frames, as the class name without its package, the method and the line:
+  `OrderService.search:142`.
+- **Transaction state.** The three-argument `wrap` records `em.isJoinedToTransaction()` per invocation; with the
+  two-argument one, `inTransaction()` is empty.
+- **Deduplication.** Calls with the same root, method, call site, transaction state and arguments equal by `equals`
+  (a function marker by its parameter) are one record, its `times` incremented. The transaction state is part of the
+  key because one call can be refused outside a transaction and served in one. `ModelQuery` and `KeysetSpec` have no
+  value equality, so a query built per request is a record per call: no structural key is invented, since one too
+  coarse would silently skip a distinct SQL shape.
+- **Loud failures.** Past `maxCalls` distinct calls, a new call is counted, not kept; a kept one still counts its
+  `times`. A recording that fails (an argument it cannot copy, a call site it cannot read, a `StackOverflowError` from
+  an argument's recursive `hashCode` or `equals`) is counted and never fails the application's call, which still
+  delegates; any other `VirtualMachineError` propagates. The snapshot carries both counts to the check that replays it, where
+  each non-zero count is a failing report line (R-INS-15), so a truncated or partial recording never passes.
+
+**R-INS-15** *(D-223, `@Incubating`)* **Replay.** `PortabilityCheck.replay(Collection<RecordedCall>)` adds each
+recorded call as a call (R-INS-11) that invokes the recorded method with the recorded arguments on the harness's
+executor, the COUNT page proxy included, labelled with its `label()`.
+
+- **Function markers** are replaced by the harness's own functions: a `Function` that draws one element of a stream
+  and returns `null`, and returns any other value unchanged (the identity transformer), and a `Consumer` that does
+  nothing. The stub stops at the first statement, so none changes what is rendered; replaying the application's
+  closures would rerun their side effects. A marker of any other functional type is `HARNESS_ERROR`.
+- **Transaction.** A call recorded with its transaction state replays in or outside a stub transaction to match
+  (`callOutsideTransaction`). One recorded without it replays outside a transaction when an argument is a
+  `ModelUpdate`, `ModelDelete` or `ModelInsert` with `commitEachChunk()`, and in one otherwise.
+- **Roots.** `leaveOut(Class<?> root, String reason)` leaves the recorded calls on `root` out; the reason is required.
+  Before any call runs, `assertPortable()` reads the unit's entities from the first target's booted factory and
+  throws an `AssertionError` listing each setup problem (R-INS-12): a replayed root the unit does not manage, unless
+  left out; a left-out root the unit manages, whose calls would otherwise go unchecked; a `leaveOut` with a blank
+  reason; and a `replay` of no call, followed by the recording's count lines, so an empty replay whose recording
+  dropped or failed every call says so. An application with two units writes two checks, each leaving out the other
+  unit's roots; a root both manage is checked in both. A `leaveOut` of a root no call recorded is allowed.
+- **Report.** Identical replayed result lines (call site, method, target, outcome, page statement label and detail)
+  are one line, in the first one's place, labelled with their summed `times` as `xN`. After the results come the
+  recording's lines, `recording: N calls past the bound of M not kept; ...` and `recording: N calls failed to record,
+  the first with <throwable>`, each counted as a failed result in `Not portable: F of N results failed`; then the
+  skipped definitions (R-INS-12); then one line per left-out root, `Root left out: reason`, which is not a result.
+  A recorder's counts are reported once, from its latest replayed snapshot, however many of its snapshots a check
+  replays.
+
 ## 3. Acceptance criteria
 
 | ID | Criterion |
@@ -290,3 +352,4 @@ identity; a different operator of the same name doesn't match.
 | AC-INS-11 | On both Hibernate lines with no container, the dry run on H2, PostgreSQL and MySQL reproduces every vendor-dependent refusal of M18 to M22 before any statement: a lock the provider would drop is `MQ4010` per line (H2's shared waits on both lines, its exclusive ones on 6.6 only) and a root on two tables is `MQ4010` everywhere (AC-VND-13); a returning update, delete, insert and upsert is `MQ4011` on MySQL (AC-VND-14, AC-WRT-42, AC-WRT-43); an arbiter or a named constraint is `MQ1804` on H2 and MySQL (AC-WRT-45); `nextval` is `MQ1509` in a select and at every write site on MySQL and in a filter, a having, an order, a group key or a distinct query everywhere (AC-COL-33, AC-WRT-46); a write filtering on a non-key reference is `MQ1004` everywhere and a returning write reading it `MQ1809`, or `MQ4011` on MySQL (AC-COL-34). Conversely, on each target that serves a call (the returning writes on H2 and PostgreSQL, a conflict `setExpression` everywhere (AC-WRT-44), the arbiter and named constraint on PostgreSQL, `nextval` selected, and written by a chunked update, a values insert and an insert-select, on H2 and PostgreSQL, an exclusive lock, a returning write reading a to-one id), the first statement equals that call's statement in the TCK's committed SQL snapshot for that vendor and Hibernate line (R-INS-11, D-133). |
 | AC-INS-12 | On both Hibernate lines with no container: a sweep runs each `static final` definition of a holder once per target and reports one line each, marking a primary-key-first query, a child-loading query, a drawn-id persist and, on MySQL, an update and a delete "first statement only", and an identity persist and a plain list not; `skip` leaves a definition out and the report prints it once, `Holder.FIELD skipped: reason`; a call may give several report lines per target, with each outcome: `REACHED` with the SQL, `REFUSED` with the code, `REFUSED_AFTER_STATEMENT` when the lambda swallows the stop then refuses, `NO_STATEMENT` and `HARNESS_ERROR`; a lazy `Stream` and `Iterator` are drawn by one element and the stream closed; a `commitEachChunk()` call outside a transaction runs on the harness's `ChunkTransactions` where the application's fails `checkServes`, and is `MQ4004` with none; an explicit `vendor(...)` is left out; the targets default to `targetVendors()` and one outside them is `MQ4012`; no target, no call, a holder with no definition and a bad `skip` fail loudly before any call runs; the harness keeps every configuration setting but the vendor and `ChunkTransactions` (R-INS-11, R-INS-12, D-138). |
 | AC-INS-13 | On both Hibernate lines with no container, on H2, PostgreSQL and MySQL: a `COUNT` page reports `[count]` and `[content]`, the content SQL matching the TCK's committed snapshot of COUNT's content statement for that vendor and line; `[keys]` under `primaryKeyFirst`; `INLINE_COUNT` keeping its window reports one `[content+count]` line and a fallback before any statement reports two lines; `ONLY_COUNT` reports one unlabelled line; a swallowed earlier stop gets no second pass (R-INS-11, R-INS-12, D-222). |
+| AC-INS-14 | On both Hibernate lines with no container, calls recorded on H2 through a wrapped executor (`CallRecorder.wrap`) and replayed on H2, PostgreSQL and MySQL: `one(q)` and `one(q, key)` are two records told apart by `Method`; a function argument is recorded as a marker and replay passes the harness's own, never rerunning the application's closure; equal calls are one record with its `times`, and identical result lines collapse into one labelled `xN`; the bound's and a failed recording's lines fail the check while the application's call still runs; the transaction state recorded with an `EntityManager` is replayed (an update recorded outside a transaction is `MQ2501`), and without one a `commitEachChunk()` write replays outside a transaction and a plain one in one; a root outside the unit fails before any call runs unless left out, and a left-out root the unit manages, a blank reason and an empty replay fail too, each setup problem listed with the recording's count lines; two snapshots of one recorder count its recording once, at the latest; a `StackOverflowError` while recording is counted, an `OutOfMemoryError` propagates (R-INS-14, R-INS-15, D-223). Recording through a Spring repository (`integration/50` R-SPR-18) lands with M37.3. |

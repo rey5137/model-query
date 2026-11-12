@@ -8,10 +8,15 @@ import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.portability.internal.CallResult;
 import com.rey.modelquery.portability.internal.DryCall;
 import com.rey.modelquery.portability.internal.DryRun;
+import com.rey.modelquery.portability.internal.OfflineFactory;
 import com.rey.modelquery.portability.internal.OfflineUnit;
 import com.rey.modelquery.portability.internal.Sweep;
+import jakarta.persistence.metamodel.Type;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -19,6 +24,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * The portability check: each call, and each definition a sweep finds, run by the real executor on every target's
@@ -26,11 +32,12 @@ import java.util.function.Function;
  * if it reached a statement with no refusal; a refusal before any statement reports the target unserved, and a
  * refusal after a statement, a call that reached none, or any other throwable fails the check (D-133).
  * {@code REACHED} certifies the refusals before the first statement and that statement's rendering only; a sweep marks
- * a definition whose later statements could still be refused "first statement only" (D-138).
+ * a definition whose later statements could still be refused "first statement only" (D-138). Calls a
+ * {@link CallRecorder} recorded {@linkplain #replay(Collection) replay} as calls (D-223).
  *
  * <p>Collects calls, runs them all in {@link #assertPortable()}; not thread-safe. Add the module in test scope.
  *
- * @implSpec R-INS-11, R-INS-12
+ * @implSpec R-INS-11, R-INS-12, R-INS-15
  */
 @Incubating
 public final class PortabilityCheck {
@@ -47,6 +54,10 @@ public final class PortabilityCheck {
     private final Set<Class<?>> swept = new LinkedHashSet<>();
     private final Map<Field, String> skipped = new LinkedHashMap<>();
     private final List<String> problems = new ArrayList<>();
+    private final Map<DryCall, RecordedCall> replayed = new IdentityHashMap<>();
+    private final Map<Class<?>, String> leftOut = new LinkedHashMap<>();
+    // One tally per recorder, the latest snapshot's: two snapshots of one recording count it once.
+    private final Map<CallRecorder, CallRecorder.Tally> tallies = new LinkedHashMap<>();
 
     private PortabilityCheck(String unitName, List<Class<?>> classes, ModelQueryConfig config) {
         this.unitName = unitName;
@@ -189,17 +200,69 @@ public final class PortabilityCheck {
     }
 
     /**
+     * Adds each recorded call as a call on every target: the recorded method with the recorded arguments, each function
+     * marker replaced by the harness's own function, in or outside a transaction as recorded, labelled
+     * {@code callSite method} and {@code xN} when made {@code N > 1} times. A recording's calls past its bound and its
+     * failed recordings are each a failing report line; a root outside the unit fails the check unless
+     * {@linkplain #leaveOut(Class, String) left out}, and so does replaying no call.
+     */
+    public PortabilityCheck replay(Collection<RecordedCall> calls) {
+        Objects.requireNonNull(calls, "calls");
+        if (calls instanceof CallRecorder.Snapshot snapshot) {
+            addTally(snapshot.tally());
+        }
+        if (calls.isEmpty()) {
+            problems.add("replay of no recorded calls: record through CallRecorder.wrap(...) before calls()");
+        }
+        for (RecordedCall call : calls) {
+            Objects.requireNonNull(call, "calls");
+            addTally(call.tally());
+            DryCall dry = replayCall(call);
+            this.calls.add(dry);
+            replayed.put(dry, call);
+        }
+        return this;
+    }
+
+    /**
+     * Leaves the recorded calls on {@code root}, an entity of another unit, out of the replay, for {@code reason},
+     * which is required. A root this check's unit manages fails the check: it is checked here too.
+     */
+    public PortabilityCheck leaveOut(Class<?> root, String reason) {
+        Objects.requireNonNull(root, "root");
+        Objects.requireNonNull(reason, "reason");
+        if (reason.isBlank()) {
+            problems.add("leaveOut of " + root.getSimpleName() + " gives no reason");
+        }
+        leftOut.put(root, reason);
+        return this;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static DryCall replayCall(RecordedCall call) {
+        return DryCall.of(call.label(), (Class<Object>) call.root(), call::replay, call.outsideTransaction());
+    }
+
+    private void addTally(CallRecorder.Tally tally) {
+        tallies.merge(tally.recorder(), tally, (seen, next) -> next.sequence() > seen.sequence() ? next : seen);
+    }
+
+    /**
      * Runs every call and swept definition on every target, and throws an {@code AssertionError} with one line per
-     * call and target, then one per skipped definition with its reason, unless each call reached a statement with no
-     * refusal. A check with no target, a swept holder with no definition and a bad {@code skip} fail it too, before
-     * any call runs. A passing report is logged at {@code INFO}.
+     * call and target (identical replayed lines as one), then one per recording count, per skipped definition and per
+     * left-out root with its reason, unless each call reached a statement with no refusal and no recording dropped or
+     * failed a call. A check with no target, a swept holder with no definition, a bad {@code skip} or
+     * {@code leaveOut}, an empty replay and a replayed root outside the unit fail it too, before any call runs, each
+     * listed with the recording counts. A recorder's counts are its latest replayed snapshot's, once. A passing report
+     * is logged at {@code INFO}.
      *
-     * @throws AssertionError naming every result, when any is not {@code REACHED}
+     * @throws AssertionError naming every result, when any is not {@code REACHED} or a recording count is not zero
      * @throws ModelQueryConfigurationException {@code MQ4013} when a target's factory cannot boot offline
      */
     public void assertPortable() {
         List<String> setup = new ArrayList<>(problems);
         List<DryCall> all = new ArrayList<>(calls);
+        all.removeIf(call -> replayed.containsKey(call) && leftOut.containsKey(replayed.get(call).root()));
         List<String> skips = new ArrayList<>();
         all.addAll(sweptCalls(setup, skips));
         if (classes != null && classes.isEmpty()) {
@@ -214,19 +277,84 @@ public final class PortabilityCheck {
         if (all.isEmpty()) {
             setup.add("no calls: add call(...) or sweep(...)");
         }
+        if (!chosen.isEmpty() && !(classes != null && classes.isEmpty())) {
+            setup.addAll(rootProblems(chosen.get(0), all));
+        }
+        List<String> recording = tallies.values().stream().flatMap(tally -> tally.lines().stream()).toList();
         if (!setup.isEmpty()) {
+            // A recording's counts still show: an empty replay may be empty because every call was dropped or failed.
+            setup.addAll(recording);
             throw new AssertionError("Portability check set up wrongly, nothing ran:\n" + String.join("\n", setup));
         }
-        List<CallResult> results = DryRun.run(unit(), chosen, config, all);
         // A COUNT page contributes separate count and content results (D-222).
+        List<CallResult> results = collapse(all, DryRun.runEach(unit(), chosen, config, all));
         List<String> lines = new ArrayList<>(results.stream().map(CallResult::line).toList());
+        lines.addAll(recording);
         lines.addAll(skips);
-        long failed = results.stream().filter(result -> !result.passes()).count();
+        leftOut.forEach((root, reason) -> lines.add(root.getSimpleName() + " left out: " + reason));
+        int total = results.size() + recording.size();
+        long failed = results.stream().filter(result -> !result.passes()).count() + recording.size();
         if (failed > 0) {
-            throw new AssertionError("Not portable: " + failed + " of " + results.size() + " results failed\n"
+            throw new AssertionError("Not portable: " + failed + " of " + total + " results failed\n"
                     + String.join("\n", lines));
         }
-        LOG.log(System.Logger.Level.INFO, "Portable: {0} results\n{1}", results.size(), String.join("\n", lines));
+        LOG.log(System.Logger.Level.INFO, "Portable: {0} results\n{1}", total, String.join("\n", lines));
+    }
+
+    /**
+     * A setup problem per replayed root the unit does not manage and per left-out root it does, read from the
+     * metamodel of {@code target}'s factory; boots nothing when no call is replayed or left out.
+     */
+    private List<String> rootProblems(Target target, List<DryCall> all) {
+        Set<Class<?>> roots = all.stream().filter(replayed::containsKey).map(call -> replayed.get(call).root())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (roots.isEmpty() && leftOut.isEmpty()) {
+            return List.of();
+        }
+        Set<Class<?>> managed = OfflineFactory.boot(unit(), target).getMetamodel().getEntities().stream()
+                .map(Type::getJavaType).collect(Collectors.toSet());
+        List<String> found = new ArrayList<>();
+        roots.stream().filter(root -> !managed.contains(root)).forEach(root -> found.add("replayed root "
+                + root.getName() + " is not an entity of the unit: check its calls with its own unit, or leaveOut("
+                + root.getSimpleName() + ".class, reason)"));
+        leftOut.keySet().stream().filter(managed::contains).forEach(root -> found.add("leaveOut of "
+                + root.getSimpleName() + ": the unit manages it, so its calls are checked here too"));
+        return found;
+    }
+
+    /**
+     * {@code results} with identical replayed lines (call site, method, target, outcome, SQL) collapsed into the first,
+     * labelled with the calls' summed times; every other result as it is.
+     */
+    private List<CallResult> collapse(List<DryCall> all, List<List<CallResult>> results) {
+        List<CallResult> collapsed = new ArrayList<>();
+        Map<List<Object>, Integer> slots = new HashMap<>();
+        Map<Integer, Integer> times = new HashMap<>();
+        for (int i = 0; i < all.size(); i++) {
+            RecordedCall call = replayed.get(all.get(i));
+            for (CallResult result : results.get(i)) {
+                if (call == null) {
+                    collapsed.add(result);
+                    continue;
+                }
+                List<Object> line = List.of(call.site(), result.target(), result.outcome(),
+                        result.firstStatementOnly(), result.detail(), result.statement());
+                Integer slot = slots.putIfAbsent(line, collapsed.size());
+                if (slot == null) {
+                    times.put(collapsed.size(), call.times());
+                    collapsed.add(new CallResult(call.site(), result.target(), result.outcome(),
+                            result.firstStatementOnly(), result.detail(), result.statement()));
+                } else {
+                    times.merge(slot, call.times(), Integer::sum);
+                }
+            }
+        }
+        times.forEach((slot, sum) -> {
+            CallResult result = collapsed.get(slot);
+            collapsed.set(slot, new CallResult(RecordedCall.label(result.label(), sum), result.target(),
+                    result.outcome(), result.firstStatementOnly(), result.detail(), result.statement()));
+        });
+        return collapsed;
     }
 
     /** The swept calls; adds a setup problem per bad sweep or skip, and a report line per skipped definition. */

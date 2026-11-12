@@ -149,3 +149,4 @@ RFC 0004 (rey5137/model-query#29) is mapped the same way, by its own sections, a
 | RFC 0011 (D-133, D-138, D-139) | §3 the offline boot and the dry run, `PortabilityCheck`, the sweep; R-VND-20, R-INS-10..12, AC-INS-10, AC-INS-12, code `MQ4013` | `api/16` R-INS-10..12, `vendor/40` R-VND-20, `delivery/61` |
 | RFC 0011 (D-133) | §3-§4 the TCK conformance run on both lines, what the dry run cannot decide; AC-INS-11 | `api/16` AC-INS-11, `delivery/60` §2, `docs/site` portability page |
 | RFC 0025 Part A (D-222) | COUNT page content via a second NO_COUNT pass, inline fallback and report line labels; AC-INS-13, amended AC-INS-12 | `api/16` R-INS-11, R-INS-12, AC-INS-12, AC-INS-13 |
+| RFC 0025 Part B (D-223) | record and replay: `CallRecorder`, `RecordedCall`, `replay`, `leaveOut`, replay fidelity on the limits list; AC-INS-14 (a wrapped executor; the Spring repository part with R-SPR-18) | `api/16` R-INS-12, R-INS-14, R-INS-15, AC-INS-14, `delivery/61` |
