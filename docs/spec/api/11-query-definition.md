@@ -73,7 +73,7 @@ the fetch plan (R-FCH-13). `ModelQuery` stays identity-equal. A lock on a groupe
 throws `MQ1209` naming the model, and `withLock` throws it too. Every copy, including `withFetch` and `orderedBy`, keeps
 the lock. Applying the lock is `engine/20` R-EXE-14 and `vendor/40` R-VND-15. A to-one read by its id (`api/10`
 R-COL-29, D-136) reads through a `LEFT` join, so a locked query selecting, filtering or ordering by it has a join and is
-`MQ2211` (R-EXE-14); Q-20 keeps a join-free read open.
+`MQ2211` (R-EXE-14); a join-free read is not in 1.0 (D-221).
 
 ## 3. `afterMap` and derived fields
 

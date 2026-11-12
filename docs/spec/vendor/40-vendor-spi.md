@@ -405,7 +405,7 @@ R-PAG-06's OR-expansion and, under an explicit null precedence, `{PREDICATE, DIS
 `{NULL_TEST}` for a page after a NULL cursor value; a keyset `export` adds them too, so it is refused before it writes
 a row. Whatever the renderer answers, the engine refuses with `MQ4016` in M28: every `CHILD` site, every `WRITE`
 site (a treated `ModelUpdate`/`ModelDelete` `where`, decided before R-WRT-11 picks a path, and a treated returning
-model of any returning write or `persist`), and a site whose uses hold `GROUP_BY` or `AGGREGATE` (Q-27), except a
+model of any returning write or `persist`), and a site whose uses hold `GROUP_BY` or `AGGREGATE` (D-221), except a
 correlated count's column over its own treated root (R-COL-31). The engine also refuses a non-join correlation target
 with `MQ4016` rather than casting it. A `CORRELATION` site, which a path `exists` nested under an `exists` whose path
 holds a treat carries and a lifted `Outer.column` read carries too (D-164), is left to the renderer: Hibernate's table

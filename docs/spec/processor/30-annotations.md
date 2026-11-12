@@ -97,7 +97,7 @@ a `@Discriminator`, or part of a source-rooted, update or insert model (`MQ3042`
 from a write (Q-23).
 
 **R-PROC-43** `@Subtype` is an incubating, class-retained field or record-component annotation marking one
-`Class<? extends R>` field, where `R` is the model's root (D-154, Q-25). It maps `Expr.typeOf(ROOT)` (R-GEN-42).
+`Class<? extends R>` field, where `R` is the model's root (D-154, D-221). It maps `Expr.typeOf(ROOT)` (R-GEN-42).
 A second field, another type, combination with `@Column`, `@Computed`, `@Aggregate` or `@PrimaryKey`, or use on a
 source-rooted or write model is `MQ3043`. `@GroupBy @Subtype` is allowed. In a model reached through a `@Join`, its
 column reads `typeOf` over a joined node, which is `MQ4016` when selected (api/10 R-COL-36, D-158); leave it out of
@@ -431,7 +431,7 @@ column), `@JoinColumns`, `@JoinFormula` and `@JoinColumnOrFormula`, `@NotFound`,
 `@MapsId`), a target with `@IdClass` or `@EmbeddedId`, and a to-one inside an embedded value. A target with
 `@SQLRestriction` or `@Where` (on the class or a mapped superclass) is the separate error `MQ3029`: a read takes the id
 from the `LEFT`-joined row, so a restricted target reads `null` while the foreign key holds a value, and
-`generateChanges` with `from(row)` would write `NULL` over a live key; it holds until Q-20 resolves, and `MQ3016` does
+`generateChanges` with `from(row)` would write `NULL` over a live key; it holds for 1.0 (D-221), and `MQ3016` does
 not suggest the id form there. A runtime `@Filter` on the target is a documented caveat. The
 dotted `referrer.id` stays `MQ3001`. A column of the whole entity, or a converter's value of it, is unchanged
 (R-PROC-06, `MQ3016`). `@GroupBy` on a whole-entity to-one column is `MQ3028`. A `@JoinColumn(referencedColumnName)` is refused even when it
@@ -491,7 +491,7 @@ or the nested binding's. Any model may nest a bound one, an annotated model of t
 model, a nested model that is neither annotated nor bound in the compilation is `MQ3026`, reported on the field, where
 an annotated model's stays `MQ3005` or `MQ3401`; and since its QModel is generated in another package, a nested model
 type, or a type enclosing it, that is not public is `MQ3024` on the binding (`processor/31` R-GEN-35). A nested model
-bound in another compilation than its outer model's is Q-19: until it is settled, bind both in one module.
+bound in another compilation than its outer model's is not supported in 1.0 (D-221): bind both in one module.
 
 **R-PROC-34** *(D-140)* **`modelquery.aggregating`.** A boolean processor option, `false` unless set to `true`, read once
 per compilation. The processor is registered with Gradle as `dynamic`: off, it reports Gradle's `isolating` type; on,

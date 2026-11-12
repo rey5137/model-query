@@ -1,6 +1,6 @@
 # RFC 0025 — Portability from recorded calls, and the statements after the first
 
-- **Status:** draft (2026-11-12), revised after its architect review and its acceptance spike (`rfc/0025-spike-results.md`)
+- **Status:** accepted as D-222 to D-224 (2026-11-12), after its architect review and its acceptance spike (`rfc/0025-spike-results.md`)
 - **Affects:**
   - **`api/16`:** R-INS-10 (a Boot unit's properties and the offline overrides), R-INS-11 (a call's passes), R-INS-12
     (the limits list: the content statement of `page(..., COUNT)` and, after Part C, a fetch plan's child statements
@@ -11,7 +11,7 @@
   - **`INV-7`**, **D-139:** the not-API `jpa` entries the harness may call gain two (Part A, Part C).
   - **`rfc/0011`:** §4 "Statements after the first" narrowed. **D-138** amended (the `COUNT` content statement).
   - **`delivery/62`:** the deferred starter helper for a Boot unit is superseded by R-INS-16.
-  - **`reference/92`:** D-221 onward.
+  - **`reference/92`:** D-222 to D-224.
   - **`docs/site`:** the portability page (recording, replay, the log lines a dry run produces), the logging page (JUL
     reset by MockServer).
 - **Discussion:** TBD
@@ -333,6 +333,6 @@ the changes it called for are folded into Part B and Part C above).
 
 ## Milestone
 
-Proposed: M37 in 0.14.0, the freeze moving to M38 (as D-213 moved it to M37). Slices, roughly: M37.1 Part A; M37.2
+M37 in 0.14.0, the freeze moving to M38 (D-222, as D-213 moved it to M37). Slices, roughly: M37.1 Part A; M37.2
 `CallRecorder`, `RecordedCall` and replay; M37.3 the Spring decorator; M37.4 `of(PersistenceUnitInfo)` and Part D;
 M37.5 Part C.

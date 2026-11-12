@@ -101,7 +101,7 @@ attribute on rows of the subtype and its own subtypes, and NULL on every other r
 - for every nullability rule the column is nullable, whatever the attribute's mapping says.
 
 A treated column in `GROUP BY`, under an aggregate or as a window function's argument, directly or inside an `Expr`,
-in a query or a source body, is `MQ4016` before any statement (Q-27): a provider narrows a grouped statement to the
+in a query or a source body, is `MQ4016` before any statement (D-221): a provider narrows a grouped statement to the
 subtype, and no window over a treated argument was measured (D-162). A correlated count whose
 own root is treated (R-COL-31) is unaffected.
 
@@ -672,8 +672,8 @@ dotted `referrer.id` stays a path through an embeddable (`MQ1002`), so the spell
   reads through R-COL-25's `LEFT` join and the target's id, on every mapping (owning or inverse, a non-key
   `referencedColumnName`, a `@JoinFormula`, `@NotFound`), so a `NULL` foreign key reads back `null` and no row is
   dropped (INV-4, INV-5). The sub-queries of a read (`exists`, `in(subSelect)`, `exists(subSelect)`) read it through
-  the same join. A locked read of it has that join, so it is `MQ2211` (`api/11` R-QRY-17); Q-20 keeps a join-free read
-  open. The id comes from the joined row, so a target with `@SQLRestriction` or `@Where` reads `null` while the foreign
+  the same join. A locked read of it has that join, so it is `MQ2211` (`api/11` R-QRY-17); a join-free read is not in
+  1.0 (D-221). The id comes from the joined row, so a target with `@SQLRestriction` or `@Where` reads `null` while the foreign
   key holds a value; the processor refuses the id form there (`MQ3029`, `processor/30` R-PROC-33), and a runtime
   `@Filter` on the target is a documented caveat (the read returns `null`).
 - In a write's filter (a bulk update or delete, the sub-select its joined `where` renders, the load of

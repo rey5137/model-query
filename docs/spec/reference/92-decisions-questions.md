@@ -3296,6 +3296,14 @@ refusal, no reroute): when the unbound param is one such groups bind, the messag
 
 **D-220 — The presence walk reads a joined root's `within` from the join the query binds (M36 gate, 2026-11-11, user decision).** A column built from `X.root()` before `X.within(F)` has the same join key, so it resolved and read correctly, but the presence walk stopped at the joined root and selected no key of `F`: the nested model mapped as absent, and a grouped query skipped `MQ1409`. The walk now takes a parentless joined root's `within` from the bound `EntityJoin` or `SourceJoin` with an equal `root().key()`, falling back to the node's own. Generated code is unchanged (its columns are built after `within`). Amends D-216 ("which no check can see"). → `api/10` R-COL-41, AC-COL-70.
 
+**D-221 — The open questions are closed for 1.0 (2026-11-12, user decision).** None of Q-15, Q-16, Q-18, Q-19, Q-20, Q-25, Q-26 or Q-27 blocks the freeze, and each is settled as follows. Not adopted: Q-18, a `@RequiresFact` ArchUnit rule; the dry run checks a profile fact by rendering on each target, so a declaration adds a second list to keep in step and checks nothing a dry run misses. Kept as today for 1.0, each additive later and reopened only on an adopter's request with a use: Q-15 (MySQL returning writes stay `MQ4011`, with the documented recipe); Q-16 (a claim stays a locked key read and a `whereKeys` write, `MQ1903` stays, `nextval` stays `Long`); Q-19 (bind a nested model in the same module as its outer model, `MQ3026`); Q-20 (the id form reads through the `LEFT` join, `MQ2211` and `MQ3029` stay; a join-free read returns the same rows but changes SQL, so it lands in a minor release with its snapshots listed); Q-25 (`@Subtype` takes a `Class` only); Q-26 (`TABLE_PER_CLASS` ids are trusted, `MQ2213` the partial guard); Q-27 (a treated group key, aggregate or window argument stays `MQ4016` until a release designs and measures the rendering). No `Q-n` remains open. → §2, `rfc/0010`, `rfc/0011` §5, `rfc/0012`, `rfc/0016` §2, §4, §6, §11.
+
+**D-222 — A `COUNT` page's content statement is checked; RFC 0025 accepted (RFC 0025 Part A, 2026-11-12, user decision).** RFC 0025 is accepted after its acceptance spike (`rfc/0025-spike-results.md`: 396 cells green on Hibernate 6.6 and 7.4, four targets). M37 (0.14.0) builds it; the freeze moves from M37 to M38 and stays last. `PortabilityCheck` runs a `page(..., COUNT)` call, and an `INLINE_COUNT` call that falls back to a separate count, a second time as `NO_COUNT` through a proxy executor and reports `[count]` and `[content]` lines (`[keys]` under `primaryKeyFirst`, one `[content+count]` line for a windowed inline count); `ONLY_COUNT` stays one line, and a call stopped earlier by a swallowed exception gets no second pass. The fallback is detected through a not-API `jpa` entry added to D-139's allow-list. Amends D-138, R-INS-11 and AC-INS-12 (a call may give several lines). Rejected: a synthetic-row dry run (one data path, a value for every column type on every line, little over Part C since D-138). → `rfc/0025` Part A, `api/16` R-INS-11, R-INS-12, AC-INS-13.
+
+**D-223 — Recorded calls replay on the targets (RFC 0025 Parts B and D, 2026-11-12, user decision).** `CallRecorder` wraps an executor (`wrap(root, executor)`, with an `EntityManager` for transaction state) and records each call as a `RecordedCall` (root, `Method`, arguments with functions kept as markers, call site, times, transaction state, label), deduplicated and bounded, failing loudly on the bound, on a failed recording and on a root outside the unit. `PortabilityCheck.replay(...)` runs them on every target; `leaveOut(root, reason)` excludes a root; replay fidelity joins the limits list. `model-query-spring-data` gains `ModelQueryExecutorDecorator` and `ExecutorContext` (`rootEntity`, `entityManager`, `entityManagerFactory`, `config`), applied lazily and in order to every repository's executor, rethrowing unchanged; no starter property (INV-7). `PortabilityCheck.of(PersistenceUnitInfo, ModelQueryConfig)` reads the unit's classes and mapping files and takes properties from `emf.getProperties()`; dropped non-connection instance values are listed, connection keys blanked by `offlineProperties` (R-VND-20). The report notes unversioned targets; the docs cover the dry run's `SqlExceptionHelper` log lines and MockServer's JUL reset. Supersedes `delivery/62`'s deferred Boot-unit helper. Rejected: a public repository factory over an executor, a starter property, replaying the application's functions, `of(EntityManagerFactory)` from the metamodel. → `rfc/0025` Parts B and D, `api/16` R-INS-14 to R-INS-16, `integration/50` R-SPR-18, AC-INS-14 to AC-INS-16, AC-SPR-22.
+
+**D-224 — A fetch plan's child statements render on placeholder keys (RFC 0025 Part C, 2026-11-12, user decision).** After a parent's statement, each child load is rendered with two placeholder keys of the child key's declared type (`in (?,?)`); a one-constant enum uses its constant once; an empty enum, a converted value object and `byte[]` give a failing line naming the type. A key-grouped child renders as one round, with the catch-all's values or the first placeholder's group asked with the child load as owner; a group function that knows only real keys gives a line naming the checker's limit. A parent refused on a target walks no children. The data-dependent codes (`MQ2601`, `MQ2603`, `MQ2604`, `MQ1502`, `MQ2607`) stay on the limits list. The engine entry is a not-API `jpa` method on D-139's allow-list (INV-7 amended to name it). → `rfc/0025` Part C, `api/16` R-INS-17, AC-INS-17, `SPEC.md` INV-7.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
@@ -3359,12 +3367,12 @@ whether it renders a LEFT join or the foreign-key column, and a TCK case with a 
 Related: a `@GroupBy` on a whole-entity to-one column fails on PostgreSQL, since Hibernate groups by the foreign key but
 selects every entity column; whether that is a diagnostic or a group by the id is open. → D-44, D-124.
 
-**Q-15 — An opt-in returning emulation on MySQL.** MySQL has no `RETURNING`, so D-129 refuses returning writes there
+**Q-15 — An opt-in returning emulation on MySQL.** Closed for 1.0 by D-221. Was: MySQL has no `RETURNING`, so D-129 refuses returning writes there
 (`MQ4011`). A locked key read, a `whereKeys` write and a `byKeys` re-read give the same rows for an update and are
 documented as a recipe; whether an explicit opt-in that does this inside the library is ever wanted is left open until
 an adopter asks. → `rfc/0010`, D-129.
 
-**Q-16 — A single-statement claim, and a typed `nextval`.** D-131 keeps a claim to a locked key read and a `whereKeys`
+**Q-16 — A single-statement claim, and a typed `nextval`.** Closed for 1.0 by D-221. Was: D-131 keeps a claim to a locked key read and a `whereKeys`
 write. On PostgreSQL one statement could do both (`WITH c AS (SELECT id … LIMIT n FOR UPDATE SKIP LOCKED) UPDATE … FROM
 c … RETURNING …`), once a supported Hibernate API renders a locked CTE in DML; open whether to offer it. Also open: a
 typed `nextval(String, Class<C>)` for a sequence read as an `Integer` or a `BigInteger` rather than a `Long`. →
@@ -3372,13 +3380,13 @@ typed `nextval(String, Class<C>)` for a sequence read as an `Integer` or a `BigI
 
 **Q-17 — Refusals after a first statement.** Resolved by D-138.
 
-**Q-18 — A `@RequiresFact` ArchUnit rule.** Whether code that reads a profile fact must declare it, so the dry run's
+**Q-18 — A `@RequiresFact` ArchUnit rule.** Not adopted by D-221. Was: Whether code that reads a profile fact must declare it, so the dry run's
 coverage is checkable. → `rfc/0011` §5, D-133.
 
-**Q-19 — Nested models bound in another module.** Binding a nested model in a different persistence module from its
+**Q-19 — Nested models bound in another module.** Closed for 1.0 by D-221. Was: Binding a nested model in a different persistence module from its
 outer model. → `rfc/0012`, D-134.
 
-**Q-20 — A to-one's id read without a join.** Whether a read of the id form (D-136) renders the foreign-key column
+**Q-20 — A to-one's id read without a join.** Closed for 1.0 by D-221. Was: Whether a read of the id form (D-136) renders the foreign-key column
 with no join where the provider reports the foreign key references the target's basic id directly (owning side, no
 `@NotFound`, no formula), a provider fact as D-117 and D-132 are. It reads the same rows as the `LEFT` join, so adding
 it changes no result; it would let a locked read of the id form through instead of `MQ2211`, and lift `MQ3029`, since
@@ -3404,16 +3412,16 @@ request names", "days overdue relative to a date the caller passes") can't appea
 bound parameter node in any expression, bound when the query runs, would answer it without breaking INV-9. →
 `rfc/0015` (Unresolved), D-150, `api/10` R-COL-17.
 
-**Q-25 — `@Subtype`'s value type.** `Class` only for now (D-154). A `String` (entity name or discriminator value) or
+**Q-25 — `@Subtype`'s value type.** Closed for 1.0 by D-221. Was: `Class` only for now (D-154). A `String` (entity name or discriminator value) or
 an enum through a converter is additive, once a use shows which; `JOINED` has no discriminator value to give, and a
 `@Computed` CASE covers it today. → `rfc/0016` §4, D-154, `processor/30` R-PROC-43.
 
-**Q-26 — `TABLE_PER_CLASS` id uniqueness.** The concrete tables share no key, so `@Id` is unique by mapping, not by
+**Q-26 — `TABLE_PER_CLASS` id uniqueness.** Closed for 1.0 by D-221. Was: The concrete tables share no key, so `@Id` is unique by mapping, not by
 the database, and is trusted as today; R-PAG-26's `MQ2213` is a partial guard on the reads that rely on a unique key,
 while `list()` and offset pages stay unchecked. Revisited if a user needs keyset or export over such a root with ids
 written outside JPA. → `rfc/0016` §6, D-154, `engine/21` R-PAG-26.
 
-**Q-27 — Group keys and aggregates over treated fields.** Refused in M28 (`MQ4016`): Hibernate narrows a grouped
+**Q-27 — Group keys and aggregates over treated fields.** Closed for 1.0 by D-221. Was: Refused in M28 (`MQ4016`): Hibernate narrows a grouped
 statement to the treated subtype. The LEFT entity join on the id (spike S2.4) and a `min(root.id)` anchor beside the
 original group key (S2.3) keep the NULL rule in every measured shape; a later release designs the rendering, measures
 its cost and composition, and lifts the refusal, with `treat` on `@Aggregate`. → `rfc/0016` §2, §11, D-154, `api/10`
