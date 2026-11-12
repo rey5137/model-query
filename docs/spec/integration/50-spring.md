@@ -85,7 +85,7 @@ matching transaction manager, or more than one, throws `MQ4004`. A user-defined 
 implicitly; it injects the `ChunkTransactions` bean and passes it to `chunkTransactions(...)`.
 This is the plain-JPA callback with a Spring default, not a Spring-only feature (R-SPR-01).
 
-**R-SPR-18** *(D-223)* `model-query-spring-data` has an executor decorator SPI, both interfaces `@Incubating`:
+**R-SPR-18** *(D-223, D-225)* `model-query-spring-data` has an executor decorator SPI, both interfaces `@Incubating`:
 
 ```java
 public interface ModelQueryExecutorDecorator {
@@ -94,6 +94,7 @@ public interface ModelQueryExecutorDecorator {
 
 public interface ExecutorContext<E> {
     Class<E> rootEntity();
+    Class<?> repositoryInterface();              // @Incubating: tells two repositories of one root apart
     EntityManager entityManager();               // the shared, transaction-bound EntityManager
     EntityManagerFactory entityManagerFactory();
     ModelQueryConfig config();                   // after the ModelQueryConfigurer
@@ -103,11 +104,11 @@ public interface ExecutorContext<E> {
 The fragment, built by `ModelQueryRepositoryFactoryBean` or the starter's `ModelQueryRepositoryFragmentFactoryBean`
 (R-SPR-02), wraps its executor in every `ModelQueryExecutorDecorator` bean of the context on the repository's first
 call, once, through `ObjectProvider.orderedStream()`: in `@Order`/`Ordered` order, the first decorator wraps the
-executor itself (innermost) and the last is the one the repository calls. With no decorator bean the repository calls
+executor itself (innermost) and the last is the one the repository calls. A decorator extends `jpa`'s `@Incubating` `ForwardingModelQueryExecutor` and overrides the calls it wraps, or is a JDK proxy: a class implementing `ModelQueryExecutor` directly breaks, with `AbstractMethodError`, on a method a later release adds (`delivery/61`). With no decorator bean the repository calls
 the executor as `ModelQueryExecutor.create` built it. Creating the fragment looks up no decorator bean, so a decorator
 bean that needs a repository makes no creation cycle (D-133); an eager repository still creates its executor, and so
 resolves its vendor, when it is created, and a `LAZY` or `DEFERRED` bootstrap creates neither the executor nor the
-decorators before the first call (D-139). The context names the repository's domain type, the `EntityManager` the
+decorators before the first call (D-139). The context names the repository's domain type and interface, the `EntityManager` the
 executor runs on, its factory, and the config after the `ModelQueryConfigurer` (R-SPR-13). A decorator that returns
 `null` fails that first call with a `NullPointerException` naming its class and the root. A failed decoration (a
 decorator returning `null` or throwing, or a decorator bean failing to be created) is kept: every later call of that
@@ -118,7 +119,8 @@ without it; the fragment adds no wrapping or translation of its own. Only reposi
 executor the application creates with `ModelQueryExecutor.create` is the application's to wrap. The method is generic,
 so a lambda cannot implement it (JLS 15.27.3) and the interface is not `@FunctionalInterface`; the signature keeps a
 decorator from returning an executor of another root. Uses beyond recording (`api/16` R-INS-14) are metrics and tracing;
-a recorder takes the application's caller as the call site whatever the decorators' order. A decorator sees the
+a recorder takes the application's caller as the call site unless a decorator ordered outside it delegates through a
+helper of a third-party library, whose frame is then the site (`api/16` R-INS-14). A decorator sees the
 executor's calls after `SpringPaging` has translated the `Pageable` (R-SPR-04), so no package-private Spring type
 becomes public. There is no starter property, and the starter does not depend on `model-query-portability` (INV-7).
 

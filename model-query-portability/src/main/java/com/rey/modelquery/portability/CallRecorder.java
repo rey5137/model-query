@@ -62,11 +62,12 @@ public final class CallRecorder {
      * A recorder keeping at most {@code maxCalls} distinct calls; later ones are counted, and the count fails the
      * check that replays them.
      *
-     * @throws AssertionError when {@code maxCalls} is negative
+     * @throws IllegalArgumentException when {@code maxCalls} is negative
      */
     public static CallRecorder create(int maxCalls) {
         if (maxCalls < 0) {
-            throw new AssertionError("CallRecorder.create(maxCalls): maxCalls is " + maxCalls + ", not at least 0");
+            throw new IllegalArgumentException("CallRecorder.create(maxCalls): maxCalls is " + maxCalls
+                    + ", not at least 0");
         }
         return new CallRecorder(maxCalls);
     }
@@ -118,11 +119,12 @@ public final class CallRecorder {
                 arguments[i] = copy(parameters[i], i, arguments[i]);
             }
             Key key = new Key(root, method, Collections.unmodifiableList(Arrays.asList(arguments)), callSite(),
-                    em == null ? null : em.isJoinedToTransaction());
+                    em == null ? TransactionState.UNKNOWN
+                            : em.isJoinedToTransaction() ? TransactionState.IN : TransactionState.OUTSIDE);
             synchronized (this) {
                 Entry entry = entries.get(key);
                 if (entry != null) {
-                    entry.times++;
+                    entry.times = Math.addExact(entry.times, 1L);
                 } else if (entries.size() < maxCalls) {
                     entries.put(key, new Entry(key));
                 } else {
@@ -183,11 +185,12 @@ public final class CallRecorder {
     }
 
     /** What makes two calls one record: equal arguments by {@code equals}, functions by parameter (R-INS-14). */
-    private record Key(Class<?> root, Method method, List<Object> arguments, String callSite, Boolean inTransaction) {}
+    private record Key(Class<?> root, Method method, List<Object> arguments, String callSite,
+            TransactionState inTransaction) {}
 
     private static final class Entry {
         private final Key key;
-        private int times = 1;
+        private long times = 1;
 
         private Entry(Key key) {
             this.key = key;

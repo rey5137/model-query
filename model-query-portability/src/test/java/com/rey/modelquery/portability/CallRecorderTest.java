@@ -110,7 +110,7 @@ class CallRecorderTest {
         List<RecordedCall> calls = recorder.calls();
         assertThat(calls).hasSize(2);
         RecordedCall stream = calls.get(0);
-        assertThat(stream.times()).isEqualTo(2);
+        assertThat(stream.times()).isEqualTo(2L);
         assertThat(stream.arguments().get(2)).isEqualTo(new FunctionMarker(Function.class, 2))
                 .hasToString("<Function argument 2>");
         assertThat(calls.get(1).arguments().subList(2, 4))
@@ -160,7 +160,7 @@ class CallRecorderTest {
         assertThat(calls).extracting(RecordedCall::label).containsExactly(
                 "Caller.search:" + Caller.searchLine() + " list x3", "Caller.report:" + Caller.reportLine() + " list",
                 "Caller.search:" + Caller.searchLine() + " list");
-        assertThat(calls).extracting(RecordedCall::times).containsExactly(3, 1, 1);
+        assertThat(calls).extracting(RecordedCall::times).containsExactly(3L, 1L, 1L);
         assertThat(invocations).hasSize(5);
     }
 
@@ -174,7 +174,7 @@ class CallRecorderTest {
         Caller.search(() -> executor.list(QUERY, Limit.of(10))); // the kept record still counts its times
 
         List<RecordedCall> calls = recorder.calls();
-        assertThat(calls).singleElement().extracting(RecordedCall::times).isEqualTo(2);
+        assertThat(calls).singleElement().extracting(RecordedCall::times).isEqualTo(2L);
         assertThat(((CallRecorder.Snapshot) calls).tally().lines()).containsExactly("recording: 2 calls past the "
                 + "bound of 1 not kept; record with CallRecorder.create(maxCalls) and a larger bound");
         assertThat(calls.get(0).tally()).isSameAs(((CallRecorder.Snapshot) calls).tally());
@@ -183,7 +183,7 @@ class CallRecorderTest {
         recorder.clear();
         assertThat(recorder.calls()).isEmpty();
         assertThat(((CallRecorder.Snapshot) recorder.calls()).tally().lines()).isEmpty();
-        assertThatThrownBy(() -> CallRecorder.create(-1)).isInstanceOf(AssertionError.class)
+        assertThatThrownBy(() -> CallRecorder.create(-1)).isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("maxCalls is -1");
     }
 
@@ -278,7 +278,7 @@ class CallRecorderTest {
         Caller.search(() -> executor.update(RENAME_IN_CHUNKS));
 
         List<RecordedCall> calls = recorder.calls();
-        assertThat(calls).extracting(RecordedCall::inTransaction).containsOnly(Optional.empty());
+        assertThat(calls).extracting(RecordedCall::inTransaction).containsOnly(TransactionState.UNKNOWN);
         assertThat(calls).extracting(RecordedCall::outsideTransaction).containsExactly(false, true);
     }
 
@@ -308,5 +308,12 @@ class CallRecorderTest {
                     return type == long.class ? 0L : type == Optional.class ? Optional.empty()
                             : type == List.class ? List.of() : type == Map.class ? Map.of() : null;
                 });
+    }
+
+    @Test
+    void ac_ins_14_a_label_near_the_long_bound_prints_the_count() {
+        assertThat(RecordedCall.label("Caller.search list", Long.MAX_VALUE))
+                .isEqualTo("Caller.search list x9223372036854775807");
+        assertThat(RecordedCall.label("Caller.search list", 1L)).isEqualTo("Caller.search list");
     }
 }

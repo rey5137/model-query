@@ -15,7 +15,9 @@ import com.rey.modelquery.portability.internal.Sweep;
 import jakarta.persistence.metamodel.Type;
 import jakarta.persistence.spi.PersistenceUnitInfo;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -95,8 +97,10 @@ public final class PortabilityCheck {
 
     /**
      * A check of a container-managed unit from {@code unit}, taking its managed class names (entities, embeddables,
-     * converters) and mapping files, under {@code config}. Application properties are added through
-     * {@link #properties(Map)} (e.g. from {@code emf.getProperties()}).
+     * converters), its managed packages when it exposes {@code getManagedPackages()} (passed with the classes; a
+     * failure to read them fails the check as a setup problem), its mapping files, its own properties (subject to
+     * the drop-and-list rule of {@link #properties(Map)}) and its provider class name, under {@code config}.
+     * Application properties are added through {@link #properties(Map)} (e.g. from {@code emf.getProperties()}).
      *
      * @implSpec R-INS-16
      */
@@ -108,8 +112,9 @@ public final class PortabilityCheck {
         if (unit.getManagedClassNames() != null) {
             classes.addAll(unit.getManagedClassNames());
         }
+        String unreadPackages = null;
         try {
-            Method getManagedPackages = unit.getClass().getMethod("getManagedPackages");
+            Method getManagedPackages = publicMethod(unit.getClass(), "getManagedPackages");
             Object packages = getManagedPackages.invoke(unit);
             if (packages instanceof Collection<?> col) {
                 for (Object pkg : col) {
@@ -117,12 +122,23 @@ public final class PortabilityCheck {
                         classes.add(String.valueOf(pkg));
                     }
                 }
+            } else if (packages != null) {
+                unreadPackages = "managed packages of unit " + unit.getPersistenceUnitName()
+                        + " could not be read: getManagedPackages() returned " + packages.getClass().getName();
             }
-        } catch (ReflectiveOperationException ignored) {
-            // Not a SmartPersistenceUnitInfo
+        } catch (NoSuchMethodException notSmart) {
+            // Not a SmartPersistenceUnitInfo: no managed packages to take
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            Throwable cause = failure instanceof InvocationTargetException && failure.getCause() != null
+                    ? failure.getCause() : failure;
+            unreadPackages = "managed packages of unit " + unit.getPersistenceUnitName() + " could not be read: "
+                    + cause;
         }
         List<String> files = unit.getMappingFileNames();
         PortabilityCheck check = new PortabilityCheck(null, null, List.copyOf(classes), config);
+        if (unreadPackages != null) {
+            check.problems.add(unreadPackages);
+        }
         if (files != null) {
             check.mappingFiles.addAll(files);
         }
@@ -424,7 +440,7 @@ public final class PortabilityCheck {
     private List<CallResult> collapse(List<DryCall> all, List<List<CallResult>> results) {
         List<CallResult> collapsed = new ArrayList<>();
         Map<List<Object>, Integer> slots = new HashMap<>();
-        Map<Integer, Integer> times = new HashMap<>();
+        Map<Integer, Long> times = new HashMap<>();
         for (int i = 0; i < all.size(); i++) {
             RecordedCall call = replayed.get(all.get(i));
             for (CallResult result : results.get(i)) {
@@ -440,7 +456,7 @@ public final class PortabilityCheck {
                     collapsed.add(new CallResult(call.site(), result.target(), result.outcome(),
                             result.firstStatementOnly(), result.detail(), result.statement(), result.child()));
                 } else {
-                    times.merge(slot, call.times(), Integer::sum);
+                    times.merge(slot, call.times(), Math::addExact);
                 }
             }
         }
@@ -503,5 +519,36 @@ public final class PortabilityCheck {
             case SQLSERVER -> "16.0";
             case OTHER -> minimum != null && !minimum.isEmpty() ? minimum : "1.0";
         };
+    }
+
+    /**
+     * {@code type}'s public method {@code name}, looked up on a public type that declares it, so a unit whose own class
+     * is not public (a package-private or anonymous implementation of a public interface) is still read. When no
+     * public type declares it, the method as found, whose call then fails as a setup problem.
+     */
+    private static Method publicMethod(Class<?> type, String name) throws NoSuchMethodException {
+        Method found = type.getMethod(name);
+        if (Modifier.isPublic(found.getDeclaringClass().getModifiers())) {
+            return found;
+        }
+        for (Class<?> c = type; c != null; c = c.getSuperclass()) {
+            if (Modifier.isPublic(c.getModifiers())) {
+                try {
+                    return c.getMethod(name);
+                } catch (NoSuchMethodException notHere) {
+                    // declared lower down, on a type that is not public
+                }
+            }
+            for (Class<?> face : c.getInterfaces()) {
+                if (Modifier.isPublic(face.getModifiers())) {
+                    try {
+                        return face.getMethod(name);
+                    } catch (NoSuchMethodException notHere) {
+                        // try the next interface
+                    }
+                }
+            }
+        }
+        return found;
     }
 }

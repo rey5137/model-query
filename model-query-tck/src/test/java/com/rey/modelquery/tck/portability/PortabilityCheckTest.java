@@ -2,6 +2,7 @@ package com.rey.modelquery.tck.portability;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rey.modelquery.core.ChunkOptions;
@@ -32,6 +33,7 @@ import com.rey.modelquery.tck.vnd.ins.InsIdentityEntity;
 import com.rey.modelquery.tck.vnd.ins.InsSequenceEntity;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
+import jakarta.persistence.spi.PersistenceUnitInfo;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -39,6 +41,7 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.stream.Stream;
@@ -346,6 +349,74 @@ class PortabilityCheckTest {
                         + "skip of Swept.NOT_A_DEFINITION: not a static final definition\n"
                         + "skip of Swept.ALL gives no reason\n"
                         + "skip of NoDefinitions.NAME: not a static final definition");
+    }
+
+    /** A Spring unit whose packages cannot be read. */
+    public static class UnreadablePackagesUnitInfo extends MutablePersistenceUnitInfo {
+        @Override
+        public List<String> getManagedPackages() {
+            throw new IllegalStateException("no packages for you");
+        }
+    }
+
+    @Test
+    void ac_ins_16_unreadable_managed_packages_fail_the_check_as_a_setup_problem() {
+        var unitInfo = new UnreadablePackagesUnitInfo();
+        unitInfo.setPersistenceUnitName("broken-unit");
+        for (String className : OfflineBootTest.TCK_UNIT) {
+            unitInfo.addManagedClassName(className);
+        }
+
+        AssertionError failure = catchThrowableOfType(() -> PortabilityCheck
+                .of(unitInfo, ModelQueryConfig.defaults()).targets(H2)
+                .call("read", CustomerEntity.class, x -> x.list(Swept.ALL, Limit.unlimited())).assertPortable(),
+                AssertionError.class);
+
+        assertThat(failure).hasMessageContaining("nothing ran")
+                .hasMessageContaining("managed packages of unit broken-unit could not be read: "
+                        + "java.lang.IllegalStateException: no packages for you");
+    }
+
+    /** A Spring unit whose own class is not public: its packages are read through the public type. */
+    private static final class HiddenUnitInfo extends MutablePersistenceUnitInfo {
+        boolean asked;
+
+        @Override
+        public List<String> getManagedPackages() {
+            asked = true;
+            return super.getManagedPackages();
+        }
+    }
+
+    @Test
+    void ac_ins_16_a_unit_of_a_non_public_class_has_its_packages_read_through_a_public_type() {
+        var unitInfo = new HiddenUnitInfo();
+        unitInfo.setPersistenceUnitName("hidden-unit");
+        for (String className : OfflineBootTest.TCK_UNIT) {
+            unitInfo.addManagedClassName(className);
+        }
+
+        assertThatCode(() -> PortabilityCheck.of(unitInfo, ModelQueryConfig.defaults()).targets(H2)
+                .call("read", CustomerEntity.class, x -> x.list(Swept.ALL, Limit.unlimited())).assertPortable())
+                .doesNotThrowAnyException();
+        assertThat(unitInfo.asked).isTrue();
+    }
+
+    @Test
+    void ac_ins_16_a_plain_persistence_unit_info_without_managed_packages_skips_them_quietly() {
+        List<String> managed = List.copyOf(OfflineBootTest.TCK_UNIT);
+        PersistenceUnitInfo plain = (PersistenceUnitInfo) Proxy.newProxyInstance(getClass().getClassLoader(),
+                new Class<?>[] {PersistenceUnitInfo.class}, (proxy, method, args) -> switch (method.getName()) {
+                    case "getPersistenceUnitName" -> "plain-unit";
+                    case "getManagedClassNames" -> managed;
+                    case "getMappingFileNames" -> List.of();
+                    case "getProperties" -> new Properties();
+                    default -> null;
+                });
+
+        assertThatCode(() -> PortabilityCheck.of(plain, ModelQueryConfig.defaults()).targets(H2)
+                .call("read", CustomerEntity.class, x -> x.list(Swept.ALL, Limit.unlimited())).assertPortable())
+                .doesNotThrowAnyException();
     }
 
     @Test

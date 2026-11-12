@@ -76,7 +76,7 @@ final class PagePass extends ExecutorHandler {
                 boolean count = mode == CountMode.COUNT || Boolean.TRUE.equals(fallback[0]);
                 if (count) {
                     statement = CallResult.Statement.COUNT;
-                } else if (!count && Boolean.FALSE.equals(fallback[0])) {
+                } else if (Boolean.FALSE.equals(fallback[0])) {
                     statement = CallResult.Statement.CONTENT_AND_COUNT;
                 }
             }

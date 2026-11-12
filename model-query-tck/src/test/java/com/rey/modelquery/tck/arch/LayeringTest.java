@@ -166,7 +166,7 @@ class LayeringTest {
     }
 
     @Test
-    void ac_ins_13_portability_calls_only_the_d139_vendor_members() {
+    void ac_rel_02_portability_calls_only_the_d139_vendor_members() {
         proves(LayeringRules::portabilityDependsOnlyOnJpa,
                 F + "portability.BadPortabilityVendorMembers",
                 F + "jpa.vendor.InlineCountFallback.decided",

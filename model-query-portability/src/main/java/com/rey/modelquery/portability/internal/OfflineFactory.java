@@ -1,6 +1,5 @@
 package com.rey.modelquery.portability.internal;
 
-import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.ModelQueryConfigurationException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
@@ -46,7 +45,6 @@ import javax.sql.DataSource;
  *
  * @implSpec R-INS-10, R-VND-20
  */
-@Incubating
 public final class OfflineFactory {
 
     static final String TRANSACTION_TYPE = "jakarta.persistence.transactionType";

@@ -285,14 +285,17 @@ and an operator built at each call site makes them unequal. `toString` prints th
 identity; a different operator of the same name doesn't match.
 
 **R-INS-14** *(D-223, `@Incubating`)* **Recording calls.** `CallRecorder.create()` keeps at most 10,000 distinct
-calls and `create(maxCalls)` at most `maxCalls` (0 keeps none; a negative bound is an `AssertionError`).
+calls and `create(maxCalls)` at most `maxCalls` (0 keeps none; a negative bound is an `IllegalArgumentException`).
 `wrap(root, executor)` and `wrap(root, executor, em)` return a `ModelQueryExecutor` proxy that records each invocation,
 then delegates, rethrowing what the executor throws unchanged; like R-INS-11's page proxy, it answers `Object` methods
 by its identity, without recording, and runs a default method through `invokeDefault`. `calls()` returns a snapshot
 in first-seen order; `clear()` forgets the calls and both counts. Each call is a `RecordedCall`, a final class with no
 public constructor: `root()`, `method()` (the `ModelQueryExecutor` `Method`, which tells overloads apart),
-`arguments()` (unmodifiable, nulls kept), `callSite()`, `times()`, `inTransaction()` and `label()` (`callSite method`,
-then ` xN` when `times() > 1`). The recorder is shared and thread-safe, not thread-local, so calls on server threads
+`arguments()` (unmodifiable, nulls kept), `callSite()`, `times()` (a `long`; the recorder and the collapse of
+identical result lines add with `Math.addExact`, so an overflow is a recording failure in the recorder and an
+`ArithmeticException` out of the check in the collapse, never a wrapped count), `inTransaction()` (a
+`TransactionState`: `IN`, `OUTSIDE`, or `UNKNOWN` when recorded without an `EntityManager`) and `label()`
+(`callSite method`, then ` xN` when `times() > 1`). The recorder is shared and thread-safe, not thread-local, so calls on server threads
 are recorded too.
 
 - **Arguments.** A `Collection` or `Map` is copied (a `Set` to a `LinkedHashSet`, any other collection to an
@@ -304,7 +307,12 @@ are recorded too.
   and the JDK's reflection and proxy frames, and not of a class implementing `ModelQueryExecutor` or
   `InvocationHandler`, as the class name without its package, the method and the line: `OrderService.search:142`.
   So an application's own decorator wrapping the recording executor, by delegation or as a JDK proxy, is never the
-  call site, whatever the decorators' order (`integration/50` R-SPR-18).
+  call site (`integration/50` R-SPR-18). A decorator ordered outside the recorder that delegates through a helper
+  outside the application and the library, such as a metrics timer's `record(Supplier)`, makes that helper's frame
+  the call site, and every call recorded through it is labelled with it; the rule does not guess which frame is the
+  application's, as servlet and MVC frames further out would be taken for it. The order is a trade-off: outermost,
+  the recorder records the arguments before an argument-rewriting decorator; innermost, it records what the
+  executor sees.
 - **Transaction state.** The three-argument `wrap` records `em.isJoinedToTransaction()` per invocation; with the
   two-argument one, `inTransaction()` is empty.
 - **Deduplication.** Calls with the same root, method, call site, transaction state and arguments equal by `equals`
@@ -336,7 +344,7 @@ executor, the COUNT page proxy included, labelled with its `label()`.
   reason; and a `replay` of no call, followed by the recording's count lines, so an empty replay whose recording
   dropped or failed every call says so. An application with two units writes two checks, each leaving out the other
   unit's roots; a root both manage is checked in both. A `leaveOut` of a root no call recorded is allowed.
-- **Report.** Identical replayed result lines (call site, method, target, outcome, page statement label and detail)
+- **Report.** Identical replayed result lines (call site, method, child path, target, outcome, page statement label and detail)
   are one line, in the first one's place, labelled with their summed `times` as `xN`. After the results come the
   recording's lines, `recording: N calls past the bound of M not kept; ...` and `recording: N calls failed to record,
   the first with <throwable>`, each counted as a failed result in `Not portable: F of N results failed`; then the
@@ -346,7 +354,10 @@ executor, the COUNT page proxy included, labelled with its `label()`.
 
 **R-INS-16** *(D-223, `@Incubating`)* **A check from the booted unit.** `PortabilityCheck.of(PersistenceUnitInfo unit,
 ModelQueryConfig config)` boots a container-managed unit taking the managed class names (converters and embeddables
-included) and the mapping files the unit declares, under `config`. Application properties are passed through
+included), the managed packages when the unit exposes `getManagedPackages()` (a Spring unit; passed with the classes,
+and a failure to read them, or a non-collection result, fails the check as a setup problem, while a unit without the
+method has none), the mapping files the unit declares, the unit's own properties (under the drop-and-list rule below)
+and its provider class name, under `config`. Application properties are passed through
 `properties(Map<String, ?>)` (such as from `emf.getProperties()`). It renders identical SQL to
 `of(List<Class<?>>, config)` with the same mapping files and properties. Values the factory cache cannot compare
 (an instance, such as a naming-strategy bean) are dropped from the unit's properties; the report's head lists each

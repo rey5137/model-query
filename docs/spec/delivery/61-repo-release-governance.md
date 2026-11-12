@@ -104,6 +104,9 @@ as D-110 allows: `DefaultModelQueryExecutor` is the only library implementation.
 default built on `list` would run the fetch plan on the extra row (`engine/20` R-EXE-12). A class that implements
 `ModelQueryExecutor` itself (a decorator or test double) must add them; one compiled before 0.7.0 throws
 `AbstractMethodError` only when a new method is called, and the changelog says so.
+`ForwardingModelQueryExecutor` (D-225, 0.14.0) is `@Incubating` through 1.0. A method added to `ModelQueryExecutor` is
+added to it in the same release, which `ForwardingModelQueryExecutorTest` enforces, so a decorator extending it stays
+compatible; the `AbstractMethodError` rule above is for a class implementing the interface itself.
 The `modelquery.jspecify` processor option and the JSpecify annotations it puts on generated code (D-135, 0.9.0) are
 incubating through 1.0: the option name, the annotations and their placement may change in a minor release.
 `ProviderSupport.foreignKeyColumn` and the `ForeignKeyColumn` enum in `jpa.spi`, and core's `@EngineFacing`
@@ -154,8 +157,14 @@ minor release. Its `portability.internal` package, the dry run's outcomes and ca
 (R-REL-10).
 
 The recorded-call members (D-223, M37, 0.14.0) are `@Incubating` through 1.0: `model-query-portability`'s
-`CallRecorder` and `RecordedCall` (`api/16` R-INS-14), and `PortabilityCheck#replay` and `#leaveOut` (R-INS-15).
-`RecordedCall` is a final class with no public constructor, so components can be added before 1.0. The child
+`CallRecorder`, `RecordedCall` and `TransactionState` (`api/16` R-INS-14, D-226), and `PortabilityCheck#replay`
+and `#leaveOut` (R-INS-15), and `PortabilityCheck.of(PersistenceUnitInfo, ModelQueryConfig)` (R-INS-16); in
+`model-query-spring-data`, `ModelQueryExecutorDecorator` and `ExecutorContext` with its `repositoryInterface()`
+(`integration/50` R-SPR-18); in `model-query-jpa`, `ForwardingModelQueryExecutor` (D-225) and the `ProviderSupport`
+default `dialectVersion(EntityManagerFactory)` (`vendor/40` R-VND-20), which an older provider answers with empty,
+so the report checks its targets at the dialect minimum. `RecordedCall` is a final class with no public
+constructor, so components can be added before 1.0, and `ExecutorContext` is implemented only by the library, so
+methods may be added to it. The child
 statements on placeholder keys (D-224) add no public member: their report lines may change in a minor release like
 the others, and their engine entry `ChildStatements.run` is a not-API `jpa.vendor` member (R-REL-10).
 

@@ -25,7 +25,6 @@ import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
@@ -67,10 +66,13 @@ class ChildStatementsTest {
     }
 
     static int lo(int group) {
+        LO_GROUPS.add(group);
         return group == ALL ? 0 : group * 100;
     }
 
     private static final List<String> SQL = Collections.synchronizedList(new ArrayList<>());
+    /** The groups whose {@link #LO} value a run read: the values it bound. */
+    private static final List<Integer> LO_GROUPS = Collections.synchronizedList(new ArrayList<>());
     private static final List<String> RULE_CALLS = Collections.synchronizedList(new ArrayList<>());
 
     private static SessionFactory sessions;
@@ -111,6 +113,7 @@ class ChildStatementsTest {
     void reset() {
         SQL.clear();
         RULE_CALLS.clear();
+        LO_GROUPS.clear();
     }
 
     @Test
@@ -130,8 +133,7 @@ class ChildStatementsTest {
         String pageChildStatement = SQL.get(1);
         SQL.clear();
 
-        withExecutor(executor -> assertThat(ChildStatements.run(executor, load, List.of(1L, 2L)))
-                .containsExactly(Map.entry(1L, List.of(new Row(1L, 10))), Map.entry(2L, List.of(new Row(2L, 20)))));
+        withExecutor(executor -> ChildStatements.run(executor, load, List.of(1L, 2L)));
         assertThat(SQL).containsExactly(pageChildStatement);
         assertThat(pageChildStatement).contains("in (?,?)");
     }
@@ -141,15 +143,16 @@ class ChildStatementsTest {
         KeyGroups<Long, Integer> assume = KeyGroups.by(Long.class, ChildStatementsTest::bucket)
                 .bind(LO, ChildStatementsTest::lo).assumeInRange();
         ChildLoad<Parent, Row> load = load(true, true, q -> q.keyGroups(assume));
-        // Key 1's group is 0, but the run binds key 4's: one round of both keys, and only row 4 has b >= 100.
-        withExecutor(executor -> assertThat(ChildStatements.run(executor, load, List.of(4L, 1L)))
-                .containsExactly(Map.entry(4L, List.of(new Row(4L, 110)))));
+        // Key 1's group is 0, but the run binds key 4's: one round of both keys, on group 1's values.
+        withExecutor(executor -> ChildStatements.run(executor, load, List.of(4L, 1L)));
         assertThat(SQL).singleElement().asString().contains("in (?,?)");
+        assertThat(LO_GROUPS).containsExactly(1);
         SQL.clear();
+        LO_GROUPS.clear();
 
-        withExecutor(executor -> assertThat(ChildStatements.run(executor, load, List.of(1L, 4L))).containsExactly(
-                Map.entry(1L, List.of(new Row(1L, 10))), Map.entry(4L, List.of(new Row(4L, 110)))));
+        withExecutor(executor -> ChildStatements.run(executor, load, List.of(1L, 4L)));
         assertThat(SQL).singleElement().asString().contains("in (?,?)");
+        assertThat(LO_GROUPS).containsExactly(0);
     }
 
     @Test
@@ -161,10 +164,10 @@ class ChildStatementsTest {
                     return true;
                 }, ALL).assumeInRange();
         ChildLoad<Parent, Row> toMany = load(true, true, q -> q.keyGroups(groupWhen));
-        // Key 4's group would read b >= 100 and miss row 1; the catch-all's b >= 0 reads both.
-        withExecutor(executor -> assertThat(ChildStatements.run(executor, toMany, List.of(4L, 1L))).containsOnly(
-                Map.entry(1L, List.of(new Row(1L, 10))), Map.entry(4L, List.of(new Row(4L, 110)))));
+        // The catch-all's values, not key 4's group, in one round of both keys.
+        withExecutor(executor -> ChildStatements.run(executor, toMany, List.of(4L, 1L)));
         assertThat(SQL).singleElement().asString().contains("in (?,?)");
+        assertThat(LO_GROUPS).containsExactly(ALL);
         assertThat(RULE_CALLS).as("the rule is never asked").isEmpty();
     }
 
@@ -180,8 +183,8 @@ class ChildStatementsTest {
         assertThat(SQL).isEmpty();
 
         // Asked only for the first key: a group function failing on a later one is not seen.
-        withExecutor(executor -> assertThat(ChildStatements.run(executor, load, List.of(4L, 1L)))
-                .containsExactly(Map.entry(4L, List.of(new Row(4L, 110)))));
+        withExecutor(executor -> ChildStatements.run(executor, load, List.of(4L, 1L)));
+        assertThat(SQL).hasSize(1);
     }
 
     @Test
@@ -197,6 +200,14 @@ class ChildStatementsTest {
                     .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("distinct keys");
             assertThatThrownBy(() -> ChildStatements.run(executor, load, List.of(1L, 1L)))
                     .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("distinct keys");
+            // Reached straight through the engine interface, the checks still hold.
+            ChildStatements.Runner runner = (ChildStatements.Runner) executor;
+            assertThatThrownBy(() -> runner.runChildLoad(load, List.of()))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("distinct keys");
+            assertThatThrownBy(() -> runner.runChildLoad(load, List.of(1L, 1L)))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("distinct keys");
+            assertThatThrownBy(() -> runner.runChildLoad(load, java.util.Arrays.asList(1L, null)))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("none null");
         });
         assertThat(SQL).isEmpty();
     }

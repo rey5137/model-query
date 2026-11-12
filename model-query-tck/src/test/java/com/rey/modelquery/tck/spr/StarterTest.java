@@ -622,7 +622,8 @@ class StarterTest {
     @Configuration(proxyBeanMethods = false)
     @EnableJpaRepositories(basePackageClasses = StarterTest.class, considerNestedRepositories = true,
             excludeFilters = @Filter(type = FilterType.ASSIGNABLE_TYPE,
-                    classes = { PlainRepository.class, CustomerRepository.class, MismatchedRepository.class }))
+                    classes = { PlainRepository.class, CustomerRepository.class, MismatchedRepository.class,
+                            OrderReportRepository.class }))
     static class DefaultJpa extends Jpa {}
 
     @Configuration(proxyBeanMethods = false)
@@ -634,7 +635,8 @@ class StarterTest {
     @EnableJpaRepositories(basePackageClasses = StarterTest.class, considerNestedRepositories = true,
             repositoryFactoryBeanClass = OwnFactoryBean.class,
             excludeFilters = @Filter(type = FilterType.ASSIGNABLE_TYPE,
-                    classes = { OrderRepository.class, CustomerRepository.class, MismatchedRepository.class }))
+                    classes = { OrderRepository.class, CustomerRepository.class, MismatchedRepository.class,
+                            OrderReportRepository.class }))
     static class CustomFactoryBeanJpa extends Jpa {}
 
     @Configuration(proxyBeanMethods = false)

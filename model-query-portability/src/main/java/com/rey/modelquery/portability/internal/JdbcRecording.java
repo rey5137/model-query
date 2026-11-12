@@ -1,6 +1,5 @@
 package com.rey.modelquery.portability.internal;
 
-import com.rey.modelquery.annotations.Incubating;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -14,7 +13,6 @@ import java.util.Optional;
  *
  * @implSpec R-INS-10
  */
-@Incubating
 public final class JdbcRecording implements AutoCloseable {
 
     /** Whether the stub data source hands out a connection: only to a call, never to a boot. */

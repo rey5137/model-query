@@ -1,6 +1,5 @@
 package com.rey.modelquery.portability.internal;
 
-import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelInsert;
@@ -27,7 +26,6 @@ import java.util.Set;
  *
  * @implSpec R-INS-12, D-138
  */
-@Incubating
 public final class Sweep {
 
     /** The id generation strategies whose id is drawn by a statement before the insert. */

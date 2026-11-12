@@ -80,7 +80,8 @@ public class ModelQueryRepositoryFragmentFactoryBean<E> implements FactoryBean<M
     @SuppressWarnings("unchecked")
     public ModelQueryRepository<E> getObject() {
         Class<?> root = rootEntity(repositoryInterface);
-        return fragment((Class<E>) root, entityManager, beanFactory, transactionManagerName, lazyInit);
+        return fragment((Class<E>) root, repositoryInterface, entityManager, beanFactory, transactionManagerName,
+                lazyInit);
     }
 
     @Override
@@ -114,8 +115,8 @@ public class ModelQueryRepositoryFragmentFactoryBean<E> implements FactoryBean<M
      * {@code ModelQueryConfigurer} bean when there is one (R-SPR-13), its executor wrapped on the first call by the
      * context's {@link ModelQueryExecutorDecorator} beans (R-SPR-18).
      */
-    static <E> ModelQueryRepositoryFragment<E> fragment(Class<E> rootEntity, EntityManager entityManager,
-            BeanFactory beanFactory, String transactionManagerName, boolean lazyInit) {
+    static <E> ModelQueryRepositoryFragment<E> fragment(Class<E> rootEntity, Class<?> repositoryInterface,
+            EntityManager entityManager, BeanFactory beanFactory, String transactionManagerName, boolean lazyInit) {
         ModelQueryConfig config = beanFactory.getBeanProvider(ModelQueryConfig.class)
                 .getIfAvailable(ModelQueryConfig::defaults);
         ModelQueryConfigurer configurer = beanFactory.getBeanProvider(ModelQueryConfigurer.class).getIfAvailable();
@@ -135,7 +136,8 @@ public class ModelQueryRepositoryFragmentFactoryBean<E> implements FactoryBean<M
         }
         // The decorators are looked up on the first call, never here, so a decorator bean that needs a repository
         // makes no creation cycle and a lazy repository stays lazy (R-SPR-18, D-133, D-139).
-        ExecutorContext<E> context = new RepositoryExecutorContext<>(rootEntity, entityManager, resolved);
+        ExecutorContext<E> context = new RepositoryExecutorContext<>(rootEntity, repositoryInterface,
+                entityManager, resolved);
         Supplier<ModelQueryExecutor<E>> decorated = new Decoration<>(executor, context,
                 beanFactory.getBeanProvider(ModelQueryExecutorDecorator.class));
         return new ModelQueryRepositoryFragment<>(decorated,
@@ -211,8 +213,8 @@ public class ModelQueryRepositoryFragmentFactoryBean<E> implements FactoryBean<M
     }
 
     /** The values the fragment built its executor from, as a decorator sees them. */
-    private record RepositoryExecutorContext<E>(Class<E> rootEntity, EntityManager entityManager,
-            ModelQueryConfig config) implements ExecutorContext<E> {
+    private record RepositoryExecutorContext<E>(Class<E> rootEntity, Class<?> repositoryInterface,
+            EntityManager entityManager, ModelQueryConfig config) implements ExecutorContext<E> {
 
         @Override
         public EntityManagerFactory entityManagerFactory() {
