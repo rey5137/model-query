@@ -451,8 +451,8 @@ SourceQuery<CategoryNode> tree = QCategoryNode.source()
   joined walk `RECURSIVE`, `RECURSIVE_COMPOSITE_KEY` and the `maxRecursionDepth()` ceiling of R-SRC-08, checked as its
   chain registers; `PortabilityCheck` reports each per target (AC-SRC-47, AC-SRC-50).
 - **A row lock.** `withLock(...)` over a source, or on a query that joins one (R-SRC-21), is `MQ1903` before any
-  statement: the source's rows come from a common table expression, which a locking clause cannot follow. Q-16 stays
-  open.
+  statement: the source's rows come from a common table expression, which a locking clause cannot follow (kept for 1.0,
+  D-221).
 
 **R-SRC-12** The engine (`core`) builds the source's body, as a standard `CriteriaQuery<Tuple>` whose elements are the
 source's fields, aliased by the engine-given column name `mq_<property>` (`SourceQuery.columnName`, D-146: no field name

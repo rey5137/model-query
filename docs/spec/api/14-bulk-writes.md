@@ -932,7 +932,7 @@ plain upsert still runs.
   (`Expr.plus(COL, 1)`, `Expr.value(x)`, a raw value as an operand): it renders where the stored row is not in
   scope (an insert's `VALUES`) or repeats per row, and a column read would differ between the sites.
   `Expr.constant` binds nothing and is taken.
-  `? extends C` admits a `Long` `nextval` for a `Long` or `long` column only; a typed `nextval` is Q-16.
+  `? extends C` admits a `Long` `nextval` for a `Long` or `long` column only; a typed `nextval` is not in 1.0 (D-221).
 - An update writes the value in each row it writes, as the `BiFunction` form's expression renders, before the other
   assignments (R-WRT-13): chunked, each chunk's statement evaluates it per row, so the rows hold distinct values that
   increase across chunks. A conflict update writes it only for the rows the update writes, so a sequence advances only

@@ -410,7 +410,7 @@ user can push the `v0.8.0` tag.
 
 Spec: `docs/plan/litepos-gaps.md` §1 and §3 (M17), `api/10` (new `AC-COL` rows from AC-COL-29), `api/13` (new
 `AC-AGG` rows from AC-AGG-16), `api/14` (new `AC-WRT` rows from AC-WRT-41), CC-DOC-01 (every runnable snippet gets the
-Plain JPA and Spring tabs). Runs before the freeze, M34 (D-193), then M35 (D-197), then M36 (D-204), then M37 (D-213), which stays last. No API change; ships in 0.9.0 with M18–M22 (the
+Plain JPA and Spring tabs). Runs before the freeze, M34 (D-193), then M35 (D-197), then M36 (D-204), then M37 (D-213), then M38 (D-222), which stays last. No API change; ships in 0.9.0 with M18–M22 (the
 docs site still publishes from `main` as it merges). Model: none; the M17.1 cases may each fail, and a failing case is recorded as a gap
 in `litepos-gaps.md` and left out of M17.2's docs rather than fixed here.
 
@@ -581,7 +581,7 @@ R-VND-21, R-VND-22), `vendor/41` (the Tier-1 MySQL floor 8.0 → 8.0.31), the `j
 models" page; the comparison page's Reach row). The acceptance spike is done (`rfc/0013-spike-results.md`). Model: an
 `architect-review` at the gate (public API and generics of `SourceQuery`/`WindowField`, paging and export over sources,
 the `VendorProfile` and `SourceSupport` surface, INV-6 and INV-7). Every new public type and member is `@Incubating`.
-Ships in 0.10.0 with M26–M30 (D-145, D-148, D-176), before the freeze, M34 (D-193), then M35 (D-197), then M36 (D-204), then M37 (D-213), which stays last. Spec rows land with the slice that implements them; AC-SRC
+Ships in 0.10.0 with M26–M30 (D-145, D-148, D-176), before the freeze, M34 (D-193), then M35 (D-197), then M36 (D-204), then M37 (D-213), then M38 (D-222), which stays last. Spec rows land with the slice that implements them; AC-SRC
 and AC-PROC numbers are taken in slice order. The `spike/rfc-0013` branch (unpushed, `model-query-tck/.../tck/spike/`)
 is the reference for the Hibernate hooks.
 
@@ -793,7 +793,7 @@ Spec: D-184, `rfc/0019` (accepted as D-184). RFC 0019's Part A (compiled queries
 alone: a read with no fetch plan maps each tuple straight to
 its model in `DefaultModelQueryExecutor#mapAll`, without a `Loaded` and `Row` kept per row. Behaviour-identical: no
 public API, no `MQnnnn` code, no SQL snapshot change. Default tier; no `architect-review` (no public API, `INV-*` or
-module-boundary change). The freeze moved to M32 (D-184), then to M33 (D-185), then to M34 (D-193), then to M35 (D-197), then to M36 (D-204), then to M37 (D-213), and stays last.
+module-boundary change). The freeze moved to M32 (D-184), then to M33 (D-185), then to M34 (D-193), then to M35 (D-197), then to M36 (D-204), then to M37 (D-213), then to M38 (D-222), and stays last.
 
 | Slice | Content | Done when |
 |---|---|---|
@@ -884,7 +884,7 @@ returning a `core.EntityJoinRenderer` (R-VND-32); the Hibernate provider calls `
 looks up `on` reflectively, once per join. New codes `MQ1911`, `MQ1912`, `MQ3046`; `MQ4014` widened. Every new type,
 member and annotation member is `@Incubating`. Model: `architect-review` at the gate (public API, the `ProviderSupport`
 surface, paging correctness of an `INNER` entity join and of a filtered `ON` in every phase); M33.1 and M33.3 run at
-`opus` / `high`. Ships in 0.11.0 with M31 and M32; the freeze moves to M34 (then to M35, D-197, then to M36, D-204, then to M37, D-213) and stays last.
+`opus` / `high`. Ships in 0.11.0 with M31 and M32; the freeze moves to M34 (then to M35, D-197, then to M36, D-204, then to M37, D-213, then to M38, D-222) and stays last.
 
 | Slice | Content | Done when |
 |---|---|---|
@@ -918,7 +918,7 @@ is attached to, read from the statement's join record, and `@Aggregate#entityJoi
 `MQ1911`, `MQ1912`, `MQ3046` widened; the `MQ4015` gate narrows to source-anchored entity joins. Every new type, member
 and annotation member is `@Incubating`. Model: `architect-review` at the gate (INV-7 and INV-9, paging correctness of
 a column-anchored `INNER` join in every phase, the `QueryParam` public API); M34.1, M34.3 and M34.4 run at `opus` /
-`high`. Ships in 0.11.0 with M31 to M33; the freeze moves to M35 (then to M36, D-204, then to M37, D-213) and stays last.
+`high`. Ships in 0.11.0 with M31 to M33; the freeze moves to M35 (then to M36, D-204, then to M37, D-213, then to M38, D-222) and stays last.
 
 | Slice | Content | Done when |
 |---|---|---|
@@ -943,7 +943,7 @@ each group (R-FCH-05, R-EXE-13). Every declaration ends in `verifyMissing(all)` 
 `byKeys` and `one(q, key)` (D-207). New codes `MQ1708`, `MQ2215`, `MQ2607`, `MQ2608`; `MQ1512` narrowed to params no
 key group binds. Every new type and member is `@Incubating`. Model: `architect-review` at the gate (public API of
 `KeyGroups` and `GroupingRule`, INV-5 and INV-9, child-load correctness under D-138 and D-206); M35.1 and M35.2 run at
-`opus` / `high`. Ships in 0.12.0; the freeze moves to M36 (then to M37, D-213) and stays last. No SQL snapshot changes for a query or plan
+`opus` / `high`. Ships in 0.12.0; the freeze moves to M36 (then to M37, D-213, then to M38, D-222) and stays last. No SQL snapshot changes for a query or plan
 without key groups.
 
 | Slice | Content | Done when |
@@ -966,7 +966,7 @@ with a checked name map; `Row.scoped` stops at joined roots and never falls back
 takes the nested `SourceQuery`s (R-GEN-43); `MQ3044` narrowed, `MQ3039` walks nested joins. Part C: R-SRC-25 relaxed to chained
 column anchors, creation order `MQ1911`, `MQ1912`'s message names the join. Every new type and member is `@Incubating`. Model:
 `architect-review` at the gate (public API, INV-5 name-map failure, R-SRC-25); M36.1, M36.3, M36.5 and M36.6 run at `opus` / `high`.
-Ships in 0.13.0; the freeze moves to M37 and stays last.
+Ships in 0.13.0; the freeze moves to M37 (then to M38, D-222) and stays last.
 
 | Slice | Content | Done when |
 |---|---|---|
@@ -982,16 +982,40 @@ M36.2 follows M36.1; M36.4 follows M36.3 and M36.2; M36.5 follows M36.2; M36.6 f
 
 **Exit:** the M36 rows' criteria green on Tier 1 and both lines.
 
-## 37. M37 — Freeze → 1.0.0
+## 37. M37 — Portability from recorded calls → 0.14.0
+
+Spec: D-222 to D-224, `rfc/0025` (accepted as D-222 to D-224), `rfc/0025-spike-results.md`. Part A: a `COUNT` page's
+content statement (and an `INLINE_COUNT` fallback's) checked by a second `NO_COUNT` pass, `[count]` / `[content]` /
+`[keys]` / `[content+count]` lines. Part B: `CallRecorder`, `RecordedCall`, `PortabilityCheck.replay(...)` and
+`leaveOut(...)`; the Spring `ModelQueryExecutorDecorator` / `ExecutorContext`; `PortabilityCheck.of(PersistenceUnitInfo,
+config)`. Part C: child statements on placeholder keys, key groups as one round. Part D: the unversioned-target note
+and the logging docs. Every new type and member is `@Incubating`; INV-7 and D-139's allow-list gain two not-API `jpa`
+entries. Model: `architect-review` at the gate (public API, the Spring SPI, INV-7); M37.2, M37.3 and M37.5 run at
+`opus` / `high`. Ships in 0.14.0; the freeze moves to M38 and stays last.
+
+| Slice | Content | Done when |
+|---|---|---|
+| M37.0 | RFC review and acceptance spike (`rfc/0025-spike-results.md`) | Done: D-222 to D-224 |
+| M37.1 | Part A: the proxy executor's `NO_COUNT` pass, the `INLINE_COUNT` fallback entry on D-139's allow-list, the report's line labels, R-INS-11/12 and AC-INS-12 amended | AC-INS-13 green on both lines |
+| M37.2 | Part B core: `CallRecorder`, `RecordedCall` (function markers, call site, transaction state, dedup, bound, loud failures), `replay(...)`, `leaveOut(...)`, replay fidelity on the limits list | AC-INS-14 green on both lines (plain wrap) |
+| M37.3 | Part B Spring: `ModelQueryExecutorDecorator`, `ExecutorContext`, lazy ordered application in the fragment factory, `LAZY` bootstrap kept | AC-SPR-22 and AC-INS-14's repository case green |
+| M37.4 | `of(PersistenceUnitInfo, config)`, dropped-key listing, connection keys blanked (R-VND-20), Part D note and docs, the portability page | AC-INS-15, AC-INS-16 green; docs build |
+| M37.5 | Part C: placeholder keys by declared type, key-group run, refused parent walks no children, the engine entry on the allow-list, INV-7 wording, `CHANGELOG.md` 0.14.0 section | AC-INS-17 green on Tier 1 and both lines |
+
+M37.2 follows M37.1; M37.3 and M37.4 follow M37.2; M37.5 follows M37.1.
+
+**Exit:** the M37 rows' criteria green on Tier 1 and both lines.
+
+## 38. M38 — Freeze → 1.0.0
 
 Spec: D-85 (amended by D-106, D-116 and D-118), D-86, D-111, D-116, D-118. Starts only when the user says the D-111 adopter has migrated onto 0.5.0 or later
-and run it in production long enough. Model: `architect-review` at M37.1. Both slices are attended. Tagging `v1.0.0`
+and run it in production long enough. Model: `architect-review` at M38.1. Both slices are attended. Tagging `v1.0.0`
 is the user's step after the gate, never a slice's.
 
 | Slice | Contents | Done when |
 |---|---|---|
-| M37.1 | Freeze review: `architect-review` of every public type against D-85, placing the fetch-plan (`api/15`), inspection (`api/16`), M9, adoption, M10 insert and M11 entity-write and M12 selected-field, M13 field-index, M14 single-model and M15 insert-column and multi-key types frozen or `@Incubating`, with the adopter's production feedback; recorded as `D-n`. Review only, no code | every public type has a recorded placement |
-| M37.2 | Apply the freeze: `@Incubating` removed from the frozen types, `Filters` and `Having` `sealed` (D-85), `CHANGELOG.md` `1.0.0` section, docs site and stability page say 1.0.0, `M37` added to the audit's started scope | build and TCK green; `JapicmpExclusionsTest` green; AC audit green with M33 started |
+| M38.1 | Freeze review: `architect-review` of every public type against D-85, placing the fetch-plan (`api/15`), inspection (`api/16`), M9, adoption, M10 insert and M11 entity-write and M12 selected-field, M13 field-index, M14 single-model and M15 insert-column and multi-key types frozen or `@Incubating`, with the adopter's production feedback; recorded as `D-n`. Review only, no code | every public type has a recorded placement |
+| M38.2 | Apply the freeze: `@Incubating` removed from the frozen types, `Filters` and `Having` `sealed` (D-85), `CHANGELOG.md` `1.0.0` section, docs site and stability page say 1.0.0, `M38` added to the audit's started scope | build and TCK green; `JapicmpExclusionsTest` green; AC audit green with M33 started |
 
-**Exit:** the M37 rows' criteria green on Tier 1 and the freeze applied per D-85 and the M37.1 decision, so the user can
+**Exit:** the M38 rows' criteria green on Tier 1 and the freeze applied per D-85 and the M38.1 decision, so the user can
 push the `v1.0.0` tag.
