@@ -141,8 +141,8 @@ final class QModelWriter {
         }
         List<JoinedTable> joined = writeOnly ? List.of() : nestedModels.tables(model);
         for (JoinedTable table : joined) {
-            if (!table.isEntityJoin()) {
-                type.addField(joinedTable(table));
+            if (!table.throughEntityJoin()) {
+                type.addField(joinedTable(table, joined));
             }
         }
         FilterLayout filters = FilterLayout.of(model, joined, metamodel);
@@ -186,7 +186,7 @@ final class QModelWriter {
             }
         }
         for (JoinedTable table : joined) {
-            if (table.isEntityJoin()) {
+            if (table.throughEntityJoin()) {
                 continue;
             }
             joinedConstants(type, modelName, table);
@@ -217,15 +217,10 @@ final class QModelWriter {
             }
         }
         for (JoinedTable table : joined) {
-            if (table.isEntityJoin()) {
-                type.addField(joinedTable(table));
+            if (table.throughEntityJoin()) {
+                type.addField(joinedTable(table, joined));
+                joinedConstants(type, modelName, table);
             }
-        }
-        for (JoinedTable table : joined) {
-            if (!table.isEntityJoin()) {
-                continue;
-            }
-            joinedConstants(type, modelName, table);
         }
         // A scope per @Join field whose nested model has joins of its own, after the joins it maps (R-GEN-43).
         for (ModelField field : joined.stream().map(JoinedTable::join).distinct().toList()) {
@@ -1313,19 +1308,26 @@ final class QModelWriter {
      * A {@code @Join} of the model itself, or a join of its nested model moved under one, which keeps the property
      * the nested model's QModel names it by (R-GEN-13, R-GEN-14).
      */
-    private FieldSpec joinedTable(JoinedTable table) {
-        ClassName nested = generatedName(table.nested());
+    private FieldSpec joinedTable(JoinedTable table, List<JoinedTable> joined) {
         ClassName parentEntity = ClassName.get(table.parentEntity());
         ClassName entity = ClassName.get(table.entity());
         JoinDefinition join = table.declaration().join();
-        if (table.parent() == null && !join.entityJoin().isEmpty()) {
-            String entityJoin = QueryModelReader.constantName(join.entityJoin());
+        if (!join.entityJoin().isEmpty()) {
+            ModelDefinition nestedModel = nestedModels.of(table.declaration());
+            ClassName nested = generatedName(nestedModel);
+            String entityJoin = table.parent() == null
+                    ? QueryModelReader.constantName(join.entityJoin())
+                    : NestedJoins.of(parentTable(table, joined), nestedModels).stream()
+                            .filter(each -> each.declared().equals(join.entityJoin()))
+                            .findFirst().orElseThrow()
+                            .constant();
             return FieldSpec.builder(ParameterizedTypeName.get(TABLE_FIELD, entity, entity),
                             table.table(), CONSTANT)
                     .initializer("$L.root().named($S).presentBy($T.KEY)",
                             entityJoin, table.declaration().name(), nested)
                     .build();
         }
+        ClassName nested = generatedName(table.nested());
         TypeElement target = (TypeElement) metamodel.resolve(table.parentEntity(), join.attribute())
                 .attribute().target().asElement();
         boolean downcast = metamodel.strictEntitySubtype(table.entity().asType(), target);
@@ -1357,6 +1359,13 @@ final class QModelWriter {
             initializer.add("$Z.named($S)", table.declaration().name());
         }
         return constant.initializer(initializer.build()).build();
+    }
+
+    private static JoinedTable parentTable(JoinedTable table, List<JoinedTable> joined) {
+        return joined.stream()
+                .filter(each -> each.prefix().equals(table.parent()))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("Parent table not found for " + table.table()));
     }
 
     /**

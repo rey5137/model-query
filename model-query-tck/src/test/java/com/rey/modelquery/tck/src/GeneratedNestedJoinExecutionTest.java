@@ -293,6 +293,55 @@ class GeneratedNestedJoinExecutionTest {
                 .joined(statement)).as(statement).containsExactly("customers", "labels", "source"));
     }
 
+    @TckTest
+    void ac_gen_50_an_entity_join_below_a_join_reads_through_its_scope(TckDatabase db) throws SQLException {
+        var query = QOrderWithNestedEntityJoin.query()
+                .select(SelectSet.of(
+                        QOrderWithNestedEntityJoin.ID,
+                        QOrderWithNestedEntityJoin.REFERRER_ID,
+                        QOrderWithNestedEntityJoin.CUSTOMER_ID,
+                        QOrderWithNestedEntityJoin.CUSTOMER_NAME,
+                        QOrderWithNestedEntityJoin.CUSTOMER_LABEL_ID,
+                        QOrderWithNestedEntityJoin.CUSTOMER_LABEL_NAME,
+                        QOrderWithNestedEntityJoin.REFERRED_ID,
+                        QOrderWithNestedEntityJoin.REFERRED_NAME,
+                        QOrderWithNestedEntityJoin.REFERRED_LABEL_ID,
+                        QOrderWithNestedEntityJoin.REFERRED_LABEL_NAME))
+                .where(f -> f.in(QOrderWithNestedEntityJoin.ID, SAMPLE))
+                .orderBy(QOrderWithNestedEntityJoin.ID.asc())
+                .build();
+        List<OrderWithNestedEntityJoin> rows = new ArrayList<>();
+        orders(db, x -> rows.addAll(x.list(query, Limit.unlimited())));
+
+        // Both levels present
+        assertThat(rows).anySatisfy(o -> assertThat(o.referred())
+                .hasValueSatisfying(r -> assertThat(r.label()).isPresent()));
+        // Inner missing (LEFT join miss in DB -> Optional.empty())
+        assertThat(rows).anySatisfy(o -> assertThat(o.referred())
+                .hasValueSatisfying(r -> assertThat(r.label()).isEmpty()));
+        // Outer missing
+        assertThat(rows).anySatisfy(o -> assertThat(o.referred()).isEmpty());
+
+        assertThat(rows.stream().map(o -> SourceJoinExecutionTest.text(
+                o.id(), o.referrerId(),
+                o.customer().map(BuyerWithLabel::id).orElse(null),
+                o.customer().map(BuyerWithLabel::name).orElse(null),
+                o.customer().flatMap(BuyerWithLabel::label).map(LabelSummary::id).orElse(null),
+                o.customer().flatMap(BuyerWithLabel::label).map(LabelSummary::name).orElse(null),
+                o.referred().map(BuyerWithLabel::id).orElse(null),
+                o.referred().map(BuyerWithLabel::name).orElse(null),
+                o.referred().flatMap(BuyerWithLabel::label).map(LabelSummary::id).orElse(null),
+                o.referred().flatMap(BuyerWithLabel::label).map(LabelSummary::name).orElse(null))))
+                .containsExactlyElementsOf(SourceJoinExecutionTest.rows(db, """
+                        select o.id, o.referrer_id, c.id, c.name, cl.id, cl.name,
+                            r.id, r.name, rl.id, rl.name from orders o
+                        left join customers c on c.id = o.customer_id
+                        left join labels cl on cl.id = c.id
+                        left join customers r on r.id = o.referrer_id
+                        left join labels rl on rl.id = r.id
+                        where o.id in (1, 2, 3, 273, 546, 819, 946, 973) order by o.id"""));
+    }
+
     private static void orders(TckDatabase db, Consumer<ModelQueryExecutor<OrderEntity>> work) {
         SqlSnapshots.capture(db, ds -> {
             try (SessionFactory sf = JoinTestSupport.sessionFactory(ds)) {

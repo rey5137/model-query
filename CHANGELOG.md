@@ -4,6 +4,18 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html); the public API may change in any `0.x`
 release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
+## [0.14.1] - 2026-11-17
+
+### Fixed
+
+- A `@Join(entityJoin)` inside a model that was itself nested under a `@Join` crashed compilation with a
+  `NullPointerException` in `QModelWriter.joinedTable`: it is now generated as `<P>_<FIELD>_TABLE =
+  <P>_<JOIN>.root().named(...).presentBy(Q<Nested>.KEY)`, declared after `<P>_<JOIN>` and its parent's joined
+  constants in depth-first order, and mapped through `row.scoped(<P>_SCOPE)` (R-GEN-43, D-227).
+- A nested `@Join(entityJoin)` field whose name matched its entity join was wrongly refused with
+  `MQ3015: constant <P>_<JOIN> is also generated for join '<join>' of <parent>`: its `SelectSet` constant now takes
+  the `_SET` suffix (`<P>_<JOIN>_SET`) as at top level, avoiding collision with the entity join constant (D-227).
+
 ## [0.14.0] - 2026-11-12
 
 0.14.0 covers milestone M37 (RFC 0025, D-222 to D-226): the portability check sees more than a call's first

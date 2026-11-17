@@ -80,7 +80,7 @@ field. It is in the default sets, and the mapper reads a `Class` through that co
 requires no additional nullness handling (`R-GEN-36`). The key, mapper, query builder and source otherwise keep their
 existing shape (D-154).
 
-**R-GEN-43** *(D-214, D-215, D-216, D-217, D-218, `@Incubating`)* **Nested joins are registered under the `@Join`
+**R-GEN-43** *(D-214, D-215, D-216, D-217, D-218, D-227, `@Incubating`)* **Nested joins are registered under the `@Join`
 prefix.** A nested model's own `@JoinSource` and `@JoinEntity` are declared again by every model that nests it under a
 `@Join` over an association, at any depth, as fresh constants (INV-9); both are also declared under a
 `@Join(entityJoin)` naming a column-anchored join (R-PROC-48 rule 5, D-218), anchored on the entity join's columns
@@ -105,7 +105,10 @@ member is `@Incubating`. A re-rooted anchor renders as the FK column, so a dangl
 entity row for filters, sorts and groups on the prefixed column while the nested read is empty (the FK-anchor note,
 `docs/site/docs/models.md`). Under a `@Join(entityJoin)` naming a source-anchored join, nested joins are refused
 (`MQ3044`, R-PROC-48 rule 5, D-217, D-218); a nested source under a column-anchored one is bound in `query(...)` before
-the entity joins like any other, and every statement still creates it after them (`api/17` R-SRC-24 phase 3).
+the entity joins like any other, and every statement still creates it after them (`api/17` R-SRC-24 phase 3). A nested
+`@Join(entityJoin)` is generated as `<P>_<FIELD>_TABLE = <P>_<JOIN>.root().named(...).presentBy(Q<Nested>.KEY)`,
+declared after `<P>_<JOIN>` and its parent's joined constants in depth-first order, and its select set takes `_SET`
+when it would equal the join constant, as at top level (D-227).
 
 **R-GEN-04** A joined `SelectSet` is derived from the nested model (`CustomerView`), so a column added to
 `CustomerView` appears in `QOrderView.CUSTOMER` with no list to update by hand. The processor reads the nested model's
@@ -605,3 +608,5 @@ no mapper or write method (R-GEN-37); the two vocabularies are checked at `build
 | AC-GEN-47 | Entity joins anchored on joins declared before them, through a model column, a to-one `@FilterColumn(entityJoin)` path and a chain of three, generate each join's columns before the next join and register them in declaration order; a nested model's own `@JoinEntity` under `@Join(entityJoin)` (`INNER` under `INNER` included) generates `P_<JOIN>` anchored on the entity join's columns after it. On H2, PostgreSQL and MySQL both match native SQL, with `count` equal to the rows (R-PROC-46, R-PROC-48 rule 5, R-GEN-43, D-215). Tested by `EntityJoinChecksTest.ac_proc_60_an_anchor_on_an_earlier_entity_join_*`, `ac_proc_60_an_inner_join_on_an_inner_join_generates`, `NestedJoinModelTest.ac_gen_47_*` and `GeneratedEntityJoinExecutionTest.ac_gen_47_*`. |
 | AC-GEN-48 | A nested model whose second entity join reads its first is registered under the `@Join` prefix in that order, each join followed by its columns, and executes equal to native SQL (R-GEN-43, D-215, D-216). Tested by `NestedJoinModelTest.ac_gen_48_*` and `GeneratedNestedJoinExecutionTest.ac_gen_48_*`. |
 | AC-GEN-49 | A nested `@JoinSource` under a `@Join(entityJoin)` naming a column-anchored join generates `P_<JOIN> = SourceJoin.of(...)` over `ColumnField.of(Outer.class, P_TABLE, ...)` `.within(P_TABLE)` after the entity join and its table, its columns from `P_<JOIN>.root()`, a `.source(...)` pair in `P_SCOPE`, and a `query(...)` parameter in D-214's order; the generated model reads the native SQL's rows in content, count, keyset pages and export, every statement creating the source after the entity join and its own entity join (R-GEN-43, R-PROC-48, D-218). Tested by `NestedJoinModelTest.ac_proc_61_ac_gen_49_*` and `GeneratedNestedJoinExecutionTest.ac_gen_49_*`. |
+| AC-GEN-50 | A nested model's own `@Join(entityJoin)` under a `@Join` (over an entity join or an attribute join, at any depth) generates `<P>_<FIELD>_TABLE = <P>_<JOIN>.root().named(...).presentBy(Q<Nested>.KEY)` declared after `<P>_<JOIN>` and its parent's joined constants in depth-first order, and mapped through `row.scoped(<P>_SCOPE)` with `.entity(...)` in depth-first order; at runtime on H2, PostgreSQL and MySQL, rows with both levels present, inner missing and outer missing read equal to native SQL (R-GEN-43, D-227). Tested by `EntityJoinBelowJoinModelTest.ac_gen_50_*` (`ac_gen_50_an_entity_join_below_an_entity_join_is_generated_on_its_root`, `ac_gen_50_an_entity_join_below_an_attribute_join_is_generated_on_its_root`, `ac_gen_50_three_levels_of_entity_joins_are_generated_in_declaration_order`) and `GeneratedNestedJoinExecutionTest.ac_gen_50_an_entity_join_below_a_join_reads_through_its_scope`. |
+| AC-GEN-51 | A nested `@Join(entityJoin)` field named like its entity join generates its `SelectSet` constant suffixed with `_SET` (`<P>_<JOIN>_SET`) without colliding with the entity join constant `<P>_<JOIN>` or raising `MQ3015` (R-GEN-43, D-227). Tested by `EntityJoinBelowJoinModelTest.ac_gen_51_a_nested_field_named_like_its_entity_join_generates_set_constant_without_collision`. |

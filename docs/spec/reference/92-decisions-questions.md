@@ -3310,6 +3310,14 @@ refusal, no reroute): when the unbound param is one such groups bind, the messag
 
 **D-226 — M37 gate: recorder value shapes (2026-11-12, user decision).** `RecordedCall.times()` is a `long`, summed with `Math.addExact` in the recorder and in the collapse of identical result lines: an overflow in the recorder counts as a recording failure, one in the collapse sum throws `ArithmeticException` out of the check. `RecordedCall.inTransaction()` returns the `@Incubating` enum `TransactionState { IN, OUTSIDE, UNKNOWN }` instead of `Optional<Boolean>`, so "unknown" cannot read as "outside"; the dedup key and replay use it. `CallRecorder.create(int)` throws `IllegalArgumentException`, not `AssertionError`, for a negative bound, like the rest of the API. `of(PersistenceUnitInfo, ...)` also fails as a setup problem when a unit's `getManagedPackages()` cannot be read or returns a non-collection (A2). Rejected: an `int` that saturates, `Optional<Boolean>` kept, `AssertionError` kept. → `api/16` R-INS-14, R-INS-16.
 
+**D-227 — Nested entity-join @Join supported rather than rejected (0.14.1 fix, 2026-11-17, user decision).** A
+`@Join(entityJoin)` inside a model that is itself nested under a `@Join` (over an entity join or an attribute join, at
+any depth) is generated as `<P>_<FIELD>_TABLE = <P>_<JOIN>.root().named(...).presentBy(Q<Nested>.KEY)`, declared after
+`<P>_<JOIN>` and its parent's joined constants in depth-first order, and mapped through `row.scoped(<P>_SCOPE)`. When
+the nested field's name collides with its entity join, its `SelectSet` constant is suffixed with `_SET`
+(`<P>_<JOIN>_SET`) without clashing on `<P>_<JOIN>` or raising `MQ3015`. Rejected alternative: an MQ error in
+`NestedJoinChecks` refusing nested `@Join(entityJoin)`. → `processor/31` R-GEN-43, AC-GEN-50, AC-GEN-51.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
