@@ -26,6 +26,8 @@ model-query/
 │                                    null precedence                              (jpa + hibernate-core, optional)
 ├── model-query-portability/         portability dry run: offline factory per target vendor, recording stub
 │                                    DataSource; add in test scope (the consumer's POM decides) (jpa only)
+├── model-query-select-audit/        select audit agent and observer: call-site capture, tagging,
+│                                    unselected-read detection (jpa only, Byte Buddy shaded)
 ├── model-query-processor/           annotation processor                          (annotations, JavaPoet shaded)
 ├── model-query-spring-data/         ModelQueryRepository + factory, Page/Pageable/Sort adapters
 ├── model-query-spring-boot-starter/ auto-configuration, properties, SPI beans
@@ -62,6 +64,15 @@ source tree ships in 0.1 and CI builds it (D-76); it is published to GitHub Page
   (allow-listed in the INV-7 rule, D-139), so it is released and resolved at `model-query-jpa`'s exact version, through
   the BOM. It is meant for test scope, which only
   the consumer's POM can set: INV-7 cannot enforce it.
+- `select-audit` depends on `jpa` only: jakarta types, the JDK, the public types of `jpa`, `core` and
+  `annotations`, including `core`'s `@EngineFacing` members (D-234), and Byte Buddy (shaded and relocated
+  into the agent jar); never `org.hibernate`, `org.springframework`
+  or `org.assertj`, nor the `hibernate`, `spring`, `test` or `processor` modules; no production module depends on it
+  (D-230). The TCK has a test dependency for reactor ordering, excluded from its test runtime so the audit listener
+  does not run there.
+  It implements exactly one not-API `jpa.vendor` service type, `HandOffObserver`, registered through
+  `META-INF/services`, and is released and resolved at `model-query-jpa`'s exact version, through the BOM. It is meant
+  for test scope, which only the consumer's POM can set: INV-7 cannot enforce it.
 - No Lombok in anything the library ships. The processor's tests alone take it, in `test` scope, to compile models
   beside it (D-40). Consumers may use Lombok on their models (`processor/31` R-GEN-10).
 

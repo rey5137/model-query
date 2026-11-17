@@ -3326,12 +3326,16 @@ full, generated Q classes counting as library frames. → `rfc/0026`, `api/16` R
 
 **D-229 — The audit reads a model's properties from `Q<M>.fields()` (RFC 0026 Part A, 2026-11-17, user decision).**
 No generated property table: the audit reads `Q<M>.fields()`, found through `MAPPER`'s nest host, and fails loudly
-when it cannot. A `@Join` field's selection follows its presence key; a `@Child` field's follows the fetch plan.
+when a generated Q's mapper has unreadable `fields()` (hand-written mappers follow D-233). A `@Join` follows its
+presence key; a `@Child` field's follows the fetch plan.
 → `rfc/0026`, `api/16` R-INS-18.
 
 **D-230 — `model-query-select-audit` is its own INV-7 clause; a missing agent fails the session (RFC 0026 Part D,
 2026-11-17, user decision).** The module depends on `jpa` only and implements one not-API `jpa.vendor` service type
-at `jpa`'s exact version; no module depends on it. It is a separate INV-7 clause, not an entry in D-139's allow-list.
+at `jpa`'s exact version; it may also use `core`'s `@EngineFacing` members (D-234); no production module depends
+on it. The TCK takes a test dependency to order its architecture checks after the audit is built, excluding the
+audit from its test runtime so its session listener stays absent. It is a separate INV-7 clause, not an entry
+in D-139's allow-list.
 A missing agent fails the JUnit session when it opens; outside JUnit the observer warns once and does nothing. No
 `MQ` code. → `rfc/0026`, `SPEC.md` INV-7, `api/16` R-INS-22.
 
@@ -3350,6 +3354,35 @@ is listed in the report as not observed. A read through an inherited getter of a
 warning, never a failure, since the base class may set the field itself. Rejected: hooking a class when its first
 instance is tagged (lost on a later re-instrument, and the JDK 17/21 defect on records) with a redefine fallback
 (fails under a coverage agent). → `rfc/0026` Part B and Spike results, `api/16` R-INS-19.
+
+**D-233 — Hand-written mappers are outside select auditing (M38.2 review, 2026-11-17, user decision).** A query
+whose mapper's nest host is not a generated Q class returns its models without tags or read auditing, whether
+the model is annotated, bound or plain. Log one `WARNING` per model class, naming it; never throw for such a
+mapper, even when the model's class file is unreadable. A generated Q's mapper whose `fields()` cannot be read
+still fails loudly. Cache the verdict per mapper nest host and model class; do not inspect model annotations or
+parse a model class file to classify its mapper. → `api/16` R-INS-18.
+
+**D-234 — The audit uses two engine-facing core accessors (M38.2 review, 2026-11-17, user decision).** Retain
+`ModelQuery.mapper()` and expose `TableField.presenceKey()` as `@EngineFacing`, outside application API. Existing
+members do not expose either value: the mapper's nest host is the binding-safe route to Q, and the presence key
+is the join-selection rule. The select-audit INV-7 clause permits these core engine-facing members. Nested
+metadata comes from the parent's `fields()` property paths and its table constants, matching presence-key
+columns re-rooted with the existing `ColumnField.withTable`; no Q name is inferred. Metadata is keyed by Q class,
+model class and property path. → `api/10`, `api/11`, `api/16` R-INS-18, `SPEC.md` INV-7, `delivery/61`.
+
+**D-235 — Executor call scopes bound audit state (M38.2 review, 2026-11-17).** The not-API observer has an
+`openCall()` scope, closed by the executor in all success and failure paths. Opening the outermost scope captures
+the stack once. Nested calls share its capture; the stream mapping lambda carries the scope and enters it on
+whichever thread maps a row, restoring that thread's previous context afterwards. Stream rows and export pages
+reuse tags for the same query, model path and actual selection bits, including engine-added keys. Different row
+selections within the same scope get different tags, including nested invocations of the same query. Shared call
+state is safe for parallel mapping and is released when the scope closes; no global selection-bit cache is used.
+→ `api/16` R-INS-18.
+
+**D-236 — Audit metadata caches permit class unloading (M38.2 review, 2026-11-18).** Cache mapper verdicts
+with a `ClassValue` on the mapper nest host and a nested `ClassValue` on the model class. Nested property metadata
+uses a model-class `ClassValue` and property-path map on its parent metadata. Remember hand-written mapper warnings
+by model class name, without retaining the class or its loader. → `api/16` R-INS-18.
 
 ## 2. Open questions
 

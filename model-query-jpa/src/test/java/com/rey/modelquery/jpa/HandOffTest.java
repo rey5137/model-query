@@ -226,6 +226,45 @@ class HandOffTest {
     }
 
     @Test
+    void r_ins_18_parallel_stream_hands_off_inside_the_carried_call_scope() {
+        List<Item> result = new ArrayList<>();
+        List<HandOff> handOffs = Recording.recording(() -> withExecutor(executor -> executor.stream(ITEMS,
+                Limit.unlimited(), models -> {
+                    var pool = new java.util.concurrent.ForkJoinPool(2);
+                    try {
+                        result.addAll(pool.submit(() -> models.parallel().toList())
+                                .get(10, java.util.concurrent.TimeUnit.SECONDS));
+                        // Blocking both tasks at the barrier forces a check on each pool worker.
+                        var barrier = new java.util.concurrent.CyclicBarrier(pool.getParallelism());
+                        List<java.util.concurrent.ForkJoinTask<?>> checks = new ArrayList<>();
+                        for (int i = 0; i < pool.getParallelism(); i++) {
+                            checks.add(pool.submit(() -> {
+                                barrier.await(10, java.util.concurrent.TimeUnit.SECONDS);
+                                assertThat(Recording.DEPTH.get()).as("worker scope restored").isZero();
+                                assertThat(Recording.ARMED.get()).as("worker recording restored").isNull();
+                                return null;
+                            }));
+                        }
+                        for (var check : checks) {
+                            check.get(10, java.util.concurrent.TimeUnit.SECONDS);
+                        }
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    } finally {
+                        pool.shutdownNow();
+                    }
+                    return null;
+                })));
+        assertThat(result).hasSize(3);
+        assertThat(handOffs).hasSize(3);
+        assertThat(handOffs).allSatisfy(handOff -> assertThat(handOff.models()).hasSize(1));
+        // Worker hand-offs finish in any order; compare every returned instance and its row by key.
+        assertHandedOff("parallel stream", handOffs.stream().sorted(java.util.Comparator.comparingLong(
+                handOff -> ((Item) handOff.models().get(0)).id())).toList(),
+                result.stream().sorted(java.util.Comparator.comparingLong(Item::id)).toList());
+    }
+
+    @Test
     void r_ins_18_a_fetch_plan_hands_off_its_with_copies_and_enricher_instances_and_children_from_their_own_rows() {
         List<Parent> result = new ArrayList<>();
         List<HandOff> handOffs = Recording.recording(() -> withExecutor(executor -> result.addAll(executor.list(
@@ -330,6 +369,7 @@ class HandOffTest {
 
         static volatile List<StackTraceElement> constructedAt;
 
+        private static final ThreadLocal<Integer> DEPTH = ThreadLocal.withInitial(() -> 0);
         private static final ThreadLocal<List<HandOff>> ARMED = new ThreadLocal<>();
 
         public Recording() {
@@ -337,10 +377,39 @@ class HandOffTest {
         }
 
         @Override
+        public Scope openCall() {
+            DEPTH.set(DEPTH.get() + 1);
+            List<HandOff> armed = ARMED.get();
+            return new Scope() {
+                @Override
+                public Scope enter() {
+                    int previousDepth = DEPTH.get();
+                    List<HandOff> previousArmed = ARMED.get();
+                    DEPTH.set(previousDepth + 1);
+                    ARMED.set(armed);
+                    return () -> {
+                        DEPTH.set(previousDepth);
+                        if (previousArmed == null) {
+                            ARMED.remove();
+                        } else {
+                            ARMED.set(previousArmed);
+                        }
+                    };
+                }
+
+                @Override
+                public void close() {
+                    DEPTH.set(DEPTH.get() - 1);
+                }
+            };
+        }
+
+        @Override
         public void handedOff(ModelQuery<?, ?, ?> query, Optional<ChildLoad<?, ?>> child, List<?> models,
                 List<Row> rows) {
             List<HandOff> armed = ARMED.get();
             if (armed != null) {
+                assertThat(DEPTH.get()).as("hand-off inside executor call scope").isPositive();
                 armed.add(new HandOff(query, child, new ArrayList<>(models), new ArrayList<>(rows)));
             }
         }
@@ -352,12 +421,14 @@ class HandOffTest {
 
         /** The hand-offs {@code work} made on this thread, in order. */
         static List<HandOff> recording(Runnable work) {
-            List<HandOff> handOffs = new ArrayList<>();
+            List<HandOff> handOffs = java.util.Collections.synchronizedList(new ArrayList<>());
             ARMED.set(handOffs);
             try {
                 work.run();
             } finally {
                 ARMED.remove();
+                assertThat(DEPTH.get()).as("executor scope released").isZero();
+                DEPTH.remove();
             }
             return handOffs;
         }

@@ -147,7 +147,33 @@ class LayeringTest {
                 F + "test.BadTestModuleEdge",
                 F + "jpa.GoodJpa",
                 F + "jpa.BadJpaPortability",
-                F + "portability.GoodPortability");
+                F + "portability.GoodPortability",
+                F + "jpa.BadJpaAudit",
+                F + "audit.GoodAudit");
+    }
+
+    @Test
+    void ac_rel_03_audit_obeys_its_inv_7_clause() {
+        // Import the reactor output without putting the audit's session listener on the TCK runtime classpath.
+        java.nio.file.Path classes = java.nio.file.Path.of("../model-query-select-audit/target/classes");
+        org.assertj.core.api.Assertions.assertThat(classes).as("audit reactor classes directory").isDirectory();
+        JavaClasses audit = new ClassFileImporter().importPath(classes);
+        org.assertj.core.api.Assertions.assertThat(audit.contain("com.rey.modelquery.audit.AuditObserver"))
+                .as("audit reactor classes must include AuditObserver; missing or empty input fails").isTrue();
+        assertThatCode(() -> REAL_RULES.auditDependsOnlyOnJpa().check(audit)).doesNotThrowAnyException();
+        assertThatCode(() -> BAD_RULES.auditDependsOnlyOnJpa().check(BAD))
+                .isInstanceOf(AssertionError.class)
+                .hasMessageContainingAll(
+                        F + "audit.BadAuditImports",
+                        "org.hibernate.Session",
+                        "org.assertj.core.api.Assertions",
+                        F + "hibernate.BadSpringImport",
+                        F + "audit.BadAuditNonPublicJpa",
+                        F + "jpa.JpaWithProtectedPart$Part",
+                        F + "audit.BadAuditVendorMembers",
+                        F + "jpa.vendor.VendorResolver");
+        assertThatCode(() -> BAD_RULES.auditDependsOnlyOnJpa().check(BAD))
+                .hasMessageNotContaining(F + "audit.GoodAudit");
     }
 
     @Test

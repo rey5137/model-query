@@ -463,7 +463,8 @@ public final class TableField<P, T> {
     }
 
     /** The key named by {@link #presentBy}, or {@code null}. */
-    PrimaryKey<?, ?> presenceKey() {
+    @EngineFacing
+    public PrimaryKey<?, ?> presenceKey() {
         return presenceKey;
     }
 

@@ -503,6 +503,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
 
     @Override
     public <M> List<M> list(ModelQuery<E, ?, M> q, Limit limit) {
+        try (HandOffObserver.Scope scope = HandOffObserver.installed().openCall()) {
+            return listInCall(q, limit);
+        }
+    }
+
+    private <M> List<M> listInCall(ModelQuery<E, ?, M> q, Limit limit) {
         Objects.requireNonNull(q, "q");
         Objects.requireNonNull(limit, "limit");
         refuseKeyGroups(q, "list(query, limit)");
@@ -540,6 +546,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
 
     @Override
     public <M> Optional<M> one(ModelQuery<E, ?, M> q) {
+        try (HandOffObserver.Scope scope = HandOffObserver.installed().openCall()) {
+            return oneInCall(q);
+        }
+    }
+
+    private <M> Optional<M> oneInCall(ModelQuery<E, ?, M> q) {
         Objects.requireNonNull(q, "q");
         refuseKeyGroups(q, "one(query)");
         checkFirstRun(q);
@@ -560,6 +572,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
 
     @Override
     public <M> Optional<M> first(ModelQuery<E, ?, M> q) {
+        try (HandOffObserver.Scope scope = HandOffObserver.installed().openCall()) {
+            return firstInCall(q);
+        }
+    }
+
+    private <M> Optional<M> firstInCall(ModelQuery<E, ?, M> q) {
         Objects.requireNonNull(q, "q");
         refuseKeyGroups(q, "first(query)");
         checkFirstRun(q);
@@ -593,6 +611,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
 
     @Override
     public <K, M> Optional<M> one(ModelQuery<E, K, M> q, K key) {
+        try (HandOffObserver.Scope scope = HandOffObserver.installed().openCall()) {
+            return oneInCall(q, key);
+        }
+    }
+
+    private <K, M> Optional<M> oneInCall(ModelQuery<E, K, M> q, K key) {
         Objects.requireNonNull(q, "q");
         if (key == null) {
             throw new IllegalArgumentException(q + ": one(query, key) needs a key, and it is null");
@@ -743,6 +767,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
 
     @Override
     public <K, M> Map<K, M> byKeys(ModelQuery<E, K, M> q, Collection<? extends K> keys) {
+        try (HandOffObserver.Scope scope = HandOffObserver.installed().openCall()) {
+            return byKeysInCall(q, keys);
+        }
+    }
+
+    private <K, M> Map<K, M> byKeysInCall(ModelQuery<E, K, M> q, Collection<? extends K> keys) {
         Objects.requireNonNull(q, "q");
         Objects.requireNonNull(keys, "keys");
         checkFirstRun(q);
@@ -1176,6 +1206,13 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
 
     @Override
     public <M, R> R stream(ModelQuery<E, ?, M> q, Limit limit, Function<Stream<M>, R> body) {
+        try (HandOffObserver.Scope scope = HandOffObserver.installed().openCall()) {
+            return streamInCall(q, limit, body, scope);
+        }
+    }
+
+    private <M, R> R streamInCall(ModelQuery<E, ?, M> q, Limit limit, Function<Stream<M>, R> body,
+            HandOffObserver.Scope scope) {
         Objects.requireNonNull(q, "q");
         Objects.requireNonNull(limit, "limit");
         Objects.requireNonNull(body, "body");
@@ -1214,10 +1251,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
         // handed off as it is mapped, before body sees it (R-INS-18).
         BuiltQuery<M> mapping = built;
         Function<Tuple, M> map = !observing() ? built::map : tuple -> {
-            Row row = mapping.selection().row(tuple);
-            M model = mapping.map(row);
-            handOff(q, null, Collections.singletonList(model), List.of(new Loaded<>(model, row)));
-            return model;
+            try (HandOffObserver.Scope entered = scope.enter()) {
+                Row row = mapping.selection().row(tuple);
+                M model = mapping.map(row);
+                handOff(q, null, Collections.singletonList(model), List.of(new Loaded<>(model, row)));
+                return model;
+            }
         };
         try (Stream<Tuple> tuples = resultStream(q, built, query, fetchSize);
                 Stream<M> models = tuples.map(map)) {
@@ -1543,6 +1582,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
 
     @Override
     public <M> Slice<M> page(ModelQuery<E, ?, M> q, PageSpec page, CountMode mode) {
+        try (HandOffObserver.Scope scope = HandOffObserver.installed().openCall()) {
+            return pageInCall(q, page, mode);
+        }
+    }
+
+    private <M> Slice<M> pageInCall(ModelQuery<E, ?, M> q, PageSpec page, CountMode mode) {
         Objects.requireNonNull(q, "q");
         Objects.requireNonNull(page, "page");
         Objects.requireNonNull(mode, "mode");
@@ -1667,6 +1712,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
 
     @Override
     public <M> KeysetSlice<M> page(ModelQuery<E, ?, M> q, KeysetSpec keyset) {
+        try (HandOffObserver.Scope scope = HandOffObserver.installed().openCall()) {
+            return pageInCall(q, keyset);
+        }
+    }
+
+    private <M> KeysetSlice<M> pageInCall(ModelQuery<E, ?, M> q, KeysetSpec keyset) {
         Objects.requireNonNull(q, "q");
         Objects.requireNonNull(keyset, "keyset");
         refuseKeyGroups(q, "page(query, KeysetSpec)");
@@ -1795,6 +1846,13 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
     @Override
     public <M, S> long export(ModelQuery<E, ?, M> q, ExportOptions options,
             Function<List<M>, List<S>> pageTransformer, Consumer<S> sink) {
+        try (HandOffObserver.Scope scope = HandOffObserver.installed().openCall()) {
+            return exportInCall(q, options, pageTransformer, sink);
+        }
+    }
+
+    private <M, S> long exportInCall(ModelQuery<E, ?, M> q, ExportOptions options,
+            Function<List<M>, List<S>> pageTransformer, Consumer<S> sink) {
         Objects.requireNonNull(q, "q");
         Objects.requireNonNull(options, "options");
         Objects.requireNonNull(pageTransformer, "pageTransformer");
@@ -1838,6 +1896,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
 
     @Override
     public <R> List<R> updateReturning(ModelUpdate<E, ?> u, ModelQuery<E, ?, R> returning) {
+        try (HandOffObserver.Scope scope = HandOffObserver.installed().openCall()) {
+            return updateReturningInCall(u, returning);
+        }
+    }
+
+    private <R> List<R> updateReturningInCall(ModelUpdate<E, ?> u, ModelQuery<E, ?, R> returning) {
         Objects.requireNonNull(u, "u");
         Objects.requireNonNull(returning, "returning");
         if (u.entityMode()) {
@@ -1850,6 +1914,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
 
     @Override
     public <R> List<R> insertReturning(ModelInsert<E, ?> i, ModelQuery<E, ?, R> returning) {
+        try (HandOffObserver.Scope scope = HandOffObserver.installed().openCall()) {
+            return insertReturningInCall(i, returning);
+        }
+    }
+
+    private <R> List<R> insertReturningInCall(ModelInsert<E, ?> i, ModelQuery<E, ?, R> returning) {
         Objects.requireNonNull(i, "i");
         Objects.requireNonNull(returning, "returning");
         // The insert has no throughEntities() form, so R-WRT-50's refusal of it does not arise here
@@ -2140,6 +2210,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
 
     @Override
     public <R> List<R> deleteReturning(ModelDelete<E, ?> d, ModelQuery<E, ?, R> returning) {
+        try (HandOffObserver.Scope scope = HandOffObserver.installed().openCall()) {
+            return deleteReturningInCall(d, returning);
+        }
+    }
+
+    private <R> List<R> deleteReturningInCall(ModelDelete<E, ?> d, ModelQuery<E, ?, R> returning) {
         Objects.requireNonNull(d, "d");
         Objects.requireNonNull(returning, "returning");
         if (d.entityMode()) {
@@ -2564,6 +2640,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
 
     @Override
     public <R> R persist(ModelPersist<E, ?, ?> persist, ModelQuery<E, ?, R> returning) {
+        try (HandOffObserver.Scope scope = HandOffObserver.installed().openCall()) {
+            return persistInCall(persist, returning);
+        }
+    }
+
+    private <R> R persistInCall(ModelPersist<E, ?, ?> persist, ModelQuery<E, ?, R> returning) {
         Objects.requireNonNull(persist, "persist");
         Objects.requireNonNull(returning, "returning");
         refuseKeyGroups(returning, "persist(persist, returning)");

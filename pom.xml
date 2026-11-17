@@ -50,6 +50,7 @@
         <module>model-query-jpa</module>
         <module>model-query-hibernate</module>
         <module>model-query-portability</module>
+        <module>model-query-select-audit</module>
         <module>model-query-processor</module>
         <module>model-query-spring-data</module>
         <module>model-query-spring-boot-starter</module>
@@ -75,6 +76,7 @@
         <spring-data-jpa.version>3.4.13</spring-data-jpa.version>
         <spring-boot.version>3.4.13</spring-boot.version>
         <javapoet.version>1.13.0</javapoet.version>
+        <byte-buddy.version>1.18.15</byte-buddy.version>
         <!-- Optional dependency of model-query-jpa only, for @ValidChanges (api/14 R-WRT-22). -->
         <jakarta-validation.version>3.0.2</jakarta-validation.version>
 
@@ -115,6 +117,7 @@
         <maven-deploy-plugin.version>3.2.0</maven-deploy-plugin.version>
         <maven-site-plugin.version>3.22.0</maven-site-plugin.version>
         <maven-shade-plugin.version>3.6.2</maven-shade-plugin.version>
+        <maven-dependency-plugin.version>3.8.1</maven-dependency-plugin.version>
         <maven-source-plugin.version>3.4.0</maven-source-plugin.version>
         <maven-javadoc-plugin.version>3.12.0</maven-javadoc-plugin.version>
         <maven-gpg-plugin.version>3.2.8</maven-gpg-plugin.version>
@@ -160,6 +163,11 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
+                    <version>${maven-surefire-plugin.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-failsafe-plugin</artifactId>
                     <version>${maven-surefire-plugin.version}</version>
                 </plugin>
                 <plugin>
@@ -214,6 +222,11 @@
                     <version>${maven-shade-plugin.version}</version>
                 </plugin>
                 <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-dependency-plugin</artifactId>
+                    <version>${maven-dependency-plugin.version}</version>
+                </plugin>
+                <plugin>
                     <groupId>org.codehaus.mojo</groupId>
                     <artifactId>versions-maven-plugin</artifactId>
                     <version>${versions-maven-plugin.version}</version>
@@ -241,7 +254,8 @@
                                             <exclude>org.springframework*:*:*:*:runtime</exclude>
                                         </excludes>
                                         <searchTransitive>true</searchTransitive>
-                                        <message>AC-REL-03: core and jpa must not depend on Hibernate or Spring (delivery/61)</message>
+                                        <message>AC-REL-03: core and jpa must not depend on Hibernate or Spring
+                                            (delivery/61)</message>
                                     </bannedDependencies>
                                 </rules>
                             </configuration>

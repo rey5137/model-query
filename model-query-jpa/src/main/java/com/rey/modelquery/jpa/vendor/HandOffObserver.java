@@ -25,6 +25,31 @@ public interface HandOffObserver {
     @Incubating
     HandOffObserver NONE = (query, child, models, rows) -> {};
 
+    /** Opens one executor invocation; nested invocations close before their outer invocation. */
+    @Incubating
+    default Scope openCall() {
+        return Scope.NONE;
+    }
+
+    /** A call's lifetime, closed even when mapping, a stream body or an export sink throws. */
+    @Incubating
+    interface Scope extends AutoCloseable {
+        /** The scope for an observer with no call state. */
+        @Incubating
+        Scope NONE = () -> {};
+
+        /** Enters this call on a mapping thread until closed, restoring that thread's previous context. */
+        @Incubating
+        default Scope enter() {
+            return NONE;
+        }
+
+        /** Releases this invocation's state. */
+        @Override
+        @Incubating
+        void close();
+    }
+
     /**
      * {@code models} are handed on, {@code rows.get(i)} the row {@code models.get(i)} was mapped from. Both lists are
      * unmodifiable and read only during the call. A model a call returns, passes to an export's transformer or to a
@@ -37,6 +62,7 @@ public interface HandOffObserver {
      * @param models the models, in order
      * @param rows the row of each model, by position
      */
+    @Incubating
     void handedOff(ModelQuery<?, ?, ?> query, Optional<ChildLoad<?, ?>> child, List<?> models, List<Row> rows);
 
     /** The observer this type's class loader found, or {@link #NONE}; looked up on the first call. */

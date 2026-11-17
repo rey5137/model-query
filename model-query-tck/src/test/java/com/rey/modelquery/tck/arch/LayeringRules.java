@@ -357,6 +357,32 @@ final class LayeringRules {
         return CompositeArchRule.of(dependencies).and(members).as("portability depends on jpa only");
     }
 
+    /**
+     * {@code select-audit} depends on {@code jpa} only (INV-7, D-230): jakarta types, the JDK, the public types of
+     * {@code jpa}, {@code core} and {@code annotations}, Byte Buddy (shaded), and implements the not-API
+     * {@code jpa.vendor.HandOffObserver}; no provider, Spring or AssertJ, and none of the {@code hibernate},
+     * {@code spring}, {@code test}, {@code processor} or {@code portability} modules.
+     */
+    ArchRule auditDependsOnlyOnJpa() {
+        return noClasses()
+                .that()
+                .resideInAPackage(pkg("audit"))
+                .should()
+                .dependOnClassesThat(resideInAnyPackage("org.hibernate..", "org.springframework..", "org.assertj..",
+                        pkg("hibernate"), pkg("spring"), pkg("test"), pkg("processor"), pkg("portability"))
+                        .or(describe("are non-public jpa types outside HandOffObserver",
+                                c -> c.getPackageName().startsWith(root + ".jpa")
+                                        && !(c.getName().equals(root + ".jpa.vendor.HandOffObserver")
+                                            || c.getName().startsWith(root + ".jpa.vendor.HandOffObserver$"))
+                                        && !c.getModifiers().contains(JavaModifier.PUBLIC)))
+                        .or(describe("are jpa.vendor types other than HandOffObserver",
+                                c -> c.getPackageName().startsWith(root + ".jpa.vendor")
+                                        && !(c.getName().equals(root + ".jpa.vendor.HandOffObserver")
+                                            || c.getName().startsWith(root + ".jpa.vendor.HandOffObserver$")))))
+                .as("select audit depends on jpa only")
+                .allowEmptyShould(allowEmptyShould);
+    }
+
     private ArchCondition<JavaClass> useVendorMembersOutsideD139() {
         Set<String> allowed = Set.of(root + ".jpa.vendor.VendorResolver.productNameOf",
                 root + ".jpa.vendor.VendorResolver.resolve", root + ".jpa.vendor.VendorResolver.withSupplied",
@@ -378,21 +404,23 @@ final class LayeringRules {
 
     /**
      * The one-way order {@code annotations <- core <- jpa <- (hibernate, spring)}, with {@code processor} depending
-     * only on {@code annotations}, {@code test} (a leaf beside {@code jpa}) only on {@code core}, and
-     * {@code portability} (a leaf on {@code jpa}) on no module but {@code jpa}. No module may depend on a module that
-     * is later in the order or beside it, and no module depends on {@code portability}.
+     * only on {@code annotations}, {@code test} (a leaf beside {@code jpa}) only on {@code core},
+     * {@code portability} (a leaf on {@code jpa}) on no module but {@code jpa}, and {@code select-audit} on no module
+     * but {@code jpa}. No module may depend on a module that is later in the order or beside it, and no module depends
+     * on {@code portability} or {@code select-audit}.
      */
     ArchRule dependenciesFlowOneWay() {
         return CompositeArchRule
-                .of(forbid("annotations", "core", "jpa", "hibernate", "spring", "processor", "test", "portability"))
-                .and(forbid("core", "jpa", "hibernate", "spring", "processor", "test", "portability"))
-                .and(forbid("jpa", "hibernate", "spring", "processor", "test", "portability"))
-                .and(forbid("hibernate", "spring", "processor", "test", "portability"))
-                .and(forbid("spring", "hibernate", "processor", "test", "portability"))
-                .and(forbid("processor", "core", "jpa", "hibernate", "spring", "test", "portability"))
-                .and(forbid("test", "jpa", "hibernate", "spring", "processor", "portability"))
-                .and(forbid("portability", "hibernate", "spring", "processor", "test"))
-                .as("dependencies flow one way: annotations <- core <- jpa <- (hibernate, spring, portability)")
+                .of(forbid("annotations", "core", "jpa", "hibernate", "spring", "processor", "test", "portability",
+                        "audit"))
+                .and(forbid("core", "jpa", "hibernate", "spring", "processor", "test", "portability", "audit"))
+                .and(forbid("jpa", "hibernate", "spring", "processor", "test", "portability", "audit"))
+                .and(forbid("hibernate", "spring", "processor", "test", "portability", "audit"))
+                .and(forbid("spring", "hibernate", "processor", "test", "portability", "audit"))
+                .and(forbid("processor", "core", "jpa", "hibernate", "spring", "test", "portability", "audit"))
+                .and(forbid("test", "jpa", "hibernate", "spring", "processor", "portability", "audit"))
+                .and(forbid("portability", "hibernate", "spring", "processor", "test", "audit"))
+                .as("dependencies flow one way: annotations <- core <- jpa <- (hibernate, spring, portability, audit)")
                 .allowEmptyShould(allowEmptyShould);
     }
 
