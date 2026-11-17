@@ -3318,6 +3318,39 @@ the nested field's name collides with its entity join, its `SelectSet` constant 
 (`<P>_<JOIN>_SET`) without clashing on `<P>_<JOIN>` or raising `MQ3015`. Rejected alternative: an MQ error in
 `NestedJoinChecks` refusing nested `@Join(entityJoin)`. → `processor/31` R-GEN-43, AC-GEN-50, AC-GEN-51.
 
+**D-228 — The select audit tags rows at the executor's hand-off; RFC 0026 accepted (RFC 0026 Part A, 2026-11-17,
+user decision).** RFC 0026 is accepted after its acceptance spike (62 tests on each of JDK 17, 21 and 25). A `jpa`
+observer, looked up lazily, is called at the executor's hand-off, after the fetch plan and enrichers, with `rows[i]`;
+children are tagged in the child load. The call site is captured once per outermost call under R-INS-14's rule in
+full, generated Q classes counting as library frames. → `rfc/0026`, `api/16` R-INS-18.
+
+**D-229 — The audit reads a model's properties from `Q<M>.fields()` (RFC 0026 Part A, 2026-11-17, user decision).**
+No generated property table: the audit reads `Q<M>.fields()`, found through `MAPPER`'s nest host, and fails loudly
+when it cannot. A `@Join` field's selection follows its presence key; a `@Child` field's follows the fetch plan.
+→ `rfc/0026`, `api/16` R-INS-18.
+
+**D-230 — `model-query-select-audit` is its own INV-7 clause; a missing agent fails the session (RFC 0026 Part D,
+2026-11-17, user decision).** The module depends on `jpa` only and implements one not-API `jpa.vendor` service type
+at `jpa`'s exact version; no module depends on it. It is a separate INV-7 clause, not an entry in D-139's allow-list.
+A missing agent fails the JUnit session when it opens; outside JUnit the observer warns once and does nothing. No
+`MQ` code. → `rfc/0026`, `SPEC.md` INV-7, `api/16` R-INS-22.
+
+**D-231 — The select audit is M38; the freeze moves to M39 (RFC 0026, 2026-11-17, user decision).** M38 ships in
+0.15.0, slices M38.0 to M38.4; the freeze, M39, stays last. → `docs/plan/mvp-plan` §38.
+
+**D-232 — Model classes are hooked as they load (RFC 0026 Part B, 2026-11-17, user decision).** The agent
+recognises a model from the class file it is given (pool-based type description; the annotations are `CLASS`
+retention) and hooks it with a retransform-capable transformer (`TypeStrategy.DECORATE`,
+`disableClassFormatChanges()`), together with its superclasses (one already loaded is retransformed on a helper
+thread). It never retransforms a model class itself and has no redefine fallback: another agent's later
+re-instrument (Mockito's inline mock maker, a coverage agent) keeps the hook, and HotSpot's cached original class
+file avoids the JDK 17/21 `ClassFormatError` on a record whose component carries a `CLASS`-retention annotation.
+The agent must be on the `-javaagent` line at startup. A tagged model whose class was never hooked, or lost its hook,
+is listed in the report as not observed. A read through an inherited getter of an unmapped superclass field is a
+warning, never a failure, since the base class may set the field itself. Rejected: hooking a class when its first
+instance is tagged (lost on a later re-instrument, and the JDK 17/21 defect on records) with a redefine fallback
+(fails under a coverage agent). → `rfc/0026` Part B and Spike results, `api/16` R-INS-19.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

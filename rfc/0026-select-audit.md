@@ -1,6 +1,6 @@
 # RFC 0026 — Select audit: unselected reads and unread columns, recorded while the tests run
 
-- **Status:** draft (architect review applied)
+- **Status:** accepted as D-228 to D-232 (2026-11-17), after its architect review and its acceptance spike (Spike results)
 - **Affects:**
   - **`api/16`:** new R-INS-18 (the hand-off observer and tagging), R-INS-19 (recording reads), R-INS-20 (failing an
     unselected read), R-INS-21 (the report), R-INS-22 (setup and the missing agent); new AC-INS-18 to AC-INS-24.
@@ -11,7 +11,7 @@
     what `model-query-portability` may call.
   - **`delivery/61`:** the module tree and the BOM gain `model-query-select-audit`.
   - **`docs/plan/mvp-plan.md`:** this is M38; the freeze moves to M39.
-  - **`reference/92`:** D-228 to D-232 at acceptance.
+  - **`reference/92`:** D-228 to D-232.
   - **`docs/site`:** a "Select audit" page under testing, with Maven and Gradle tabs for the agent line.
 - **Discussion:** TBD
 
@@ -417,7 +417,7 @@ is first tagged (retransforming it then); checks 6 to 10 led to D-232's load-tim
 
 ## Milestone
 
-M38, in the next minor release, with an acceptance spike before its slices:
+M38 in 0.15.0, the freeze moving to M39 (D-231); the acceptance spike is M38.0:
 
 | Slice | Content |
 |---|---|
