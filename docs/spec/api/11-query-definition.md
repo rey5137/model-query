@@ -32,6 +32,10 @@ resolved against a `CriteriaBuilder` until the query is executed.
 optional, and every optional part has a defined behaviour when absent, listed in §5. `build()` without `select`, or a
 fetch plan that carries one (`api/15` R-FCH-02), throws `MQ1202`.
 
+The `@EngineFacing` `ModelQuery.mapper()` accessor returns this definition's immutable `RowMapper<M>`.
+The select audit uses its nest host to resolve generated Q metadata, including bound models; it is not
+application API (D-229, D-234).
+
 ## 2. Primary keys
 
 **R-QRY-03** `primaryKey(...)` is required for `keyset()`, `primaryKeyFirst(...)`, offset `export`, `byKeys(q, keys)`

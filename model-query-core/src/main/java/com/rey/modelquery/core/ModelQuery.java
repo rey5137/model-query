@@ -1587,6 +1587,12 @@ public final class ModelQuery<E, K, M> {
         checks.source(source);
     }
 
+    /** The mapper that builds this query's models from a row. */
+    @EngineFacing
+    public RowMapper<M> mapper() {
+        return mapper;
+    }
+
     /**
      * The model {@code attributeValues} fills: it gives each selected column's value by the column's
      * {@link ColumnField#path() attribute path}, as the entity holds it, before the column's converter; the

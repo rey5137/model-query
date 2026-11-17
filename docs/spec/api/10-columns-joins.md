@@ -34,6 +34,9 @@ be used by any number of concurrent queries. A context carries the build's `Rend
 alias (empty by default) — never by object identity. Two separate `TableField.join(ROOT, "customer", LEFT)` calls
 therefore produce one join.
 
+The `@EngineFacing` `TableField.presenceKey()` accessor returns the key supplied to `presentBy`, or `null`
+when none was supplied. Executors and the select audit use it; it is not application API (D-234).
+
 **R-COL-15** **A join may carry a presence key.** `presentBy(key)` names the primary key whose non-null value means
 the join matched a row. It is kept by `as`, `on`, `named` and `withParent`, is not part of the join key, and throws
 `MQ1104` on the query's root, a source root, a joined source's root and a treated root. The engine selects it with any
