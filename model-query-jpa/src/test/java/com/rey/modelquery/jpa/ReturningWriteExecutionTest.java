@@ -210,6 +210,34 @@ class ReturningWriteExecutionTest {
     }
 
     @Test
+    void r_ins_18_each_returning_write_hands_off_the_models_it_returns_with_their_rows_once() {
+        List<List<Row>> returned = new ArrayList<>();
+        ModelQuery<KeysetRowEntity, Long, Row> query = RETURNING.build();
+        List<HandOffTest.HandOff> handOffs = HandOffTest.Recording.recording(() -> {
+            try (EntityManager em = sessions.createEntityManager()) {
+                em.getTransaction().begin();
+                ModelQueryExecutor<KeysetRowEntity> executor = ModelQueryExecutor.create(em, KeysetRowEntity.class,
+                        H2);
+                returned.add(executor.updateReturning(update(), query));
+                returned.add(executor.deleteReturning(delete(), query));
+                em.getTransaction().rollback();
+            }
+        });
+
+        assertThat(handOffs).hasSize(2);
+        for (int call = 0; call < 2; call++) {
+            HandOffTest.HandOff handOff = handOffs.get(call);
+            assertThat(handOff.query()).isSameAs(query);
+            assertThat(handOff.child()).isEmpty();
+            assertThat(handOff.models()).singleElement().isSameAs(returned.get(call).get(0));
+            assertThat(handOff.rows()).singleElement().satisfies(row -> {
+                assertThat(row.get(ID)).isEqualTo(1L);
+                assertThat(row.get(A)).isEqualTo(7);
+            });
+        }
+    }
+
+    @Test
     void ac_wrt_42_a_chunked_write_concatenates_its_chunks_rows_in_statement_order_with_no_row_twice() {
         ModelUpdate<KeysetRowEntity, Row> chunked = ModelUpdate.builder(ROOT).primaryKey(PrimaryKey.of(ID)).set(A, 7)
                 .where(f -> f.lte(ID, 2L)).chunked(ChunkOptions.size(1)).build();

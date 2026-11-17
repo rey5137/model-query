@@ -1595,8 +1595,26 @@ public final class ModelQuery<E, K, M> {
      */
     @EngineFacing
     public M mapReturning(Function<String, Object> attributeValues) {
+        return mapReturning(returningRow(attributeValues));
+    }
+
+    /**
+     * The row {@link #mapReturning(Function)} maps {@code attributeValues} from, so the executor can hand the model on
+     * with its row as it hands on a read's (R-INS-18). Only after {@link #checkReturning} passed (R-WRT-48).
+     */
+    @EngineFacing
+    public Row returningRow(Function<String, Object> attributeValues) {
         Objects.requireNonNull(attributeValues, "attributeValues");
-        return toModel(modelSelection.row(column -> attributeValues.apply(((ColumnField<?, ?, ?>) column).path())));
+        return modelSelection.row(column -> attributeValues.apply(((ColumnField<?, ?, ?>) column).path()));
+    }
+
+    /**
+     * The model of {@code row}, a {@link #returningRow} of this query: the {@code RowMapper}, {@code afterMap} and the
+     * finisher run as on a read (R-WRT-48).
+     */
+    @EngineFacing
+    public M mapReturning(Row row) {
+        return toModel(Objects.requireNonNull(row, "row"));
     }
 
     /**

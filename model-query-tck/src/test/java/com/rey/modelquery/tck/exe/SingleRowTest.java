@@ -19,6 +19,7 @@ import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
+import com.rey.modelquery.jpa.vendor.HandOffObserver;
 import com.rey.modelquery.tck.col.CustomerEntity;
 import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.col.NullableSortEntity;
@@ -89,6 +90,19 @@ class SingleRowTest {
         assertThat(results).singleElement().satisfies(row -> assertThat(row).map(OrderRow::id).contains(7L));
         withExecutor(db, executor -> assertThat(executor.one(ORDER_ROWS.where(f -> f.eq(ID, -1L)).build()))
                 .isEmpty());
+    }
+
+    // ---- AC-INS-24
+
+    @TckTest
+    void ac_ins_24_the_jpa_default_observer_is_the_no_op_and_changes_no_sql_and_no_result(TckDatabase db) {
+        // No HandOffObserver is on the TCK's class path, so every snapshot here is rendered under the default
+        // (R-INS-18); this read renders exactly the statement exe-11-one's committed snapshot holds.
+        assertThat(HandOffObserver.installed()).isSameAs(HandOffObserver.NONE);
+        List<Optional<OrderRow>> results = new ArrayList<>();
+        SqlSnapshots.assertMatches(db, "exe-11-one", ds -> withExecutor(ds,
+                executor -> results.add(executor.one(ORDER_ROWS.where(f -> f.eq(ID, 7L)).build()))));
+        assertThat(results).singleElement().satisfies(row -> assertThat(row).map(OrderRow::id).contains(7L));
     }
 
     @TckTest

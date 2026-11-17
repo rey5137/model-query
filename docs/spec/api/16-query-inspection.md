@@ -389,6 +389,45 @@ is reported under the call as `label child PATH on TARGET VERSION: ...` (R-INS-1
 - **A refused parent walks no children.** A call refused on a target (a source-rooted parent on MariaDB is `MQ4015`),
   or a child refused or failing, reports no statement below it there.
 
+**R-INS-18** *(D-228, D-229, `@Incubating`)* **The hand-off observer.** `jpa.vendor` holds `HandOffObserver`, a
+not-API service type (D-139) whose one call receives the query a result was read by, the child load that read it (empty
+for the models the call itself returns), the models and the row each was mapped from, `rows[i]` for `result[i]`. It is
+looked up once per class loader, in a static lazy holder, through `ServiceLoader` on its own class loader, on the first
+executor call that reads rows, never while an executor is built, and touching no `EntityManagerFactory`, so lazy and
+deferred bootstraps stay lazy (D-133). At most one provider is used: a provider that does not load, or a second one, is
+logged once as a `WARNING` and leaves the no-op default in place, never thrown. Under the default the executor reads
+one field per call and does no other hand-off work, so no result and no SQL change (AC-INS-24).
+
+- **Where it is called.** The model a caller receives is not always the one the mapper built: a fetch plan's join
+  plans and child loads replace a model through the generated `with` (R-GEN-25, R-GEN-26), and enrichers return new
+  instances by position (R-FCH-08). The executor therefore calls the observer from one hand-off, **after** the fetch
+  plan and the enrichers ran, with each model's row by position (enrichers keep positions), once per result and never
+  for an empty one. Every path returning models goes through it: `models()` (`list`, `page`, `one`, `first`, `byKeys`
+  and each `export` page, before its transformer), the flat-row `list`, `stream` as each model is mapped and before
+  the body sees it, the three `*Returning` writes and `persist(…, returning)`, whose rows the executor reads through
+  the `@EngineFacing` `ModelQuery.returningRow` and `mapReturning(Row)`. Reads the engine makes before the hand-off
+  (the mapper, `with`, enrichers) are therefore never attributed to a handed-off model. The portability dry run's
+  child run (R-INS-17) returns nothing and hands nothing off.
+- **The call site** is not passed by the executor: the observer captures it **once**, when the outermost
+  `ModelQueryExecutor` method is entered, under R-INS-14's rule in full: the first frame outside `com.rey.modelquery`,
+  the JDK's reflection, proxy and `java.util.stream` frames, `org.springframework`, classes implementing
+  `ModelQueryExecutor` or `InvocationHandler` (an application's own decorator, D-225), and generated Q classes. Each
+  model of that call shares one tag holding the call site, the method, the query's `select()`, and a selection bit
+  set shared per (query selection, model class); a tag never references its model or its row. Calls whose stack
+  contains `com.rey.modelquery.portability` (a `PortabilityCheck` replay, R-INS-15) are not tagged.
+- **Which properties are selected.** The observer reads `Q<M>.fields()` (D-121, R-GEN-32), which holds every field
+  the mapper reads keyed by property path (`join.field` at any depth) and every child, so scoped join constants
+  resolve by path (AC-GEN-42). It finds `Q<M>` through `MAPPER`'s nest host (the `Q::map` method reference is a hidden
+  nestmate of `Q<M>`), which also covers bound models whose Q class lives in the binding's package (R-GEN-35). A
+  generated model whose Q class cannot be found fails loudly, never skips. A **column property** is selected when
+  `Row.isSelected` accepts its constant; engine-added keys count, since the model holds them.
+- **`@Join` and `@Child`.** A `@Join` property is selected when its presence key is (R-GEN-15); the nested model is
+  tagged from the parent's row scoped to the join, and an empty `Optional` tags nothing, so a join plan's models are
+  not handed off by themselves. A `@Child` property is selected only when the query's fetch plan loads it; reading an
+  unloaded `@Child` is an unselected read. Each child load hands its children off once, after the child's own plan
+  ran and before they are set on their parents, from the child query's own rows, with the child load named; they are
+  reported under the parent's call site as `child LINES select …`.
+
 ## 3. Acceptance criteria
 
 | ID | Criterion |
@@ -410,3 +449,4 @@ is reported under the call as `label child PATH on TARGET VERSION: ...` (R-INS-1
 | AC-INS-15 | On both Hibernate lines with no container: a Boot-configured unit (`PersistenceUnitInfo`) renders the same SQL as `of(classList)` with the same properties; an unversioned target prints a head line with the provider line's dialect minimum and an example deployed version; a dropped instance property outside connection keys is listed in the head; data-source keys are not listed (R-INS-12, R-INS-16, D-223). |
 | AC-INS-16 | On both Hibernate lines with no container: a unit naming a multi-tenant connection provider (`hibernate.multi_tenant_connection_provider` and `hibernate.connection.provider_class`), whether configured on `PersistenceUnitInfo` or in `persistence.xml`, reaches only the stub DataSource, recording calls on the stub and bypassing the configured connection providers (R-INS-16, `vendor/40` R-VND-20, D-223). |
 | AC-INS-17 | On both Hibernate lines with no container, on H2, PostgreSQL, MySQL and MariaDB, with bound values and under `value_handling_mode=inline` (the same text): a three-level plan reports its child statements depth first after the parent's, `label child orders.lines on TARGET: REACHED select ...`, each on two placeholder keys (`in (?,?)`) with no mark, a child through its association included; a child under a `@Join` nested model is walked under the join's path; a source-rooted parent refused on MariaDB (`MQ4015`) walks no child there and reaches it elsewhere; a key-grouped child renders one round on both placeholders with a `verifyMissing` or `groupWhen` catch-all (over a group function that knows only real keys too) and with the first placeholder's group without one, a group no placeholder falls in never asked; a group or value function failing on a placeholder (`MQ2607`, `MQ1502`, or its own exception, such as a `NullPointerException`, with its class and message) is a failing `HARNESS_ERROR` line naming the checker's limit, its child's children not walked; `Integer`, `String`, `UUID`, `LocalDate` and enum keys reach on two placeholders, a one-constant enum on one (`in (?)`), and an empty enum, a converted value object and `byte[]` give a failing line naming the type; a `COUNT` page walks its children once, after both statements, and `count` walks none; the check counts each child line as a result and fails on a failing one (R-INS-12, R-INS-17, D-224). |
+| AC-INS-24 | The jar without the agent fails the JUnit session when it opens; outside JUnit it logs once and changes no SQL and no result; the `jpa` default changes neither (R-INS-18, D-228, D-230). |
