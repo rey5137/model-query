@@ -72,6 +72,7 @@ import com.rey.modelquery.jpa.spi.SourceFeature;
 import com.rey.modelquery.jpa.spi.VendorProfile;
 import com.rey.modelquery.jpa.spi.WriteStatement;
 import com.rey.modelquery.jpa.vendor.ChildStatements;
+import com.rey.modelquery.jpa.vendor.HandOffObserver;
 import com.rey.modelquery.jpa.vendor.InlineCountFallback;
 import com.rey.modelquery.jpa.vendor.ResolvedVendor;
 import com.rey.modelquery.jpa.vendor.VendorResolver;
@@ -1209,9 +1210,17 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
         int fetchSize = vendor.profile().streamingFetchSize(streamFetchSize);
         // Rows are mapped one at a time as body pulls them; closing the mapped stream closes the result stream under
         // it, whether body returns, stops early or throws (R-EXE-07, R-EXE-09). The check site reads a recursive
-        // source's checks from the first row before that row is handed on (R-SRC-08, AC-SRC-25).
+        // source's checks from the first row before that row is handed on (R-SRC-08, AC-SRC-25). Each model is
+        // handed off as it is mapped, before body sees it (R-INS-18).
+        BuiltQuery<M> mapping = built;
+        Function<Tuple, M> map = !observing() ? built::map : tuple -> {
+            Row row = mapping.selection().row(tuple);
+            M model = mapping.map(row);
+            handOff(q, null, Collections.singletonList(model), List.of(new Loaded<>(model, row)));
+            return model;
+        };
         try (Stream<Tuple> tuples = resultStream(q, built, query, fetchSize);
-                Stream<M> models = tuples.map(built::map)) {
+                Stream<M> models = tuples.map(map)) {
             return body.apply(models);
         }
     }
@@ -2294,13 +2303,19 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
             return returned.size();
         }
 
-        /** The models of every row collected so far, one per row, in the statements' order. */
+        /** The models of every row collected so far, one per row, in the statements' order, handed off (R-INS-18). */
         List<R> models() {
             List<R> models = new ArrayList<>(rows.size());
-            for (Object[] row : rows) {
-                models.add(query.mapReturning(path -> value(path, row)));
+            List<Loaded<R>> loaded = observing() ? new ArrayList<>(rows.size()) : null;
+            for (Object[] values : rows) {
+                Row row = query.returningRow(path -> value(path, values));
+                R model = query.mapReturning(row);
+                models.add(model);
+                if (loaded != null) {
+                    loaded.add(new Loaded<>(model, row));
+                }
             }
-            return List.copyOf(models);
+            return List.copyOf(loaded == null ? models : handOff(query, null, models, loaded));
         }
 
         /**
@@ -2558,8 +2573,13 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
         // foreign key is null the column is null, where a read would drop the row (R-WRT-48)
         PersistenceUnitUtil util = em.getEntityManagerFactory().getPersistenceUnitUtil();
         EntityType<E> root = em.getMetamodel().entity(rootEntity);
-        return persisted(persist, entity -> returning.mapReturning(path -> PersistedEntity.get(util, root, entity,
-                path)));
+        return persisted(persist, entity -> {
+            Row row = returning.returningRow(path -> PersistedEntity.get(util, root, entity, path));
+            R model = returning.mapReturning(row);
+            return !observing() ? model
+                    : handOff(returning, null, Collections.singletonList(model), List.of(new Loaded<>(model, row)))
+                            .get(0);
+        });
     }
 
     @Override
@@ -3547,17 +3567,24 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
     }
 
     /**
-     * Maps {@code query}'s tuples directly to models without {@link Loaded} or {@link Row} retention (P-B.2, D-184).
+     * Maps {@code query}'s tuples directly to models without {@link Loaded} or {@link Row} retention (P-B.2, D-184),
+     * unless an observer is installed (R-INS-18).
      * Presizes the list to the materialized result size (exact, never from {@code Limit.of(Integer.MAX_VALUE)}).
      */
-    private <M> List<M> mapFlat(Object label, BuiltQuery<M> built, TypedQuery<Tuple> query) {
-        List<Tuple> tuples = rows(label, built, query);
+    private <M> List<M> mapFlat(ModelQuery<?, ?, M> q, BuiltQuery<M> built, TypedQuery<Tuple> query) {
+        List<Tuple> tuples = rows(q, built, query);
         List<M> result = new ArrayList<>(tuples.size());
+        // The rows are kept only for an installed observer, to hand off with their models (R-INS-18).
+        List<Loaded<M>> loaded = observing() ? new ArrayList<>(tuples.size()) : null;
         for (Tuple tuple : tuples) {
             Row row = built.selection().row(tuple);
-            result.add(built.map(row));
+            M model = built.map(row);
+            result.add(model);
+            if (loaded != null) {
+                loaded.add(new Loaded<>(model, row));
+            }
         }
-        return result;
+        return loaded == null ? result : handOff(q, null, result, loaded);
     }
 
     private <M> List<Loaded<M>> mapAll(Object label, BuiltQuery<M> built, TypedQuery<Tuple> query) {
@@ -3904,9 +3931,32 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
                     }
                 }
             }
-            return run(plan.get(), q.toString(), rows);
+            return handOff(q, null, run(plan.get(), q.toString(), rows), rows);
         }
-        return modelsOf(rows);
+        return handOff(q, null, modelsOf(rows), rows);
+    }
+
+    /** Whether a {@link HandOffObserver} is installed, so a path that keeps no rows by default keeps them. */
+    private static boolean observing() {
+        return HandOffObserver.installed() != HandOffObserver.NONE;
+    }
+
+    /**
+     * Hands {@code models}, after the fetch plan and the enrichers ran, on to the installed {@link HandOffObserver},
+     * {@code rows.get(i)} the row {@code models.get(i)} was read from (enrichers keep positions), and returns
+     * {@code models}. Every path returning models calls it once per result, and a child load once per load, with
+     * {@code child} set; under the default it reads one field and does nothing else (R-INS-18, D-228).
+     */
+    private static <M> List<M> handOff(ModelQuery<?, ?, M> q, ChildLoad<?, ?> child, List<M> models,
+            List<Loaded<M>> rows) {
+        HandOffObserver observer = HandOffObserver.installed();
+        if (observer != HandOffObserver.NONE && !models.isEmpty()) {
+            List<Row> byPosition = new ArrayList<>(rows.size());
+            rows.forEach(loaded -> byPosition.add(loaded.row()));
+            observer.handedOff(q, Optional.ofNullable(child), Collections.unmodifiableList(models),
+                    Collections.unmodifiableList(byPosition));
+        }
+        return models;
     }
 
     /**
@@ -4245,11 +4295,15 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
             return keys.stream().filter(found::contains).findFirst();
         }
 
-        /** The children read, by key in child order, once the child plan ran over all of them (R-FCH-05). */
+        /**
+         * The children read, by key in child order, once the child plan ran over all of them and they were handed off
+         * (R-FCH-05, R-INS-18).
+         */
         Map<Object, List<C>> children() {
             // Children are deduplicated per parent; a many-to-many child can still belong to several (R-FCH-04).
-            List<C> children = loaded.isEmpty() ? List.of()
-                    : q.fetch().map(plan -> run(plan, q.toString(), loaded)).orElseGet(() -> modelsOf(loaded));
+            // Handed off from the child query's own rows, once its plan ran (R-INS-18, D-228).
+            List<C> children = loaded.isEmpty() ? List.of() : handOff(q, load, q.fetch()
+                    .map(plan -> run(plan, q.toString(), loaded)).orElseGet(() -> modelsOf(loaded)), loaded);
             Map<Object, List<C>> grouped = new HashMap<>();
             for (int i = 0; i < children.size(); i++) {
                 grouped.computeIfAbsent(parents.get(i), k -> new ArrayList<>()).add(children.get(i));
