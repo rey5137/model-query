@@ -396,7 +396,9 @@ for the models the call itself returns), the models and the row each was mapped 
 looked up once per class loader, in a static lazy holder, through `ServiceLoader` on its own class loader, on the first
 executor call that reads rows, never while an executor is built, and touching no `EntityManagerFactory`, so lazy and
 deferred bootstraps stay lazy (D-133). At most one provider is used: a provider that does not load, or a second one, is
-logged once as a `WARNING` and leaves the no-op default in place, never thrown. Under the default the executor reads
+logged once as a `WARNING` and leaves the no-op default in place, never thrown. `active()` (default `true`) lets a provider decline: an inactive
+provider is treated as absent and `installed()` returns the no-op default, so the executor keeps no rows for it
+(D-242). Under the default the executor reads
 one field per call and uses the no-op call scope without other hand-off work, so no result and no SQL change
 (AC-INS-24).
 
@@ -450,6 +452,13 @@ original class file avoids malformed annotated record bytes on JDK 17 and 21. Ho
 at hand-off an unhooked or lost model is reported as not observed. An agent registered later can drop a hook without
 this being detectable.
 
+*Engine seams (D-241).* The agent also instruments private engine members by name: `ModelQuery.toModel(Row)`,
+`DefaultModelQueryExecutor.run(FetchPlan, String, List)`, and `get`, `raw` and `alias(SelectField)` on the `Row`
+implementation `RowSelection.ValueRow`; `ReadAccess` keys on a frame named `raw`. They are a named contract with
+`core` and `jpa` (comment at each declaration, a TCK test asserting each signature). A hand-off with the agent
+attached fails with `IllegalStateException` naming each seam whose type loaded without its hook, so a rename shows
+as a failing test, not as engine reads counted as unselected reads.
+
 - Record accessors, class getters and field reads inside model methods count against `fields()` properties; computed
   reads are attributed to the first frame outside the model. An inherited getter's unmapped field is a warning.
 - A model's own `equals`, `hashCode`, `toString`, generated withers, `@Selected` reads, engine reads during mapping,
@@ -466,14 +475,14 @@ For join and child properties the suggested remedy uses the property name rather
 - Serializer reads of unselected properties warn and never fail; serializer reads of selected properties count.
   Classification skips JDK, hidden and generated frames and recognises Jackson 2 and 3 and JSON-B getter packages.
 - `modelquery.selectAudit.ignore` accepts comma-separated package prefixes or `Class#method` frames. An ignored
-  read neither fails nor counts. A rule matches only the reading frame used for serializer classification (D-238).
+  reader never fails, and its reads of selected columns count as reads (D-240). A rule matches only the reading frame used for serializer classification (D-238).
   A `Class#method` rule also matches synthetic lambda frames declared in that method. A method reference invoked by
   a library is attributed to the library's reading frame and requires a package rule for that library.
 - `modelquery.selectAudit.failOn` is `unselected` by default; `none` records reads without failing.
 
 **R-INS-21** *(D-228, D-232, D-237, D-239, `@Incubating`)* **The select-audit report.** The module's JUnit
 `LauncherSessionListener`, registered through `ServiceLoader`, writes the report when the session closes to
-`target/model-query/select-audit-<fork>.txt` (the directory is `modelquery.selectAudit.dir`) and logs its summary at
+`target/model-query/select-audit-fork-<n>-<pid>.txt` under Surefire or Failsafe, else `select-audit-<pid>.txt` (the directory is `modelquery.selectAudit.dir`) and logs its summary at
 `INFO` (if writing fails, it logs a `WARNING` with the cause and does not fail the session, D-239). The report lists:
 
 - **Unselected reads** (`UNSELECTED READS (N)`), with property, reading frame ( labelled `(may not have failed a test)`
@@ -482,7 +491,9 @@ For join and child properties the suggested remedy uses the property name rather
   serializer name (`Jackson`, `JSON-B`), call site, method and count;
 - **Unread columns** (`UNREAD COLUMNS (warning)`), counted per query call site and `SelectSet` (and per child load,
   `child <name> select <set>`): a column of the query's own `select()` that no read of any model from that call site,
-  and no mapping-time `Row` read, touched. Engine-added keys and `PortabilityCheck` replays are excluded. Unread
+  and no mapping-time `Row` read, touched. The report counts the tests that called each call site by the test
+  method the JUnit listener recorded for the calling thread, else by the outermost application frame (D-240).
+  Engine-added keys and `PortabilityCheck` replays are excluded. Unread
   columns are a warning, never a failure;
 - **Reads of unmapped inherited fields** (`READS OF UNMAPPED INHERITED FIELDS (warning)`);
 - **Models not observed** (`MODELS NOT OBSERVED (hook missing)`), for tagged models whose class was not hooked at load
@@ -490,19 +501,26 @@ For join and child properties the suggested remedy uses the property name rather
 
 Each JVM fork writes its own file; `SelectAuditReport.main(dir)` (and `SelectAuditReport.merge(Path)`) merges a
 directory's fork files into `select-audit.txt`, unioning read columns per call site and select set so a column is
-reported unread only when no fork read it (AC-INS-22).
+reported unread only when no fork read it (AC-INS-22). Each file starts with a run header (`# RUN`, a run id and the
+fork's start instant): the run id is `modelquery.selectAudit.run` when set, else the parent process and its start
+instant, so the forks of one build share it. The merge keeps only the newest run's files and logs one `WARNING` naming
+how many older files it skipped; a fork or file with an unknown run is never skipped (D-244). The module's public
+classes are `AuditAgent`, `AuditObserver`, `AuditLauncherSessionListener`, `ReadAccess` (not API: called by injected
+code), `UnselectedColumnRead` and `SelectAuditReport`, and a TCK test holds the list (D-243).
 
 **R-INS-22** *(D-228, D-230, `@Incubating`)* **The select-audit module and agent setup.** `model-query-select-audit`
 depends on `model-query-jpa` at its exact version and Byte Buddy, shaded and relocated into the agent jar so it never
 clashes with a user's dependencies. No production module depends on it; the TCK has a test-only ordering
 dependency excluded from its test runtime (D-230). The jar is its own agent, packaged with
 `Premain-Class`, `Agent-Class` and `Can-Retransform-Classes: true`. It attaches at JVM startup via `-javaagent:`, never
-by self-attach at run time.
+by self-attach at run time: a late attach after the first executor call leaves the audit off for that class loader
+(D-242).
 
 - **Missing agent fails the test session.** With the jar on the classpath and no agent attached, the module's JUnit
   `LauncherSessionListener` fails the JUnit session when it opens, naming the `-javaagent:` argument to add to
-  `argLine`. Outside a JUnit session (e.g. if the jar is on the runtime classpath by mistake), the observer logs one
-  warning and does nothing, so production code never throws. No `MQ` error code: the failure is a test-session failure.
+  `argLine`. Outside a JUnit session (e.g. if the jar is on the runtime classpath by mistake), the observer is inactive
+  (`HandOffObserver.active()`, D-242): it logs one warning, `installed()` is the no-op default, the executor keeps no
+  rows for it, and production code never throws. No `MQ` error code: the failure is a test-session failure.
 - **JPA default is a no-op.** On the classpath with no observer registered, `jpa` defaults to a no-op observer that
   changes no SQL and no result (AC-INS-24).
 
@@ -528,9 +546,9 @@ by self-attach at run time.
 | AC-INS-16 | On both Hibernate lines with no container: a unit naming a multi-tenant connection provider (`hibernate.multi_tenant_connection_provider` and `hibernate.connection.provider_class`), whether configured on `PersistenceUnitInfo` or in `persistence.xml`, reaches only the stub DataSource, recording calls on the stub and bypassing the configured connection providers (R-INS-16, `vendor/40` R-VND-20, D-223). |
 | AC-INS-17 | On both Hibernate lines with no container, on H2, PostgreSQL, MySQL and MariaDB, with bound values and under `value_handling_mode=inline` (the same text): a three-level plan reports its child statements depth first after the parent's, `label child orders.lines on TARGET: REACHED select ...`, each on two placeholder keys (`in (?,?)`) with no mark, a child through its association included; a child under a `@Join` nested model is walked under the join's path; a source-rooted parent refused on MariaDB (`MQ4015`) walks no child there and reaches it elsewhere; a key-grouped child renders one round on both placeholders with a `verifyMissing` or `groupWhen` catch-all (over a group function that knows only real keys too) and with the first placeholder's group without one, a group no placeholder falls in never asked; a group or value function failing on a placeholder (`MQ2607`, `MQ1502`, or its own exception, such as a `NullPointerException`, with its class and message) is a failing `HARNESS_ERROR` line naming the checker's limit, its child's children not walked; `Integer`, `String`, `UUID`, `LocalDate` and enum keys reach on two placeholders, a one-constant enum on one (`in (?)`), and an empty enum, a converted value object and `byte[]` give a failing line naming the type; a `COUNT` page walks its children once, after both statements, and `count` walks none; the check counts each child line as a result and fails on a failing one (R-INS-12, R-INS-17, D-224). |
 | AC-INS-18 | Against H2, on both Hibernate lines: a record and a class model queried with a partial set, passed through two methods, fail the test at the reading line with the call site; a selected `NULL` column read passes; Lombok `equals` in an AssertJ assertion does not fail (R-INS-19, R-INS-20). |
-| AC-INS-19 | A fetch plan's `with` copy and an enricher's instance are the tagged models, and the engine's own reads are not counted; a column read only by `afterMap` through the `Row` is not reported unread (R-INS-18, R-INS-19). |
+| AC-INS-19 | A fetch plan's `with` copy and an enricher's instance are the tagged models, and the engine's own reads are not counted; a column read only by `afterMap` through the `Row` is not reported unread; each engine seam exists with the signature the agent matches (TCK reflection test), and a seam type seen without its hook fails the hand-off naming the seam (R-INS-18, R-INS-19, D-241). |
 | AC-INS-20 | A `@Join` is selected by its presence key, an empty `Optional` tags nothing; a `@Child` loaded by the plan is tagged from the child query's rows and reported as `child`; reading an unloaded `@Child` fails (R-INS-18). |
-| AC-INS-21 | A Jackson serialization (plain, Blackbird and Afterburner) of a partial model warns and does not fail; an `ignore`d reader neither fails nor counts (R-INS-19, R-INS-20). |
-| AC-INS-22 | The report lists unread selected columns per call site and select set, excludes engine-added keys and portability replays, and two forks' files merge to the union (R-INS-21). |
-| AC-INS-23 | Every `ModelQueryExecutor` method returning models, enumerated by reflection, tags its result; a `stream` call and a call through an application decorator get the application's call site; a read on an unjoined pool thread is labelled (R-INS-18, R-INS-20, D-237). |
-| AC-INS-24 | The jar without the agent fails the JUnit session when it opens; outside JUnit it logs once and changes no SQL and no result; the `jpa` default changes neither (R-INS-18, R-INS-22, D-228, D-230). |
+| AC-INS-21 | A Jackson serialization (plain, Blackbird and Afterburner) of a partial model warns and does not fail; an `ignore`d reader never fails, and its reads of selected columns count (R-INS-19, R-INS-20, D-240). |
+| AC-INS-22 | The report lists unread selected columns per call site and select set, names the real test methods and counts them (two `@Test` methods read "across 2 tests"), excludes engine-added keys and portability replays, and two forks' files merge to the union (R-INS-21). |
+| AC-INS-23 | Every `ModelQueryExecutor` method returning models, enumerated by reflection, tags its result; a `stream` call and a call through an application decorator get the application's call site; a read on an unjoined pool thread is labelled; a caller inside `com.rey.modelquery.*` is its own call site, not a JUnit frame (R-INS-18, R-INS-20, D-237, D-240). |
+| AC-INS-24 | The jar without the agent fails the JUnit session when it opens; outside JUnit it logs once and changes no SQL and no result; the `jpa` default changes neither; without the agent `HandOffObserver.installed()` is the no-op default, outside JUnit and in the TCK, which has the audit jar on its class path (R-INS-18, R-INS-22, D-228, D-230, D-242). |

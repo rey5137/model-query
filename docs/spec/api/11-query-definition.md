@@ -35,6 +35,8 @@ fetch plan that carries one (`api/15` R-FCH-02), throws `MQ1202`.
 The `@EngineFacing` `ModelQuery.mapper()` accessor returns this definition's immutable `RowMapper<M>`.
 The select audit uses its nest host to resolve generated Q metadata, including bound models; it is not
 application API (D-229, D-234).
+The `@EngineFacing` `ModelQuery.returningRow(Function)` and `mapReturning(Row)` map a returning write's row to its
+model and let the select audit read that row as a `Row` (R-INS-18, D-234); they are not application API.
 
 ## 2. Primary keys
 

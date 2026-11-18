@@ -40,7 +40,9 @@ import org.junit.jupiter.api.Test;
 
 /**
  * The executor's hand-off to the {@link HandOffObserver} (api/16 R-INS-18, D-228), over in-memory H2, with
- * {@link Recording} registered through {@code META-INF/services} in this module's test resources.
+ * {@link Recording} registered through {@code META-INF/services} in this module's test resources, so every test here
+ * runs on the observing path; the default path (no observer, no rows kept) is covered by the TCK, whose
+ * {@code SelectAuditSeamsTest} asserts no observer is installed there (D-242).
  */
 class HandOffTest {
 

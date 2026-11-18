@@ -6,7 +6,10 @@ import com.rey.modelquery.core.SelectField;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-/** Entry points called by the injected model read hooks (R-INS-19). */
+/**
+ * Entry points called by the injected model read hooks (R-INS-19). Not API: called by agent-injected code only, which
+ * is why it is public (D-243).
+ */
 @Incubating
 public final class ReadAccess {
     private static final ThreadLocal<int[]> DEPTH = ThreadLocal.withInitial(() -> new int[1]);
@@ -18,36 +21,33 @@ public final class ReadAccess {
 
     private ReadAccess() {}
 
-    /** Records an accessor read on a tagged model. */
+    /** Records an accessor read on a tagged model; {@code property} is fixed when the class is transformed. */
     @Incubating
-    public static void accessor(Object model, String method, Class<?> owner) {
-        int prefix = method.startsWith("get") ? 3 : method.startsWith("is") ? 2 : 0;
-        String property = !owner.isRecord() && prefix > 0 && method.length() > prefix
-                && Character.isUpperCase(method.charAt(prefix))
-                ? Character.toLowerCase(method.charAt(prefix)) + method.substring(prefix + 1) : method;
+    public static void accessor(Object model, String property, String method, Class<?> owner) {
         Tag tag = AuditObserver.tagOf(model);
-        if (tag != null && !tag.isMapped(property) && tag.isMapped(method)) {
-            property = method;
+        if (tag != null) {
+            read(tag, model, !tag.isMapped(property) && tag.isMapped(method) ? method : property, owner.getName());
         }
-        read(model, property, owner.getName());
     }
 
     /** Records a direct field read on a tagged model. */
     @Incubating
     public static void field(Object model, String property, String owner) {
-        read(model, property, owner);
+        Tag tag = AuditObserver.tagOf(model);
+        if (tag != null) {
+            read(tag, model, property, owner);
+        }
     }
 
-    private static void read(Object model, String property, String owner) {
-        Tag tag = AuditObserver.tagOf(model);
-        if (tag != null && DEPTH.get()[0] == 0) {
+    private static void read(Tag tag, Object model, String property, String owner) {
+        if (DEPTH.get()[0] == 0) {
             if (tag.isMapped(property)) {
-                ReadSite.Site site = ReadSite.capture(model.getClass());
-                if (site.ignored()) {
-                    return;
-                }
                 if (tag.isSelected(property)) {
                     tag.read(property);
+                    return;
+                }
+                ReadSite.Site site = ReadSite.capture(model.getClass());
+                if (site.ignored()) {
                     return;
                 }
                 String name = model.getClass().getSimpleName() + "." + property;
@@ -111,12 +111,7 @@ public final class ReadAccess {
             return;
         }
         synchronized (ROW_READS) {
-            Set<Object> reads = ROW_READS.get(row);
-            if (reads == null) {
-                reads = ConcurrentHashMap.newKeySet();
-                ROW_READS.put(row, reads);
-            }
-            reads.add(column);
+            ROW_READS.computeIfAbsent(row, ConcurrentHashMap::newKeySet).add(column);
         }
     }
 
@@ -136,12 +131,7 @@ public final class ReadAccess {
             return;
         }
         synchronized (ROW_ALIASES) {
-            Set<String> aliases = ROW_ALIASES.get(row);
-            if (aliases == null) {
-                aliases = ConcurrentHashMap.newKeySet();
-                ROW_ALIASES.put(row, aliases);
-            }
-            aliases.add(alias);
+            ROW_ALIASES.computeIfAbsent(row, ConcurrentHashMap::newKeySet).add(alias);
         }
     }
 

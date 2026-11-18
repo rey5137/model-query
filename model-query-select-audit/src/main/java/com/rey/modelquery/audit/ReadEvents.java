@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.stream.Collectors;
 
 /** Counts reads, call-site selections, unmapped inherited reads and missing hooks across a test session. */
 final class ReadEvents {
@@ -13,14 +14,8 @@ final class ReadEvents {
 
     record CallSiteKey(String callSite, String method, String model, SelectSet<?> select, String selectLabel,
             List<String> requestedProperties) {
-        CallSiteKey(String callSite, String method, String model, SelectSet<?> select, String selectLabel,
-                List<String> requestedProperties) {
-            this.callSite = callSite;
-            this.method = method;
-            this.model = model;
-            this.select = select;
-            this.selectLabel = selectLabel;
-            this.requestedProperties = List.copyOf(requestedProperties);
+        CallSiteKey {
+            requestedProperties = List.copyOf(requestedProperties);
         }
     }
 
@@ -47,8 +42,7 @@ final class ReadEvents {
     }
 
     static Map<Key, Long> snapshot() {
-        return COUNTS.entrySet().stream().collect(java.util.stream.Collectors.toUnmodifiableMap(
-                Map.Entry::getKey, entry -> entry.getValue().sum()));
+        return sums(COUNTS);
     }
 
     static CallSiteStats registerCallSite(Tag tag) {
@@ -83,12 +77,15 @@ final class ReadEvents {
     }
 
     static Map<InheritedKey, Long> inheritedReads() {
-        return INHERITED.entrySet().stream().collect(java.util.stream.Collectors.toUnmodifiableMap(
-                Map.Entry::getKey, entry -> entry.getValue().sum()));
+        return sums(INHERITED);
     }
 
     static Map<MissingHookKey, Long> missingHooks() {
-        return MISSING_HOOKS.entrySet().stream().collect(java.util.stream.Collectors.toUnmodifiableMap(
+        return sums(MISSING_HOOKS);
+    }
+
+    private static <K> Map<K, Long> sums(Map<K, LongAdder> counts) {
+        return counts.entrySet().stream().collect(Collectors.toUnmodifiableMap(
                 Map.Entry::getKey, entry -> entry.getValue().sum()));
     }
 

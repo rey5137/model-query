@@ -2,6 +2,7 @@ package com.rey.modelquery.audit;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.atomic.LongAdder;
 
 /** Classifies the first application or serializer frame of a model read. */
 final class ReadSite {
@@ -14,9 +15,13 @@ final class ReadSite {
 
     record Site(String location, boolean serializer, boolean ignored) {}
 
+    /** Stack walks taken, so a test can show a selected read takes none. */
+    static final LongAdder CAPTURES = new LongAdder();
+
     private ReadSite() {}
 
     static Site capture(Class<?> model) {
+        CAPTURES.increment();
         String config = System.getProperty("modelquery.selectAudit.ignore", "");
         Rules rules = cachedRules;
         if (!rules.config().equals(config)) {

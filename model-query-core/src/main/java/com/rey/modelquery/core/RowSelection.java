@@ -150,6 +150,8 @@ public final class RowSelection {
     private record ValueRow(Map<SelectField<?, ?>, String> aliases, Map<PathKey, String> byPath,
             Function<String, Object> values, Scopes scopes) implements Row {
 
+        // Select-audit seams (D-241, R-INS-19): the agent instruments get, raw and alias by name; the audit
+        // also reads the frame name "raw". Keep these signatures.
         @Override
         public <C> C get(SelectField<?, C> column) {
             Object raw = raw(column);

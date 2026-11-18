@@ -6,7 +6,7 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
 ## [0.15.0] - 2026-11-18
 
-0.15.0 covers milestone M38 (RFC 0026, D-228 to D-238): a test-scope Java agent (`model-query-select-audit`) that fails
+0.15.0 covers milestone M38 (RFC 0026, D-228 to D-244): a test-scope Java agent (`model-query-select-audit`) that fails
 a read of an unselected column at the reading line and reports selected columns no test ever read. Every API addition
 below is `@Incubating`.
 
@@ -30,12 +30,21 @@ below is `@Incubating`.
   generated withers, `@Selected` reads and engine mapping/enricher reads do not count; `Row.get` and `Row.raw` reads in
   `afterMap` or a finisher count as reads. Serializer reads (Jackson 2 and 3, Blackbird, Afterburner, JSON-B getters)
   warn and never fail; `modelquery.selectAudit.ignore` suppresses matching reading frames and their synthetic lambdas;
-  `modelquery.selectAudit.failOn=none` switches to report-only mode.
+  `modelquery.selectAudit.failOn=none` switches to report-only mode. An ignored reader never fails, but its reads of
+  selected columns still count toward the unread report (D-240).
 - `SelectAuditReport` (RFC 0026 Part C, R-INS-21, AC-INS-22): written on JUnit session close to
   `target/model-query/select-audit-<fork>.txt` (`modelquery.selectAudit.dir`), listing unselected reads, serializer
   reads of unselected columns, unread selected columns per call site, select set and child load (excluding engine-added
   keys and portability replays), reads of unmapped inherited fields, and unhooked models (`MODELS NOT OBSERVED`).
-  `SelectAuditReport.main` / `merge` merges per-fork files into `select-audit.txt`.
+  `SelectAuditReport.main` / `merge` merges per-fork files into `select-audit.txt`. Each fork file records a run id
+  (`modelquery.selectAudit.run`, else the parent process), and the merge keeps only the newest run and warns about
+  older files; a file without a known run always merges (D-244). Test names come from a JUnit
+  `TestExecutionListener`, so "across N tests" counts real tests under Surefire forks.
+- The agent's engine seams (`ModelQuery.toModel(Row)`, the executor's run method and `RowSelection.ValueRow` reads)
+  are a declared contract pinned by a TCK signature test; a hand-off throws when a loaded seam type was not hooked
+  (D-241). With the audit jar present but no agent attached, the hand-off observer is inactive and keeps no rows
+  (D-242). The module's public surface is `AuditAgent`, `AuditObserver`, `AuditLauncherSessionListener`, `ReadAccess`
+  (not API), `UnselectedColumnRead` and `SelectAuditReport`, checked by an ArchUnit rule (D-243).
 - User guide: [Select audit](docs/site/docs/select-audit.md) with Maven and Gradle setup tabs, Mockito and JaCoCo agent
   ordering, and the JDK 17/21 record `ClassFormatError` note.
 

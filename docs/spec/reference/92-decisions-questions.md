@@ -3362,7 +3362,7 @@ mapper, even when the model's class file is unreadable. A generated Q's mapper w
 still fails loudly. Cache the verdict per mapper nest host and model class; do not inspect model annotations or
 parse a model class file to classify its mapper. → `api/16` R-INS-18.
 
-**D-234 — The audit uses two engine-facing core accessors (M38.2 review, 2026-11-17, user decision).** Retain
+**D-234 — The audit uses engine-facing core accessors (M38.2 review, 2026-11-17, user decision; M38.1 added `returningRow(Function)` and `mapReturning(Row)`, `api/11`).** Retain
 `ModelQuery.mapper()` and expose `TableField.presenceKey()` as `@EngineFacing`, outside application API. Existing
 members do not expose either value: the mapper's nest host is the binding-safe route to Q, and the presence key
 is the join-selection rule. The select-audit INV-7 clause permits these core engine-facing members. Nested
@@ -3401,6 +3401,52 @@ rendering the select-audit report in `AuditLauncherSessionListener.launcherSessi
 or `RuntimeException`, the listener logs the failure at `WARNING` with the cause and does not rethrow: a build's
 verdict comes from its tests (unselected reads already fail their tests when `failOn=unselected`). → `api/16`
 R-INS-21.
+
+**D-240 — An ignored reader never fails, and its selected reads count (M38 gate, 2026-11-18).** An `ignore` rule
+suppresses only the failure and the record of an unselected read; a read of a selected column counts toward the
+unread report whoever the reader is. Not counting them made the report advise dropping a column the ignored reader
+uses, a silent `null` in production (INV-5). Rejected: not counting, and an "ignored-only" report marker. A selected
+read now takes no stack walk and no ignore lookup. The test named in the report's "across N tests" is the method the
+JUnit listener recorded for the thread (`class#method`), else the outermost application frame; the frame rule skips
+JDK, JUnit, TestNG, Surefire, Gradle and IDE frames. A caller inside `com.rey.modelquery.*` is its own call site when
+no other application frame exists (the outermost such frame). → `api/16` R-INS-20, R-INS-21, AC-INS-21..23.
+
+**D-241 — The agent's engine seams are a declared contract (M38 gate, 2026-11-18).** The select-audit agent
+instruments private engine members by name: `ModelQuery.toModel(Row)`, `DefaultModelQueryExecutor.run(FetchPlan,
+String, List)` and `get`, `raw` and `alias(SelectField)` on `RowSelection.ValueRow` (the `Row` implementation), and
+`ReadAccess` keys on a frame named `raw`. They are named in the select-audit clause of INV-7 as a contract with
+`core` and `jpa`, marked by a comment at each declaration, guarded by a TCK reflection test for each signature, and
+checked at install time: the transformer records which seam types it saw and which seam methods it hooked, and a
+hand-off with the agent attached fails with `IllegalStateException` naming each seam whose type loaded without a
+hook. A seam type that never loaded is not checked, nor is one loaded before a late attach, and an ignored or
+errored seam type is not a stated guarantee. No API change. → `api/16` R-INS-19, `SPEC.md` INV-7.
+
+**D-242 — A `HandOffObserver` can be inactive (M38 gate, 2026-11-18).** The not-API `HandOffObserver` has
+`default boolean active() { return true; }`, read once when the lookup runs. An inactive provider is treated as
+absent: `installed()` returns `NONE`, so the executor keeps no rows for it (D-184, P-B.2). `AuditObserver.active()`
+is `AuditAgent.isInstalled()` and logs the one missing-agent warning when false. The agent must therefore be
+attached at JVM start: a late attach after the first executor call leaves the audit off for that class loader. The
+TCK, with the audit jar on its test class path and no agent, runs on the `NONE` path. → `api/16` R-INS-18,
+R-INS-22.
+
+**D-243 — The select-audit public surface is an allow-list (M38 gate, 2026-11-18, user decision).** The module's
+public classes are exactly `AuditAgent` (`premain`, `agentmain`, `isInstalled`), `AuditObserver` with its no-arg
+constructor (`ServiceLoader`), `AuditLauncherSessionListener` (`ServiceLoader`), `ReadAccess` (public only because
+agent-injected code in model packages calls it; Javadoc "not API"), `UnselectedColumnRead` and `SelectAuditReport`.
+`Tag`, the tag lookups and `AuditAgent.instrumentation()` are package-private: a public `Instrumentation` would let any
+test-class-path class redefine classes, and `Tag` exposes a bit layout with no stability story. A TCK ArchUnit test
+holds the list. Rejected: specifying a tag-inspection API. → `api/16` R-INS-18, R-INS-21, `delivery/61`.
+
+**D-244 — A report merge keeps the newest run (M38 gate, 2026-11-18).** Each fork file starts with a run header
+`# RUN<TAB><run id><TAB><fork JVM start millis>`. The run id is `modelquery.selectAudit.run` when set, else the parent
+process's pid and start instant, which all forks of one Maven build (Surefire and Failsafe, concurrent or not) share.
+`SelectAuditReport.merge` keeps the files of the run whose fork started last and logs one `WARNING` naming how many
+older files it skipped. A fork whose parent or start instant is unavailable, and a file without a header, has the run
+id `unknown`: it is never skipped and merges with the newest run, because a wrongly skipped fork makes its read
+columns look unread (INV-5). A long-lived parent (a Gradle daemon, an IDE) keeps one run id across builds, so old
+files there still merge unless the directory is cleaned or the property is set (not verified against either).
+Rejected: deleting the files of dead pids at session open, which removes earlier forks of the same build under
+`reuseForks=false` and Surefire's files under Failsafe. → `api/16` R-INS-21, AC-INS-22.
 
 ## 2. Open questions
 

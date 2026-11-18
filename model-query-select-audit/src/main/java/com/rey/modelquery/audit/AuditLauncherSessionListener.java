@@ -1,6 +1,7 @@
 package com.rey.modelquery.audit;
 
 import com.rey.modelquery.annotations.Incubating;
+import java.io.IOException;
 import org.junit.platform.launcher.LauncherSession;
 import org.junit.platform.launcher.LauncherSessionListener;
 
@@ -24,6 +25,7 @@ public final class AuditLauncherSessionListener implements LauncherSessionListen
                     + "(set by maven-dependency-plugin's properties goal) to your surefire "
                     + "or failsafe plugin argLine");
         }
+        session.getLauncher().registerTestExecutionListeners(new AuditTestListener());
     }
 
     @Override
@@ -32,7 +34,7 @@ public final class AuditLauncherSessionListener implements LauncherSessionListen
         if (AuditAgent.isInstalled()) {
             try {
                 SelectAuditReport.writeForkReport();
-            } catch (java.io.IOException | RuntimeException e) {
+            } catch (IOException | RuntimeException e) {
                 System.getLogger(AuditLauncherSessionListener.class.getName()).log(
                         System.Logger.Level.WARNING, "Failed to write select-audit report", e);
             }

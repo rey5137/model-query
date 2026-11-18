@@ -25,6 +25,15 @@ public interface HandOffObserver {
     @Incubating
     HandOffObserver NONE = (query, child, models, rows) -> {};
 
+    /**
+     * Whether this observer is ready to observe. An inactive one is treated as absent: {@link #installed()} returns
+     * {@link #NONE}, so the executor keeps no rows for it (D-242). Read once, when the observer is looked up.
+     */
+    @Incubating
+    default boolean active() {
+        return true;
+    }
+
     /** Opens one executor invocation; nested invocations close before their outer invocation. */
     @Incubating
     default Scope openCall() {
