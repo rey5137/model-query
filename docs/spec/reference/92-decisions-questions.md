@@ -3384,6 +3384,18 @@ with a `ClassValue` on the mapper nest host and a nested `ClassValue` on the mod
 uses a model-class `ClassValue` and property-path map on its parent metadata. Remember hand-written mapper warnings
 by model class name, without retaining the class or its loader. → `api/16` R-INS-18.
 
+**D-237 — Other-thread reads are conservatively labelled (M38.3, 2026-11-18).** A tag records the thread on which
+it was created. An unselected read on a different thread is labelled "may not have failed a test": the audit cannot
+tell whether the test joined that thread. The label can therefore also appear for joined workers, and shared tags
+compare against the tag's creation thread. → `api/16` R-INS-20, AC-INS-23.
+
+**D-238 — Reader-only ignores and reflective serializer fields (M38.3, 2026-11-18).** Ignore rules match only the
+reading frame, after skipping JDK, hidden, generated and audit frames, as serializer classification does; callers
+cannot suppress a different reader. A `Class#method` rule also matches synthetic lambda frames of that method. A
+method reference invoked by a library is attributed to the library's reading frame and needs a library package rule.
+Reflective field reads are invisible to the hooks, including Gson and field-mode
+Jackson or JSON-B. JSON-B getter reads remain classified as serializer reads. → `api/16` R-INS-19, R-INS-20.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

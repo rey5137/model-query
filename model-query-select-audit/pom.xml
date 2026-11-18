@@ -16,6 +16,11 @@
     <description>Select audit agent and observer: call-site capture, tagging, unselected-read detection (RFC 0026,
         D-228..D-232). Add it in test scope.</description>
 
+    <properties>
+        <audit.mockito.version>5.23.0</audit.mockito.version>
+        <audit.jar>${project.build.directory}/${project.build.finalName}.jar</audit.jar>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>io.github.rey5137</groupId>
@@ -36,6 +41,49 @@
         </dependency>
 
         <!-- Test dependencies -->
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <version>${audit.mockito.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.jacoco</groupId>
+            <artifactId>org.jacoco.agent</artifactId>
+            <version>0.8.16</version>
+            <classifier>runtime</classifier>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <version>${lombok.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.module</groupId>
+            <artifactId>jackson-module-blackbird</artifactId>
+            <version>${jackson.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.module</groupId>
+            <artifactId>jackson-module-afterburner</artifactId>
+            <version>${jackson.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>tools.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>3.0.2</version>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>jakarta.persistence</groupId>
             <artifactId>jakarta.persistence-api</artifactId>
@@ -72,8 +120,41 @@
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>agent-dependency-paths</id>
+                        <goals><goal>properties</goal></goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>default-testCompile</id>
+                        <configuration>
+                            <proc>full</proc>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-enforcer-plugin</artifactId>
                 <executions>
+                    <execution>
+                        <id>enforce</id>
+                        <configuration>
+                            <rules>
+                                <bannedDependencies>
+                                    <excludes><exclude>org.projectlombok:*</exclude></excludes>
+                                    <includes><include>org.projectlombok:lombok:*:*:test</include></includes>
+                                </bannedDependencies>
+                            </rules>
+                        </configuration>
+                    </execution>
                     <execution>
                         <id>no-hibernate-or-spring</id>
                         <phase>validate</phase>
@@ -147,10 +228,35 @@
                             <goal>verify</goal>
                         </goals>
                         <configuration>
-                            <argLine>-javaagent:${project.build.directory}/${project.build.finalName}.jar</argLine>
+                            <argLine>
+                                -javaagent:${audit.jar} -javaagent:${org.mockito:mockito-core:jar}
+                            </argLine>
                             <includes>
                                 <include>**/*Test.java</include>
                             </includes>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>jacoco-before-audit</id>
+                        <goals><goal>integration-test</goal><goal>verify</goal></goals>
+                        <configuration>
+                            <test>AcIns18InstrumentationTest</test>
+                            <argLine>
+                                -javaagent:${org.jacoco:org.jacoco.agent:jar:runtime}=output=none
+                                -javaagent:${audit.jar} -javaagent:${org.mockito:mockito-core:jar}
+                            </argLine>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>jacoco-after-audit</id>
+                        <goals><goal>integration-test</goal><goal>verify</goal></goals>
+                        <configuration>
+                            <test>AcIns18InstrumentationTest</test>
+                            <argLine>
+                                -javaagent:${audit.jar}
+                                -javaagent:${org.jacoco:org.jacoco.agent:jar:runtime}=output=none
+                                -javaagent:${org.mockito:mockito-core:jar}
+                            </argLine>
                         </configuration>
                     </execution>
                 </executions>

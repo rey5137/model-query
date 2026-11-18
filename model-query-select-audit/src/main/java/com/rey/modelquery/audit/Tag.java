@@ -5,7 +5,11 @@ import com.rey.modelquery.core.SelectSet;
 import java.util.BitSet;
 import java.util.Collections;
 import java.util.Map;
+import java.util.List;
+import java.util.HashSet;
 import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * One call's audit tag, shared by every model returned by that call (R-INS-18). Holds the captured call site,
@@ -20,14 +24,36 @@ public final class Tag {
     private final SelectSet<?> select;
     private final BitSet selected;
     private final Map<String, Integer> propertyBits;
+    private final Map<String, String> constants;
+    private final BitSet read = new BitSet();
+    private final Set<String> mapped;
+    private final Set<String> inheritedReads = ConcurrentHashMap.newKeySet();
+    private final long handoffThread = Thread.currentThread().getId();
+    private final Set<ReadEvent> unselectedReads = new HashSet<>();
+
+    record ReadEvent(String model, String property, String reader, boolean serializer, boolean otherThread) {}
 
     Tag(String callSite, String method, SelectSet<?> select, BitSet selected, Map<String, Integer> propertyBits) {
+        this(callSite, method, select, selected, propertyBits, propertyBits.keySet());
+    }
+
+    Tag(String callSite, String method, SelectSet<?> select, BitSet selected, Map<String, Integer> propertyBits,
+            Set<String> mapped) {
+        this(callSite, method, select, selected, propertyBits, mapped, Map.of());
+    }
+
+    Tag(String callSite, String method, SelectSet<?> select, BitSet selected, Map<String, Integer> propertyBits,
+            Set<String> mapped, Map<String, String> constants) {
         this.callSite = Objects.requireNonNull(callSite, "callSite");
         this.method = Objects.requireNonNull(method, "method");
         this.select = select;
         this.selected = Objects.requireNonNull(selected, "selected");
         this.propertyBits = Collections.unmodifiableMap(Objects.requireNonNull(propertyBits, "propertyBits"));
+        this.constants = Map.copyOf(constants);
+        this.mapped = Set.copyOf(mapped);
     }
+
+    String constant(String property) { return constants.getOrDefault(property, property); }
 
     /** The captured application call site, as {@code ClassName.method:line}. */
     @Incubating
@@ -70,6 +96,49 @@ public final class Tag {
     @Incubating
     public Map<String, Integer> propertyBits() {
         return propertyBits;
+    }
+
+    synchronized void read(String property) {
+        Integer bit = propertyBits.get(property);
+        if (bit != null) {
+            read.set(bit);
+        }
+    }
+
+    synchronized boolean wasRead(String property) {
+        Integer bit = propertyBits.get(property);
+        return bit != null && read.get(bit);
+    }
+
+    synchronized void unselected(String model, String property, ReadSite.Site site) {
+        ReadEvent event = new ReadEvent(model, property, site.location(), site.serializer(),
+                Thread.currentThread().getId() != handoffThread);
+        unselectedReads.add(event);
+        ReadEvents.record(this, event);
+    }
+
+    synchronized List<ReadEvent> unselectedReads() {
+        return List.copyOf(unselectedReads);
+    }
+
+    long handoffThread() {
+        return handoffThread;
+    }
+
+    boolean isMapped(String property) {
+        return mapped.contains(property);
+    }
+
+    void inheritedRead(String property, String owner) {
+        String read = owner + "." + property;
+        if (inheritedReads.add(read)) {
+            System.getLogger(Tag.class.getName()).log(System.Logger.Level.WARNING,
+                    "Read of unmapped inherited field " + read + " on model of " + callSite + " " + method);
+        }
+    }
+
+    Set<String> inheritedReads() {
+        return Set.copyOf(inheritedReads);
     }
 
     @Override

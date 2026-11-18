@@ -13,4 +13,12 @@ public record AuditOrderView(
         Long total,
         String notes,
         @Join Optional<AuditCustomerView> customer,
-        @Child(key = "id", foreignKey = "orderId") List<AuditLineView> lines) {}
+        @Child(key = "id", foreignKey = "orderId") List<AuditLineView> lines) {
+    public String computedNotes() {
+        return notes;
+    }
+
+    public AuditOrderView withNotes(String value) {
+        return new AuditOrderView(id, total, value, customer, lines);
+    }
+}
