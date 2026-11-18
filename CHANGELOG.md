@@ -4,6 +4,41 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html); the public API may change in any `0.x`
 release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
+## [0.15.0] - 2026-11-18
+
+0.15.0 covers milestone M38 (RFC 0026, D-228 to D-238): a test-scope Java agent (`model-query-select-audit`) that fails
+a read of an unselected column at the reading line and reports selected columns no test ever read. Every API addition
+below is `@Incubating`.
+
+### Added (incubating)
+
+- `model-query-select-audit` (RFC 0026 Part D, R-INS-22, D-230, D-232): a test-scope Java agent module (shading Byte
+  Buddy) that hooks model record accessors, class getters and intra-model field reads as model classes load, with
+  superclasses retransformed on a helper thread. When the jar is on the JUnit classpath without `-javaagent:`,
+  `AuditLauncherSessionListener` fails the test session when it opens, naming the `argLine` to add; outside JUnit it
+  logs one warning and does nothing.
+- Hand-off observer seam in `model-query-jpa` (`HandOffObserver`, not API, R-INS-18, D-228, D-233 to D-236) and the
+  `@EngineFacing` `ModelQuery.returningRow`, `ModelQuery.mapper()` and `TableField.presenceKey()`: every executor path
+  returning models (`list`, `page`, `one`, `first`, `byKeys`, `export`, `stream`, the `*Returning` writes and
+  `persist(..., returning)`) hands returned models and their `Row`s to the observer after the fetch plan and enrichers
+  run, with a no-op default when the audit module is absent. `AuditObserver` captures the application call site once
+  per outermost call, resolves selected properties from `Q<M>.fields()`, `@Join` presence keys and `@Child` fetch
+  plans, and skips `PortabilityCheck` replays and hand-written mappers.
+- `UnselectedColumnRead` (`AssertionError`, RFC 0026 Part C, R-INS-19, R-INS-20, D-237, D-238): thrown at the reading
+  line when an unselected property is read, naming the property, reading frame (labelled `(may not have failed a test)`
+  when on another thread), query call site, selection and suggested constant. Own `equals`, `hashCode`, `toString`,
+  generated withers, `@Selected` reads and engine mapping/enricher reads do not count; `Row.get` and `Row.raw` reads in
+  `afterMap` or a finisher count as reads. Serializer reads (Jackson 2 and 3, Blackbird, Afterburner, JSON-B getters)
+  warn and never fail; `modelquery.selectAudit.ignore` suppresses matching reading frames and their synthetic lambdas;
+  `modelquery.selectAudit.failOn=none` switches to report-only mode.
+- `SelectAuditReport` (RFC 0026 Part C, R-INS-21, AC-INS-22): written on JUnit session close to
+  `target/model-query/select-audit-<fork>.txt` (`modelquery.selectAudit.dir`), listing unselected reads, serializer
+  reads of unselected columns, unread selected columns per call site, select set and child load (excluding engine-added
+  keys and portability replays), reads of unmapped inherited fields, and unhooked models (`MODELS NOT OBSERVED`).
+  `SelectAuditReport.main` / `merge` merges per-fork files into `select-audit.txt`.
+- User guide: [Select audit](docs/site/docs/select-audit.md) with Maven and Gradle setup tabs, Mockito and JaCoCo agent
+  ordering, and the JDK 17/21 record `ClassFormatError` note.
+
 ## [0.14.1] - 2026-11-17
 
 ### Fixed

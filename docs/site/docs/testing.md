@@ -101,3 +101,6 @@ build log show each value as `?`, since a bound value can be personal data; only
 
 What the view does not hold: filters from a `QueryCustomizer` and the ones the executor adds (keyset, child keys), and
 the filters of a fetch plan's child queries.
+
+To verify at test time that downstream code only reads columns your queries actually selected — and to find selected
+columns no test ever reads — see [Select audit](select-audit.md).

@@ -55,7 +55,7 @@ public final class ReadAccess {
                 String label = Thread.currentThread().getId() != tag.handoffThread()
                         ? " (may not have failed a test)" : "";
                 String message = name + " was not selected\n  read at   " + site.location() + label
-                        + "\n  model of  " + tag.callSite() + " " + tag.method() + ", select " + tag.select()
+                        + "\n  model of  " + tag.callSite() + " " + tag.method() + ", select " + tag.selectLabel()
                         + "\n  add " + tag.constant(property) + " to the select set, or ignore this reader "
                         + "(modelquery.selectAudit.ignore)";
                 if (site.serializer()) {
@@ -64,7 +64,7 @@ public final class ReadAccess {
                     throw new UnselectedColumnRead(message);
                 }
             } else if (!model.getClass().getName().equals(owner)) {
-                tag.inheritedRead(property, owner);
+                tag.inheritedRead(model.getClass(), property, owner);
             }
         }
     }

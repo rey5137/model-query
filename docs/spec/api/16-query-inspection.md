@@ -471,6 +471,27 @@ For join and child properties the suggested remedy uses the property name rather
   a library is attributed to the library's reading frame and requires a package rule for that library.
 - `modelquery.selectAudit.failOn` is `unselected` by default; `none` records reads without failing.
 
+**R-INS-21** *(D-228, D-232, D-237, D-239, `@Incubating`)* **The select-audit report.** The module's JUnit
+`LauncherSessionListener`, registered through `ServiceLoader`, writes the report when the session closes to
+`target/model-query/select-audit-<fork>.txt` (the directory is `modelquery.selectAudit.dir`) and logs its summary at
+`INFO` (if writing fails, it logs a `WARNING` with the cause and does not fail the session, D-239). The report lists:
+
+- **Unselected reads** (`UNSELECTED READS (N)`), with property, reading frame ( labelled `(may not have failed a test)`
+  when on another thread, D-237), call site, method and count (`xN` when greater than 1);
+- **Serializer reads of unselected columns** (`SERIALIZER READS OF UNSELECTED COLUMNS (warning)`), with property,
+  serializer name (`Jackson`, `JSON-B`), call site, method and count;
+- **Unread columns** (`UNREAD COLUMNS (warning)`), counted per query call site and `SelectSet` (and per child load,
+  `child <name> select <set>`): a column of the query's own `select()` that no read of any model from that call site,
+  and no mapping-time `Row` read, touched. Engine-added keys and `PortabilityCheck` replays are excluded. Unread
+  columns are a warning, never a failure;
+- **Reads of unmapped inherited fields** (`READS OF UNMAPPED INHERITED FIELDS (warning)`);
+- **Models not observed** (`MODELS NOT OBSERVED (hook missing)`), for tagged models whose class was not hooked at load
+  time (D-232).
+
+Each JVM fork writes its own file; `SelectAuditReport.main(dir)` (and `SelectAuditReport.merge(Path)`) merges a
+directory's fork files into `select-audit.txt`, unioning read columns per call site and select set so a column is
+reported unread only when no fork read it (AC-INS-22).
+
 **R-INS-22** *(D-228, D-230, `@Incubating`)* **The select-audit module and agent setup.** `model-query-select-audit`
 depends on `model-query-jpa` at its exact version and Byte Buddy, shaded and relocated into the agent jar so it never
 clashes with a user's dependencies. No production module depends on it; the TCK has a test-only ordering
@@ -510,5 +531,6 @@ by self-attach at run time.
 | AC-INS-19 | A fetch plan's `with` copy and an enricher's instance are the tagged models, and the engine's own reads are not counted; a column read only by `afterMap` through the `Row` is not reported unread (R-INS-18, R-INS-19). |
 | AC-INS-20 | A `@Join` is selected by its presence key, an empty `Optional` tags nothing; a `@Child` loaded by the plan is tagged from the child query's rows and reported as `child`; reading an unloaded `@Child` fails (R-INS-18). |
 | AC-INS-21 | A Jackson serialization (plain, Blackbird and Afterburner) of a partial model warns and does not fail; an `ignore`d reader neither fails nor counts (R-INS-19, R-INS-20). |
+| AC-INS-22 | The report lists unread selected columns per call site and select set, excludes engine-added keys and portability replays, and two forks' files merge to the union (R-INS-21). |
 | AC-INS-23 | Every `ModelQueryExecutor` method returning models, enumerated by reflection, tags its result; a `stream` call and a call through an application decorator get the application's call site; a read on an unjoined pool thread is labelled (R-INS-18, R-INS-20, D-237). |
 | AC-INS-24 | The jar without the agent fails the JUnit session when it opens; outside JUnit it logs once and changes no SQL and no result; the `jpa` default changes neither (R-INS-18, R-INS-22, D-228, D-230). |

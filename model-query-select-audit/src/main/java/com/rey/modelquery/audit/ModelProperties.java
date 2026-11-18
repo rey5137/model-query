@@ -4,11 +4,15 @@ import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.FieldIndex;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.Row;
+import com.rey.modelquery.core.SelectField;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -36,17 +40,21 @@ final class ModelProperties {
     };
     private final Class<?> qClass;
     private final Class<?> rootModel;
+    private final Class<?> modelClass;
     private final FieldIndex<?> fields;
     private final String prefix;
     private final Map<String, Integer> propertyBits;
     private final Map<String, TableField<?, ?>> joins;
     private final Set<String> mapped;
     private final Map<String, String> constants;
+    private final Map<SelectField<?, ?>, String> fieldProperties;
+    private final Map<SelectSet<?>, String> setNames;
 
     private ModelProperties(Class<?> qClass, Class<?> rootModel, Class<?> modelClass, FieldIndex<?> fields,
             String prefix) {
         this.qClass = qClass;
         this.rootModel = rootModel;
+        this.modelClass = modelClass;
         this.fields = fields;
         this.prefix = prefix;
         Map<String, Integer> bits = new LinkedHashMap<>();
@@ -96,9 +104,13 @@ final class ModelProperties {
                 || fields.select(prefix + property).isPresent() || fields.child(prefix + property).isPresent())
                 .collect(java.util.stream.Collectors.toUnmodifiableSet());
         Map<String, String> names = new LinkedHashMap<>();
+        Map<SelectField<?, ?>, String> propertiesByField = new LinkedHashMap<>();
+        for (String property : bits.keySet()) {
+            fields.select(prefix + property).ifPresent(field -> propertiesByField.putIfAbsent(field, property));
+        }
+        Map<SelectSet<?>, String> sets = new LinkedHashMap<>();
         for (var field : qClass.getFields()) {
-            if (!Modifier.isStatic(field.getModifiers())
-                    || !com.rey.modelquery.core.SelectField.class.isAssignableFrom(field.getType())) {
+            if (!Modifier.isStatic(field.getModifiers())) {
                 continue;
             }
             try {
@@ -106,19 +118,62 @@ final class ModelProperties {
                 if (constant == null) {
                     continue;
                 }
-                for (String property : bits.keySet()) {
-                    if (fields.select(prefix + property).filter(constant::equals).isPresent()) {
-                        names.putIfAbsent(property, qClass.getSimpleName() + "." + field.getName());
+                if (SelectField.class.isAssignableFrom(field.getType())) {
+                    for (String property : bits.keySet()) {
+                        if (fields.select(prefix + property).filter(constant::equals).isPresent()) {
+                            names.putIfAbsent(property, qClass.getSimpleName() + "." + field.getName());
+                        }
                     }
+                } else if (SelectSet.class.isAssignableFrom(field.getType()) && !field.getName().equals("DEFAULT")) {
+                    sets.putIfAbsent((SelectSet<?>) constant, field.getName());
                 }
             } catch (IllegalAccessException e) {
                 throw new IllegalStateException("Cannot read selection metadata in " + qClass.getName(), e);
             }
         }
+        for (var field : qClass.getFields()) {
+            if (Modifier.isStatic(field.getModifiers()) && SelectSet.class.isAssignableFrom(field.getType())
+                    && field.getName().equals("DEFAULT")) {
+                try {
+                    SelectSet<?> constant = (SelectSet<?>) field.get(null);
+                    if (constant != null) {
+                        sets.putIfAbsent(constant, "DEFAULT");
+                    }
+                } catch (IllegalAccessException e) {
+                    throw new IllegalStateException("Cannot read selection metadata in " + qClass.getName(), e);
+                }
+            }
+        }
         this.constants = Map.copyOf(names);
+        this.fieldProperties = Map.copyOf(propertiesByField);
+        this.setNames = Map.copyOf(sets);
     }
 
     Map<String, String> constants() { return constants; }
+
+    Class<?> modelClass() { return modelClass; }
+
+    String describeSelect(SelectSet<?> select) {
+        if (select == null) {
+            return "*";
+        }
+        String constant = setNames.get(select);
+        return constant != null ? constant : select.toString();
+    }
+
+    List<String> requestedProperties(ModelQuery<?, ?, ?> query) {
+        if (query.select() == null) {
+            return List.of();
+        }
+        List<String> requested = new ArrayList<>();
+        for (SelectField<?, ?> field : query.select().fields()) {
+            String property = fieldProperties.get(field);
+            if (property != null && !requested.contains(property)) {
+                requested.add(property);
+            }
+        }
+        return List.copyOf(requested);
+    }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
     private static ColumnField<?, ?, ?> reRoot(ColumnField column, Class<?> model, TableField table) {

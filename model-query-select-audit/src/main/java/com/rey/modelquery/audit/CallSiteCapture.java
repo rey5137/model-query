@@ -22,7 +22,11 @@ final class CallSiteCapture {
 
     private CallSiteCapture() {}
 
-    record Site(String callSite, String method) {}
+    record Site(String callSite, String method, String test) {
+        Site(String callSite, String method) {
+            this(callSite, method, "");
+        }
+    }
 
     /**
      * Captures the call site and outermost executor method. Returns {@code null} if the stack contains
@@ -55,10 +59,27 @@ final class CallSiteCapture {
                 String simpleName = className.substring(className.lastIndexOf('.') + 1);
                 String callSite = simpleName + "." + frame.getMethodName()
                         + (frame.getLineNumber() >= 0 ? ":" + frame.getLineNumber() : "");
-                return new Site(callSite, method);
+                return new Site(callSite, method, findTestFrame(frames, i));
             }
         }
         return null;
+    }
+
+    private static String findTestFrame(List<StackWalker.StackFrame> frames, int fromIndex) {
+        StackWalker.StackFrame outerCandidate = frames.get(fromIndex);
+        for (int i = frames.size() - 1; i >= fromIndex; i--) {
+            StackWalker.StackFrame frame = frames.get(i);
+            String name = frame.getClassName();
+            if (name.startsWith("org.junit.") || name.startsWith("org.testng.")
+                    || name.startsWith("org.apache.maven.surefire.")) {
+                continue;
+            }
+            if (isCallSiteCandidate(frame)) {
+                outerCandidate = frame;
+                break;
+            }
+        }
+        return outerCandidate.getClassName() + "#" + outerCandidate.getMethodName();
     }
 
     private static boolean isCallSiteCandidate(StackWalker.StackFrame frame) {
