@@ -21,6 +21,8 @@ public final class AuditObserver implements HandOffObserver {
     private static final Logger LOG = System.getLogger(AuditObserver.class.getName());
     private static final AtomicBoolean WARNED_MISSING_AGENT = new AtomicBoolean();
     private static final WeakIdentityMap<Object, Tag> TAGS = new WeakIdentityMap<>();
+    private static final java.util.Set<Class<?>> MISSING_HOOKS = java.util.Collections.synchronizedSet(
+            java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>()));
 
     /** Creates an audit observer. */
     @Incubating
@@ -144,17 +146,28 @@ public final class AuditObserver implements HandOffObserver {
             Map<TagKey, Tag> tags, String callSite, String method) {
         TagKey key = new TagKey(method, props.prefix(), model.getClass(), props.selectionBitSet(query, row));
         Tag tag = tags.computeIfAbsent(key, ignored -> new Tag(callSite, method, query.select(),
-                key.selected(), props.propertyBits()));
-        TAGS.put(model, tag);
+                key.selected(), props.propertyBits(), props.mapped(), props.constants()));
+        props.recordMappingReads(tag, row);
+        if (!ReadTransformer.hooked(model.getClass()) && MISSING_HOOKS.add(model.getClass())) {
+            LOG.log(Level.WARNING, "MODELS NOT OBSERVED (hook missing): " + model.getClass().getName()
+                    + " model of " + callSite + " " + method);
+        }
         for (String property : props.joins().keySet()) {
             if (!tag.isSelected(property)) {
                 continue;
             }
-            Object value = ModelProperties.read(model, property);
+            Object value;
+            ReadAccess.enterObjectMethod();
+            try {
+                value = ModelProperties.read(model, property);
+            } finally {
+                ReadAccess.exitObjectMethod();
+            }
             if (value instanceof Optional<?> optional && optional.isPresent()) {
                 Object nested = optional.get();
                 tagModel(nested, row, query, props.nested(property, nested.getClass()), tags, callSite, method);
             }
         }
+        TAGS.put(model, tag);
     }
 }

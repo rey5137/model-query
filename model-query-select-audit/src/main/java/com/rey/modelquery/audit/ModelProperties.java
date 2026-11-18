@@ -40,6 +40,8 @@ final class ModelProperties {
     private final String prefix;
     private final Map<String, Integer> propertyBits;
     private final Map<String, TableField<?, ?>> joins;
+    private final Set<String> mapped;
+    private final Map<String, String> constants;
 
     private ModelProperties(Class<?> qClass, Class<?> rootModel, Class<?> modelClass, FieldIndex<?> fields,
             String prefix) {
@@ -56,7 +58,12 @@ final class ModelProperties {
             for (Method method : modelClass.getMethods()) {
                 if (method.getParameterCount() == 0 && method.getReturnType() != void.class
                         && !Modifier.isStatic(method.getModifiers()) && method.getDeclaringClass() != Object.class) {
-                    bits.computeIfAbsent(propertyName(method.getName()), ignored -> bits.size());
+                    String name = propertyName(method.getName());
+                    if (!name.equals(method.getName()) && fields.select(prefix + name).isEmpty()
+                            && fields.select(prefix + method.getName()).isPresent()) {
+                        name = method.getName();
+                    }
+                    bits.computeIfAbsent(name, ignored -> bits.size());
                 }
             }
         }
@@ -85,7 +92,33 @@ final class ModelProperties {
             }
         }
         this.joins = Map.copyOf(tables);
+        this.mapped = bits.keySet().stream().filter(property -> joins.containsKey(property)
+                || fields.select(prefix + property).isPresent() || fields.child(prefix + property).isPresent())
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        Map<String, String> names = new LinkedHashMap<>();
+        for (var field : qClass.getFields()) {
+            if (!Modifier.isStatic(field.getModifiers())
+                    || !com.rey.modelquery.core.SelectField.class.isAssignableFrom(field.getType())) {
+                continue;
+            }
+            try {
+                Object constant = field.get(null);
+                if (constant == null) {
+                    continue;
+                }
+                for (String property : bits.keySet()) {
+                    if (fields.select(prefix + property).filter(constant::equals).isPresent()) {
+                        names.putIfAbsent(property, qClass.getSimpleName() + "." + field.getName());
+                    }
+                }
+            } catch (IllegalAccessException e) {
+                throw new IllegalStateException("Cannot read selection metadata in " + qClass.getName(), e);
+            }
+        }
+        this.constants = Map.copyOf(names);
     }
+
+    Map<String, String> constants() { return constants; }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
     private static ColumnField<?, ?, ?> reRoot(ColumnField column, Class<?> model, TableField table) {
@@ -113,14 +146,21 @@ final class ModelProperties {
         }
     }
 
-    static boolean hasFieldsMethod(Class<?> type) {
-        try {
-            Method method = type.getMethod("fields");
-            return Modifier.isStatic(method.getModifiers())
-                    && FieldIndex.class.isAssignableFrom(method.getReturnType());
-        } catch (NoSuchMethodException e) {
-            return false;
+    private static final ClassValue<Boolean> HAS_FIELDS_METHOD = new ClassValue<>() {
+        @Override
+        protected Boolean computeValue(Class<?> type) {
+            try {
+                Method method = type.getMethod("fields");
+                return Modifier.isStatic(method.getModifiers())
+                        && FieldIndex.class.isAssignableFrom(method.getReturnType());
+            } catch (NoSuchMethodException e) {
+                return false;
+            }
         }
+    };
+
+    static boolean hasFieldsMethod(Class<?> type) {
+        return HAS_FIELDS_METHOD.get(type);
     }
 
     ModelProperties nested(String property, Class<?> modelClass) {
@@ -131,6 +171,15 @@ final class ModelProperties {
 
     Map<String, Integer> propertyBits() {
         return propertyBits;
+    }
+
+    Set<String> mapped() {
+        return mapped;
+    }
+
+    void recordMappingReads(Tag tag, Row row) {
+        propertyBits.keySet().forEach(property -> fields.select(prefix + property)
+                .filter(field -> ReadAccess.wasRowRead(row, field)).ifPresent(ignored -> tag.read(property)));
     }
 
     Map<String, TableField<?, ?>> joins() {

@@ -442,6 +442,35 @@ one field per call and uses the no-op call scope without other hand-off work, so
   ran and before they are set on their parents, from the child query's own rows, with the child load named; they are
   reported under the parent's call site as `child LINES select …`.
 
+**R-INS-19** *(D-232, `@Incubating`)* **Read hooks.** The agent recognises models from `CLASS`-retention
+model-query annotations on the type, fields, methods or record components and hooks their accessors as they load.
+Its retransform-capable transformer preserves hooks through later reinstrumentation; it hooks superclasses too,
+retransforming an already loaded superclass on a helper thread. It does not retransform a model itself: the cached
+original class file avoids malformed annotated record bytes on JDK 17 and 21. Hook status is tracked per class;
+at hand-off an unhooked or lost model is reported as not observed. An agent registered later can drop a hook without
+this being detectable.
+
+- Record accessors, class getters and field reads inside model methods count against `fields()` properties; computed
+  reads are attributed to the first frame outside the model. An inherited getter's unmapped field is a warning.
+- A model's own `equals`, `hashCode`, `toString`, generated withers, `@Selected` reads, engine reads during mapping,
+  fetch plans and enrichers, and reads of untagged instances do not count.
+- `Row.get` and `Row.raw` reads in `afterMap` or a finisher count as reads and never fail.
+- Reflective field reads, including Gson and field-visibility Jackson or JSON-B, are invisible to the hooks (D-238).
+
+**R-INS-20** *(D-232, D-237, D-238, `@Incubating`)* **Unselected reads.** A read of an unselected property throws
+`UnselectedColumnRead`, an `AssertionError`, at the reading line. Its message names the property, reading line,
+query call site and selection, and suggests adding the property or ignoring the reader. Each unselected read is
+recorded; a read on a different thread is labelled as possibly not having failed a test (D-237).
+For join and child properties the suggested remedy uses the property name rather than a generated constant.
+
+- Serializer reads of unselected properties warn and never fail; serializer reads of selected properties count.
+  Classification skips JDK, hidden and generated frames and recognises Jackson 2 and 3 and JSON-B getter packages.
+- `modelquery.selectAudit.ignore` accepts comma-separated package prefixes or `Class#method` frames. An ignored
+  read neither fails nor counts. A rule matches only the reading frame used for serializer classification (D-238).
+  A `Class#method` rule also matches synthetic lambda frames declared in that method. A method reference invoked by
+  a library is attributed to the library's reading frame and requires a package rule for that library.
+- `modelquery.selectAudit.failOn` is `unselected` by default; `none` records reads without failing.
+
 **R-INS-22** *(D-228, D-230, `@Incubating`)* **The select-audit module and agent setup.** `model-query-select-audit`
 depends on `model-query-jpa` at its exact version and Byte Buddy, shaded and relocated into the agent jar so it never
 clashes with a user's dependencies. No production module depends on it; the TCK has a test-only ordering
@@ -477,6 +506,9 @@ by self-attach at run time.
 | AC-INS-15 | On both Hibernate lines with no container: a Boot-configured unit (`PersistenceUnitInfo`) renders the same SQL as `of(classList)` with the same properties; an unversioned target prints a head line with the provider line's dialect minimum and an example deployed version; a dropped instance property outside connection keys is listed in the head; data-source keys are not listed (R-INS-12, R-INS-16, D-223). |
 | AC-INS-16 | On both Hibernate lines with no container: a unit naming a multi-tenant connection provider (`hibernate.multi_tenant_connection_provider` and `hibernate.connection.provider_class`), whether configured on `PersistenceUnitInfo` or in `persistence.xml`, reaches only the stub DataSource, recording calls on the stub and bypassing the configured connection providers (R-INS-16, `vendor/40` R-VND-20, D-223). |
 | AC-INS-17 | On both Hibernate lines with no container, on H2, PostgreSQL, MySQL and MariaDB, with bound values and under `value_handling_mode=inline` (the same text): a three-level plan reports its child statements depth first after the parent's, `label child orders.lines on TARGET: REACHED select ...`, each on two placeholder keys (`in (?,?)`) with no mark, a child through its association included; a child under a `@Join` nested model is walked under the join's path; a source-rooted parent refused on MariaDB (`MQ4015`) walks no child there and reaches it elsewhere; a key-grouped child renders one round on both placeholders with a `verifyMissing` or `groupWhen` catch-all (over a group function that knows only real keys too) and with the first placeholder's group without one, a group no placeholder falls in never asked; a group or value function failing on a placeholder (`MQ2607`, `MQ1502`, or its own exception, such as a `NullPointerException`, with its class and message) is a failing `HARNESS_ERROR` line naming the checker's limit, its child's children not walked; `Integer`, `String`, `UUID`, `LocalDate` and enum keys reach on two placeholders, a one-constant enum on one (`in (?)`), and an empty enum, a converted value object and `byte[]` give a failing line naming the type; a `COUNT` page walks its children once, after both statements, and `count` walks none; the check counts each child line as a result and fails on a failing one (R-INS-12, R-INS-17, D-224). |
+| AC-INS-18 | Against H2, on both Hibernate lines: a record and a class model queried with a partial set, passed through two methods, fail the test at the reading line with the call site; a selected `NULL` column read passes; Lombok `equals` in an AssertJ assertion does not fail (R-INS-19, R-INS-20). |
+| AC-INS-19 | A fetch plan's `with` copy and an enricher's instance are the tagged models, and the engine's own reads are not counted; a column read only by `afterMap` through the `Row` is not reported unread (R-INS-18, R-INS-19). |
 | AC-INS-20 | A `@Join` is selected by its presence key, an empty `Optional` tags nothing; a `@Child` loaded by the plan is tagged from the child query's rows and reported as `child`; reading an unloaded `@Child` fails (R-INS-18). |
-| AC-INS-23 | Every `ModelQueryExecutor` method returning models, enumerated by reflection, tags its result; a `stream` call and a call through an application decorator get the application's call site; a read on an unjoined pool thread is labelled (R-INS-18). |
+| AC-INS-21 | A Jackson serialization (plain, Blackbird and Afterburner) of a partial model warns and does not fail; an `ignore`d reader neither fails nor counts (R-INS-19, R-INS-20). |
+| AC-INS-23 | Every `ModelQueryExecutor` method returning models, enumerated by reflection, tags its result; a `stream` call and a call through an application decorator get the application's call site; a read on an unjoined pool thread is labelled (R-INS-18, R-INS-20, D-237). |
 | AC-INS-24 | The jar without the agent fails the JUnit session when it opens; outside JUnit it logs once and changes no SQL and no result; the `jpa` default changes neither (R-INS-18, R-INS-22, D-228, D-230). |

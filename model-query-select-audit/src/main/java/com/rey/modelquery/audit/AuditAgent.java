@@ -17,16 +17,18 @@ public final class AuditAgent {
 
     /** Premain hook called when attached via {@code -javaagent}. */
     @Incubating
-    public static void premain(String arguments, Instrumentation inst) {
-        instrumentation = inst;
-        installed = true;
+    public static synchronized void premain(String arguments, Instrumentation inst) {
+        if (!installed) {
+            instrumentation = inst;
+            ReadTransformer.install(inst);
+            installed = true;
+        }
     }
 
     /** Agentmain hook called when attached dynamically. */
     @Incubating
     public static void agentmain(String arguments, Instrumentation inst) {
-        instrumentation = inst;
-        installed = true;
+        premain(arguments, inst);
     }
 
     /** Whether the audit agent is currently attached and active. */
