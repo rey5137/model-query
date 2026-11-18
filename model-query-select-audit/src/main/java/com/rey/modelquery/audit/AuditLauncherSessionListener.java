@@ -25,4 +25,17 @@ public final class AuditLauncherSessionListener implements LauncherSessionListen
                     + "or failsafe plugin argLine");
         }
     }
+
+    @Override
+    @Incubating
+    public void launcherSessionClosed(LauncherSession session) {
+        if (AuditAgent.isInstalled()) {
+            try {
+                SelectAuditReport.writeForkReport();
+            } catch (java.io.IOException | RuntimeException e) {
+                System.getLogger(AuditLauncherSessionListener.class.getName()).log(
+                        System.Logger.Level.WARNING, "Failed to write select-audit report", e);
+            }
+        }
+    }
 }

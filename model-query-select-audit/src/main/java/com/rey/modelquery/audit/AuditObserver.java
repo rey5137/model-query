@@ -54,6 +54,10 @@ public final class AuditObserver implements HandOffObserver {
         return TAGS.size();
     }
 
+    static void clearMissingHooks() {
+        MISSING_HOOKS.clear();
+    }
+
     private static final ThreadLocal<Call> CALL = new ThreadLocal<>();
 
     private record TagKey(String method, String prefix, Class<?> model, java.util.BitSet selected) {}
@@ -132,25 +136,34 @@ public final class AuditObserver implements HandOffObserver {
         if (props == null) {
             return;
         }
-        String method = child.map(load -> "child " + load.field().name() + " select " + query.select())
-                .orElse(call.site.method());
+        String method = child.map(load -> "child " + load.field().name() + " select "
+                + props.describeSelect(query.select())).orElse(call.site.method());
         synchronized (call) {
             Map<TagKey, Tag> tags = call.tags.computeIfAbsent(query, ignored -> new java.util.HashMap<>());
             for (int i = 0; i < models.size(); i++) {
-                tagModel(models.get(i), rows.get(i), query, props, tags, call.site.callSite(), method);
+                tagModel(models.get(i), rows.get(i), query, props, tags, call.site.callSite(), method,
+                        call.site.test());
             }
         }
     }
 
-    private void tagModel(Object model, Row row, ModelQuery<?, ?, ?> query, ModelProperties props,
-            Map<TagKey, Tag> tags, String callSite, String method) {
+    private Tag tagModel(Object model, Row row, ModelQuery<?, ?, ?> query, ModelProperties props,
+            Map<TagKey, Tag> tags, String callSite, String method, String test) {
         TagKey key = new TagKey(method, props.prefix(), model.getClass(), props.selectionBitSet(query, row));
-        Tag tag = tags.computeIfAbsent(key, ignored -> new Tag(callSite, method, query.select(),
-                key.selected(), props.propertyBits(), props.mapped(), props.constants()));
+        Tag tag = tags.computeIfAbsent(key, ignored -> {
+            Tag created = new Tag(callSite, method, query.select(), props.describeSelect(query.select()),
+                    model.getClass().getName(), key.selected(), props.propertyBits(), props.mapped(),
+                    props.constants(), props.requestedProperties(query));
+            ReadEvents.recordCall(created, test);
+            return created;
+        });
         props.recordMappingReads(tag, row);
-        if (!ReadTransformer.hooked(model.getClass()) && MISSING_HOOKS.add(model.getClass())) {
-            LOG.log(Level.WARNING, "MODELS NOT OBSERVED (hook missing): " + model.getClass().getName()
-                    + " model of " + callSite + " " + method);
+        if (!ReadTransformer.hooked(model.getClass())) {
+            ReadEvents.recordMissingHook(model.getClass().getName(), callSite, method);
+            if (MISSING_HOOKS.add(model.getClass())) {
+                LOG.log(Level.WARNING, "MODELS NOT OBSERVED (hook missing): " + model.getClass().getName()
+                        + " model of " + callSite + " " + method);
+            }
         }
         for (String property : props.joins().keySet()) {
             if (!tag.isSelected(property)) {
@@ -165,9 +178,10 @@ public final class AuditObserver implements HandOffObserver {
             }
             if (value instanceof Optional<?> optional && optional.isPresent()) {
                 Object nested = optional.get();
-                tagModel(nested, row, query, props.nested(property, nested.getClass()), tags, callSite, method);
+                tagModel(nested, row, query, props.nested(property, nested.getClass()), tags, callSite, method, test);
             }
         }
         TAGS.put(model, tag);
+        return tag;
     }
 }

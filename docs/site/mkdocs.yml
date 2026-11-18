@@ -78,6 +78,7 @@ nav:
       - Vendor notes: vendors.md
       - Portability: portability.md
       - Testing queries: testing.md
+      - Select audit: select-audit.md
       - Diagnostics: diagnostics.md
   - Cookbook:
       - Migration recipes: recipes.md

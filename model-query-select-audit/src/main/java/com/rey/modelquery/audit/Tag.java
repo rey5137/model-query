@@ -22,11 +22,15 @@ public final class Tag {
     private final String callSite;
     private final String method;
     private final SelectSet<?> select;
+    private final String selectLabel;
+    private final String modelName;
     private final BitSet selected;
     private final Map<String, Integer> propertyBits;
     private final Map<String, String> constants;
     private final BitSet read = new BitSet();
     private final Set<String> mapped;
+    private final List<String> requestedProperties;
+    private final ReadEvents.CallSiteStats callSiteStats;
     private final Set<String> inheritedReads = ConcurrentHashMap.newKeySet();
     private final long handoffThread = Thread.currentThread().getId();
     private final Set<ReadEvent> unselectedReads = new HashSet<>();
@@ -44,16 +48,35 @@ public final class Tag {
 
     Tag(String callSite, String method, SelectSet<?> select, BitSet selected, Map<String, Integer> propertyBits,
             Set<String> mapped, Map<String, String> constants) {
+        this(callSite, method, select, String.valueOf(select), "", selected, propertyBits, mapped, constants,
+                List.of());
+    }
+
+    Tag(String callSite, String method, SelectSet<?> select, String selectLabel, String modelName,
+            BitSet selected, Map<String, Integer> propertyBits, Set<String> mapped, Map<String, String> constants,
+            List<String> requestedProperties) {
         this.callSite = Objects.requireNonNull(callSite, "callSite");
         this.method = Objects.requireNonNull(method, "method");
         this.select = select;
+        this.selectLabel = Objects.requireNonNull(selectLabel, "selectLabel");
+        this.modelName = Objects.requireNonNull(modelName, "modelName");
         this.selected = Objects.requireNonNull(selected, "selected");
         this.propertyBits = Collections.unmodifiableMap(Objects.requireNonNull(propertyBits, "propertyBits"));
         this.constants = Map.copyOf(constants);
         this.mapped = Set.copyOf(mapped);
+        this.requestedProperties = List.copyOf(requestedProperties);
+        this.callSiteStats = ReadEvents.registerCallSite(this);
     }
 
     String constant(String property) { return constants.getOrDefault(property, property); }
+
+    String selectLabel() { return selectLabel; }
+
+    String modelName() { return modelName; }
+
+    List<String> requestedProperties() { return requestedProperties; }
+
+    ReadEvents.CallSiteStats callSiteStats() { return callSiteStats; }
 
     /** The captured application call site, as {@code ClassName.method:line}. */
     @Incubating
@@ -100,8 +123,11 @@ public final class Tag {
 
     synchronized void read(String property) {
         Integer bit = propertyBits.get(property);
-        if (bit != null) {
+        if (bit != null && !read.get(bit)) {
             read.set(bit);
+            if (callSiteStats != null) {
+                callSiteStats.readProperties.add(property);
+            }
         }
     }
 
@@ -129,12 +155,19 @@ public final class Tag {
         return mapped.contains(property);
     }
 
-    void inheritedRead(String property, String owner) {
+    void inheritedRead(Class<?> modelClass, String property, String owner) {
         String read = owner + "." + property;
-        if (inheritedReads.add(read)) {
-            System.getLogger(Tag.class.getName()).log(System.Logger.Level.WARNING,
-                    "Read of unmapped inherited field " + read + " on model of " + callSite + " " + method);
+        if (!inheritedReads.add(read)) {
+            return;
         }
+        ReadSite.Site site = ReadSite.capture(modelClass);
+        if (site.ignored()) {
+            inheritedReads.remove(read);
+            return;
+        }
+        System.getLogger(Tag.class.getName()).log(System.Logger.Level.WARNING,
+                "Read of unmapped inherited field " + read + " on model of " + callSite + " " + method);
+        ReadEvents.recordInherited(this, read, site.location());
     }
 
     Set<String> inheritedReads() {

@@ -27,9 +27,10 @@ final class ReadSite {
         var frame = WALKER.walk(frames -> frames.filter(candidate -> {
             String name = candidate.getClassName();
             Class<?> declaring = candidate.getDeclaringClass();
-            return declaring != ReadSite.class && declaring != ReadAccess.class && !declaring.isAssignableFrom(model)
-                    && !declaring.isHidden() && !name.startsWith("java.") && !name.startsWith("jdk.")
-                    && !name.startsWith("sun.") && !name.contains("$$") && !name.contains("$Access4Jackson");
+            return declaring != ReadSite.class && declaring != ReadAccess.class && declaring != Tag.class
+                    && !declaring.isAssignableFrom(model) && !declaring.isHidden() && !name.startsWith("java.")
+                    && !name.startsWith("jdk.") && !name.startsWith("sun.") && !name.contains("$$")
+                    && !name.contains("$Access4Jackson");
         }).findFirst().orElse(null));
         if (frame != null) {
             String name = frame.getClassName();

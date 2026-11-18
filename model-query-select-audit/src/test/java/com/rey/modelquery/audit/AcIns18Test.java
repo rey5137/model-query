@@ -32,15 +32,20 @@ class AcIns18Test extends AuditTestBase {
     @Test
     void ac_ins_18_reader_and_call_site_survive_two_helper_methods() {
         try (EntityManager em = sessions.createEntityManager()) {
-            var query = QAuditOrderView.query().select(SelectSet.of(QAuditOrderView.ID))
+            var query = QAuditOrderView.query().select(QAuditOrderView.ALL)
                     .where(f -> f.eq(QAuditOrderView.ID, 1L)).build();
-            var model = orderExecutor(em).one(query).orElseThrow();
+            var allModel = orderExecutor(em).one(query).orElseThrow();
+            assertThat(AuditObserver.tagOf(allModel).selectLabel()).isEqualTo("ALL");
+
+            var partial = QAuditOrderView.query().select(SelectSet.of(QAuditOrderView.ID))
+                    .where(f -> f.eq(QAuditOrderView.ID, 1L)).build();
+            var model = orderExecutor(em).one(partial).orElseThrow();
             String callSite = AuditObserver.tagOf(model).callSite();
             assertThatThrownBy(() -> helperOne(model)).isInstanceOf(UnselectedColumnRead.class)
                     .satisfies(error -> assertThat(error.getMessage())
                             .contains("read at   " + getClass().getName() + ".helperTwo(AcIns18Test.java:"
                                     + readerLine + ")")
-                            .contains("model of  " + callSite)
+                            .contains("model of  " + callSite + " one, select [AuditOrderView.id]")
                             .contains("add QAuditOrderView.NOTES to the select set"));
         }
     }

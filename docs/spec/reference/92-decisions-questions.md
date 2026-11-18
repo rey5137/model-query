@@ -3396,6 +3396,12 @@ method reference invoked by a library is attributed to the library's reading fra
 Reflective field reads are invisible to the hooks, including Gson and field-mode
 Jackson or JSON-B. JSON-B getter reads remain classified as serializer reads. → `api/16` R-INS-19, R-INS-20.
 
+**D-239 — Report write failure logs a warning without failing the session (M38.4, 2026-11-18).** If writing or
+rendering the select-audit report in `AuditLauncherSessionListener.launcherSessionClosed` fails with an `IOException`
+or `RuntimeException`, the listener logs the failure at `WARNING` with the cause and does not rethrow: a build's
+verdict comes from its tests (unselected reads already fail their tests when `failOn=unselected`). → `api/16`
+R-INS-21.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
