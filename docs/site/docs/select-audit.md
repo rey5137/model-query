@@ -89,10 +89,11 @@ audited alike.
 - **Startup `-javaagent` required.** Model classes are recognised from their class-file annotations and hooked as they
   load (and JDK 21+ warns on dynamic agent loading under JEP 451). With the jar on the test classpath and no
   `-javaagent` attached, the JUnit `LauncherSessionListener` fails the test session immediately when it opens, naming
-  the `argLine` to add, so a test suite never passes silently unaudited.
+  the `argLine` to add, so a test suite never passes silently unaudited. The agent must be attached at JVM start: a
+  late attach, after the first query ran, leaves the audit off for that class loader.
 - **Test scope only.** Without `model-query-select-audit` on the classpath, `model-query-jpa` uses a no-op observer
   that changes neither SQL nor results. If the audit jar is accidentally placed on the runtime classpath outside JUnit,
-  it logs one warning and does nothing.
+  it logs one warning and does nothing, and the executor keeps no rows for it.
 - **Newer JDKs.** Because Byte Buddy is shaded and relocated inside the agent jar so it never clashes with Mockito's or
   your application's version, running on a newer JDK than the release was built with may require upgrading
   `model-query-select-audit`.
@@ -133,8 +134,8 @@ UnselectedColumnRead: OrderView.customerEmail was not selected
   still count as reads.
 - **Ignoring a reader (`modelquery.selectAudit.ignore`).** Pass comma-separated package prefixes or `Class#method`
   entries in `-Dmodelquery.selectAudit.ignore=...` for code that intentionally reads an unselected property and handles
-  `null` (or a test asserting that an unselected field is `null`). An ignored read neither fails nor counts toward
-  read columns.
+  `null` (or a test asserting that an unselected field is `null`). An ignored reader never fails, but its reads of
+  selected columns still count as reads, so the report never advises dropping a column an ignored reader uses.
     - A rule matches **only the immediate reading frame** (after skipping JDK, hidden, generated and audit frames),
       never a caller further up the stack.
     - A `Class#method` rule (`com.example.OrderTest#shouldLeaveNotesNull`) also matches synthetic lambda frames
@@ -146,7 +147,7 @@ UnselectedColumnRead: OrderView.customerEmail was not selected
 
 ## The report
 
-When the JUnit session closes, the listener writes a report to `target/model-query/select-audit-<fork>.txt` (override
+When the JUnit session closes, the listener writes a report to `target/model-query/select-audit-fork-<n>-<pid>.txt` (override
 the directory with `-Dmodelquery.selectAudit.dir=...`) and logs a one-line summary:
 
 ```text
@@ -170,6 +171,8 @@ MODELS NOT OBSERVED (hook missing)
   labelled `(may not have failed a test)` because the audit cannot know whether the test joined that thread. Because
   the check compares against the tag's creation thread, the label is conservative and also appears when a test spawns
   and joins a worker thread.
+- **Tests counted.** "across N tests" counts the distinct test methods that reached the call site, taken from the
+  JUnit launcher on the calling thread.
 - **Unread columns.** Counted per query call site and `SelectSet` (and per child load): any column in the query's own
   `select()` that no test read on any model returned from that call site and select set, and no mapping callback read
   through `Row`. Primary keys or foreign keys added internally by the engine for paging or child matching, and queries
@@ -179,8 +182,13 @@ MODELS NOT OBSERVED (hook missing)
   from a superclass reading an unmapped superclass field is reported as a warning rather than an unselected failure.
 - **Merging multiple forks.** Each JVM writes a unique fork file (`select-audit-fork-<n>-<pid>.txt` under Surefire or
   Failsafe, or `select-audit-<pid>.txt` otherwise) so `reuseForks=false` and Surefire + Failsafe never overwrite each
-  other. Keep the report directory under the build output (`target/model-query` for Maven, or `build/model-query` via
-  `-Dmodelquery.selectAudit.dir` for Gradle) so `clean` removes stale fork files from earlier runs. When a build runs
+  other. Each file starts with a run header: the run id is `-Dmodelquery.selectAudit.run` when set, else the parent
+  process and its start instant, which all forks of one Maven build (Surefire and Failsafe) share. The merge keeps
+  only the newest run's files and logs one warning naming how many older files it skipped, so a build without `clean`
+  never reports from an earlier run. A fork whose parent or start time is unknown is never skipped. A long-lived
+  parent, such as a Gradle daemon or an IDE, keeps one run id across builds (not verified): set
+  `-Dmodelquery.selectAudit.run` per build, or clean the directory (`build/model-query` via
+  `-Dmodelquery.selectAudit.dir` for Gradle). When a build runs
   more than one test JVM, merge all fork files into `select-audit.txt` after the test phase (a column is reported
   unread only if no fork read it):
 
@@ -245,6 +253,12 @@ pass both `-javaagent` flags explicitly in `maven-surefire-plugin` / `maven-fail
 Because the audit agent recognises models from the class file's constant pool and annotations rather than reflection,
 and restricts its changes to method bodies (`disableClassFormatChanges()`), JaCoCo coverage probes and audit hooks
 coexist in either order.
+
+## Surefire `useSystemClassLoader=false`
+
+Surefire's isolated class loader (`useSystemClassLoader=false`) loads the audit classes a second time, apart from the
+copy the agent attached to. The session then fails with "agent not installed" although the agent is attached. Keep
+the default `useSystemClassLoader=true` (not reproduced in this build).
 
 ## What the audit does not see
 

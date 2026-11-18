@@ -2,9 +2,15 @@ package com.rey.modelquery.audit;
 
 import static net.bytebuddy.matcher.ElementMatchers.*;
 
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
 import java.lang.instrument.Instrumentation;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
@@ -13,8 +19,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import net.bytebuddy.agent.builder.AgentBuilder;
 import net.bytebuddy.asm.Advice;
 import net.bytebuddy.asm.AsmVisitorWrapper;
+import net.bytebuddy.description.annotation.AnnotationDescription;
 import net.bytebuddy.description.annotation.AnnotationList;
 import net.bytebuddy.description.method.MethodDescription;
+import net.bytebuddy.description.method.ParameterDescription;
 import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.dynamic.DynamicType;
 import net.bytebuddy.jar.asm.ClassWriter;
@@ -40,7 +48,65 @@ final class ReadTransformer {
         }
     };
 
+    private static final String CORE = "com.rey.modelquery.core.";
+    private static final String EXECUTOR = "com.rey.modelquery.jpa.DefaultModelQueryExecutor";
+    private static final String VALUE_ROW = CORE + "RowSelection$ValueRow";
+    /** The engine seams (D-241): seam name to the type that declares it. */
+    private static final Map<String, String> SEAMS = Map.of(
+            "ModelQuery.toModel(Row)", CORE + "ModelQuery",
+            "DefaultModelQueryExecutor.run(FetchPlan,String,List)", EXECUTOR,
+            "Row.get(SelectField)", VALUE_ROW,
+            "Row.raw(SelectField)", VALUE_ROW,
+            "Row.alias(SelectField)", VALUE_ROW);
+    private static final Set<String> SEAM_TYPES_SEEN = ConcurrentHashMap.newKeySet();
+    private static final Set<String> SEAMS_HOOKED = ConcurrentHashMap.newKeySet();
+
     private ReadTransformer() {}
+
+    /** The live set of seam types seen, for a test that drives the failure path. */
+    static Set<String> seamTypesSeen() {
+        return SEAM_TYPES_SEEN;
+    }
+
+    /** The live set of seams hooked, for a test that drives the failure path. */
+    static Set<String> seamsHooked() {
+        return SEAMS_HOOKED;
+    }
+
+    /** The seams whose type loaded but whose method matched no hook, or {@code null} when every loaded one is hooked. */
+    static String unappliedSeams() {
+        List<String> missing = new ArrayList<>();
+        SEAMS.forEach((seam, type) -> {
+            if (SEAM_TYPES_SEEN.contains(type) && !SEAMS_HOOKED.contains(seam)) {
+                missing.add(seam);
+            }
+        });
+        return missing.isEmpty() ? null : String.join(", ", missing.stream().sorted().toList());
+    }
+
+    private static ElementMatcher<TypeDescription> seamType(ElementMatcher<TypeDescription> matcher) {
+        return type -> {
+            boolean matches = matcher.matches(type);
+            if (matches && SEAMS.containsValue(type.getName())) {
+                SEAM_TYPES_SEEN.add(type.getName());
+            }
+            return matches;
+        };
+    }
+
+    private static ElementMatcher.Junction<MethodDescription> seam(String name,
+            ElementMatcher<MethodDescription> matcher) {
+        return new ElementMatcher.Junction.AbstractBase<>() {
+            @Override
+            public boolean matches(MethodDescription method) {
+                boolean matches = matcher.matches(method);
+                if (matches && method.getDeclaringType().asErasure().getName().equals(SEAMS.get(name))) {
+                    SEAMS_HOOKED.add(name);
+                }
+                return matches;
+            }
+        };
+    }
 
     static boolean hooked(Class<?> type) {
         return HOOKED.get(type).get();
@@ -100,23 +166,28 @@ final class ReadTransformer {
                         hookSuperclasses(inst, type, loader);
                     }
                     ElementMatcher<MethodDescription> accessors = accessors(type);
-                    return builder.visit(Advice.to(AccessorAdvice.class).on(accessors))
+                    return builder.visit(Advice.withCustomMapping().bind(new PropertyMapping(type.isRecord()))
+                                    .to(AccessorAdvice.class).on(accessors))
                             .visit(Advice.to(ObjectAdvice.class).on(objectMethods()))
                             .visit(new AsmVisitorWrapper.ForDeclaredMethods().writerFlags(ClassWriter.COMPUTE_MAXS)
                                     .method(ownMethods(type, accessors), (instrumented, method, visitor, context,
                                             pool, writerFlags, readerFlags) -> new Fields(visitor, type)));
                 })
-                .type(named("com.rey.modelquery.core.ModelQuery"))
+                .type(seamType(named(CORE + "ModelQuery")))
                 .transform((builder, type, loader, module, domain) -> builder
-                        .visit(Advice.to(MappingAdvice.class).on(named("toModel").and(takesArguments(1)))))
-                .type(named("com.rey.modelquery.jpa.DefaultModelQueryExecutor"))
+                        .visit(Advice.to(MappingAdvice.class).on(seam("ModelQuery.toModel(Row)",
+                                named("toModel").and(takesArguments(1))))))
+                .type(seamType(named(EXECUTOR)))
                 .transform((builder, type, loader, module, domain) -> builder
-                        .visit(Advice.to(ObjectAdvice.class).on(named("run").and(takesArguments(3)))))
-                .type(hasSuperType(named("com.rey.modelquery.core.Row")).and(not(isInterface())))
+                        .visit(Advice.to(ObjectAdvice.class).on(seam("DefaultModelQueryExecutor.run(FetchPlan,String,List)",
+                                named("run").and(takesArguments(3))))))
+                .type(seamType(hasSuperType(named(CORE + "Row")).and(not(isInterface()))))
                 .transform((builder, type, loader, module, domain) -> builder
-                        .visit(Advice.to(RowAdvice.class).on(namedOneOf("get", "raw").and(takesArguments(1))))
-                        .visit(Advice.to(AliasAdvice.class).on(named("alias").and(takesArguments(1))
-                                .and(returns(String.class)))))
+                        .visit(Advice.to(RowAdvice.class).on(
+                                seam("Row.get(SelectField)", named("get").and(takesArguments(1)))
+                                        .or(seam("Row.raw(SelectField)", named("raw").and(takesArguments(1))))))
+                        .visit(Advice.to(AliasAdvice.class).on(seam("Row.alias(SelectField)", named("alias")
+                                .and(takesArguments(1)).and(returns(String.class))))))
                 .installOn(inst);
     }
 
@@ -297,9 +368,30 @@ final class ReadTransformer {
 
     static final class AccessorAdvice {
         @Advice.OnMethodEnter
-        static void enter(@Advice.This Object self, @Advice.Origin("#m") String method,
+        static void enter(@Advice.This Object self, @Property String property, @Advice.Origin("#m") String method,
                 @Advice.Origin Class<?> owner) {
-            ReadAccess.accessor(self, method, owner);
+            ReadAccess.accessor(self, property, method, owner);
+        }
+    }
+
+    /** The property an accessor reads, computed when the class is transformed and injected as a constant. */
+    @Retention(RetentionPolicy.RUNTIME)
+    @Target(ElementType.PARAMETER)
+    @interface Property {}
+
+    private record PropertyMapping(boolean record) implements Advice.OffsetMapping.Factory<Property> {
+        @Override
+        public Class<Property> getAnnotationType() {
+            return Property.class;
+        }
+
+        @Override
+        public Advice.OffsetMapping make(ParameterDescription.InDefinedShape target,
+                AnnotationDescription.Loadable<Property> annotation, AdviceType adviceType) {
+            return (instrumentedType, instrumentedMethod, assigner, argumentHandler, sort) -> {
+                String name = instrumentedMethod.getInternalName();
+                return Advice.OffsetMapping.Target.ForStackManipulation.of(record ? name : propertyName(name));
+            };
         }
     }
 

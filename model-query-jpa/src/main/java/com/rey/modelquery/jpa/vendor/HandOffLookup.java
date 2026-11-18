@@ -13,7 +13,8 @@ final class HandOffLookup {
     private HandOffLookup() {}
 
     /**
-     * The one observer of {@code discovered}, or {@link HandOffObserver#NONE} when there is none. A provider that does
+     * The one observer of {@code discovered}, or {@link HandOffObserver#NONE} when there is none or it is not
+     * {@linkplain HandOffObserver#active() active}. A provider that does
      * not load, or a second one, is logged once and leaves {@code NONE} in place, never thrown, as
      * {@link VendorResolver#loadable} skips a provider that does not load: a hand-off then observes nothing rather
      * than failing the application's call.
@@ -25,9 +26,7 @@ final class HandOffLookup {
                 found.add(observer);
             }
         } catch (ServiceConfigurationError | LinkageError notLoadable) {
-            LOG.log(System.Logger.Level.WARNING, () -> "A HandOffObserver does not load, so none observes the "
-                    + "models handed on: " + notLoadable, notLoadable);
-            return HandOffObserver.NONE;
+            return notLoadable(notLoadable);
         }
         if (found.size() > 1) {
             LOG.log(System.Logger.Level.WARNING, "More than one HandOffObserver is registered with ServiceLoader, so "
@@ -35,7 +34,17 @@ final class HandOffLookup {
                     found.stream().map(observer -> observer.getClass().getName()).toList());
             return HandOffObserver.NONE;
         }
-        return found.isEmpty() ? HandOffObserver.NONE : found.get(0);
+        try {
+            return found.isEmpty() || !found.get(0).active() ? HandOffObserver.NONE : found.get(0);
+        } catch (LinkageError notLoadable) {
+            return notLoadable(notLoadable);
+        }
+    }
+
+    private static HandOffObserver notLoadable(Throwable notLoadable) {
+        LOG.log(System.Logger.Level.WARNING, () -> "A HandOffObserver does not load, so none observes the "
+                + "models handed on: " + notLoadable, notLoadable);
+        return HandOffObserver.NONE;
     }
 
     /** Initialized on the first {@link HandOffObserver#installed()}, so building an executor looks nothing up. */

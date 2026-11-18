@@ -17,7 +17,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * call, query and model path. Holds no model and no {@code Row}.
  */
 @Incubating
-public final class Tag {
+final class Tag {
 
     private final String callSite;
     private final String method;

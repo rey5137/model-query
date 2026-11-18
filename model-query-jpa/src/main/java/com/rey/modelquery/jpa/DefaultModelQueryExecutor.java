@@ -4046,6 +4046,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
      * nested plan whole, then its enrichers in order, so a nested plan's enrichers run before this one's (R-FCH-08).
      * {@code owner} names the plan's model, or its join path, in a message.
      */
+    // Select-audit seam (D-241, R-INS-19): the agent instruments this method by name and arity; keep its signature.
     private <M> List<M> run(FetchPlan<M> plan, String owner, List<Loaded<M>> rows) {
         List<M> models = modelsOf(rows);
         for (ChildLoad<M, ?> load : plan.childLoads()) {

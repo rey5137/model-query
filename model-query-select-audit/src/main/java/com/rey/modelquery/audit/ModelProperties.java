@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 /** Metadata is Q-specific; selection is always measured from the actual row. */
 final class ModelProperties {
@@ -102,7 +103,7 @@ final class ModelProperties {
         this.joins = Map.copyOf(tables);
         this.mapped = bits.keySet().stream().filter(property -> joins.containsKey(property)
                 || fields.select(prefix + property).isPresent() || fields.child(prefix + property).isPresent())
-                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+                .collect(Collectors.toUnmodifiableSet());
         Map<String, String> names = new LinkedHashMap<>();
         Map<SelectField<?, ?>, String> propertiesByField = new LinkedHashMap<>();
         for (String property : bits.keySet()) {

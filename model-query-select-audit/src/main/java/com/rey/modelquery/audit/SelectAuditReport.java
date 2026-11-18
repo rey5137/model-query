@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -32,6 +33,16 @@ public final class SelectAuditReport {
     private static final String FORK_PREFIX = "select-audit-";
     private static final String MERGED_FILE = "select-audit.txt";
     private static final String RECORD_PREFIX = "# CALL_SITE\t";
+    private static final String RUN_PREFIX = "# RUN\t";
+    /** Run id of a fork whose parent or start time is unknown, and of a file without a header: always merged. */
+    static final String UNKNOWN_RUN = "unknown";
+
+    /**
+     * System property naming the run a fork belongs to. When unset, the run is the parent process (the build JVM
+     * that started the forks) and its start instant (R-INS-21).
+     */
+    @Incubating
+    public static final String RUN_PROPERTY = "modelquery.selectAudit.run";
 
     private SelectAuditReport() {}
 
@@ -64,7 +75,9 @@ public final class SelectAuditReport {
         Objects.requireNonNull(dir, "dir");
         Files.createDirectories(dir);
         Snapshot snapshot = fromCurrentJvm();
-        String text = renderSnapshot(snapshot, true);
+        String text = RUN_PREFIX + runId() + "\t" + ProcessHandle.current().info().startInstant()
+                .map(Instant::toEpochMilli).orElse(System.currentTimeMillis()) + "\n"
+                + renderSnapshot(snapshot, true);
         Path file = dir.resolve(FORK_PREFIX + forkId() + ".txt");
         Files.writeString(file, text, StandardCharsets.UTF_8);
         System.getLogger(SelectAuditReport.class.getName()).log(System.Logger.Level.INFO,
@@ -74,7 +87,7 @@ public final class SelectAuditReport {
 
     /**
      * Merges all {@code select-audit-*.txt} fork files in {@code dir} into {@code select-audit.txt} in the same
-     * directory, unioning read columns per call site and select set so a column is reported unread only when no fork
+     * directory, keeping only the newest run's files (a warning names how many older files were skipped), unioning read columns per call site and select set so a column is reported unread only when no fork
      * read it.
      *
      * @param dir the directory holding the per-fork files
@@ -98,8 +111,40 @@ public final class SelectAuditReport {
             }
         }
         Snapshot merged = new Snapshot();
+        Map<Path, List<String>> contents = new LinkedHashMap<>();
+        Map<String, Long> newestStart = new LinkedHashMap<>();
+        Map<Path, String> runOf = new LinkedHashMap<>();
         for (Path file : files) {
-            parseInto(Files.readAllLines(file, StandardCharsets.UTF_8), merged);
+            List<String> lines = Files.readAllLines(file, StandardCharsets.UTF_8);
+            contents.put(file, lines);
+            String run = UNKNOWN_RUN;
+            long start = 0L;
+            if (!lines.isEmpty() && lines.get(0).startsWith(RUN_PREFIX)) {
+                String[] parts = lines.get(0).substring(RUN_PREFIX.length()).split("\t", -1);
+                run = parts[0];
+                start = parts.length > 1 ? parseLong(parts[1], 0L) : 0L;
+            }
+            runOf.put(file, run);
+            if (!run.equals(UNKNOWN_RUN)) {
+                newestStart.merge(run, start, Math::max);
+            }
+        }
+        // Files of several runs share a directory when it was not cleaned: keep only the newest run (R-INS-21).
+        // A file of unknown run is never skipped: dropping a fork would make its read columns look unread.
+        String newest = newestStart.entrySet().stream().max(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey).orElse(UNKNOWN_RUN);
+        int skipped = 0;
+        for (Path file : files) {
+            if (runOf.get(file).equals(newest) || runOf.get(file).equals(UNKNOWN_RUN)) {
+                parseInto(contents.get(file), merged);
+            } else {
+                skipped++;
+            }
+        }
+        if (skipped > 0) {
+            System.getLogger(SelectAuditReport.class.getName()).log(System.Logger.Level.WARNING,
+                    "select-audit: skipped " + skipped + " fork file(s) from older runs in " + dir
+                            + "; clear the directory or set -D" + RUN_PROPERTY + " to group forks of one build");
         }
         String rendered = renderSnapshot(merged, false);
         Files.createDirectories(dir);
@@ -118,6 +163,17 @@ public final class SelectAuditReport {
         String dir = args != null && args.length > 0 && args[0] != null && !args[0].isBlank()
                 ? args[0] : System.getProperty(DIR_PROPERTY, DEFAULT_DIR);
         merge(Path.of(dir));
+    }
+
+    private static String runId() {
+        String configured = System.getProperty(RUN_PROPERTY);
+        if (configured != null && !configured.isBlank()) {
+            return configured.trim();
+        }
+        return ProcessHandle.current().parent()
+                .flatMap(owner -> owner.info().startInstant().map(start -> "pid-" + owner.pid() + "-"
+                        + start.toEpochMilli()))
+                .orElse(UNKNOWN_RUN);
     }
 
     private static String forkId() {
@@ -244,9 +300,7 @@ public final class SelectAuditReport {
                     sb.append(" (may not have failed a test)");
                 }
                 sb.append("  model of ").append(k.callSite()).append(' ').append(k.method());
-                if (count > 1) {
-                    sb.append(" x").append(count);
-                }
+                appendCount(sb, count);
                 sb.append('\n');
             });
         }
@@ -255,9 +309,7 @@ public final class SelectAuditReport {
             snap.serializer.forEach((k, count) -> {
                 sb.append("  ").append(k.modelProperty()).append("  read by ").append(k.serializer())
                         .append("  model of ").append(k.callSite()).append(' ').append(k.method());
-                if (count > 1) {
-                    sb.append(" x").append(count);
-                }
+                appendCount(sb, count);
                 sb.append('\n');
             });
         }
@@ -289,9 +341,7 @@ public final class SelectAuditReport {
             snap.inherited.forEach((k, count) -> {
                 sb.append("  ").append(k.modelProperty()).append(" (").append(k.inherited()).append(")  read at ")
                         .append(k.reader()).append("  model of ").append(k.callSite()).append(' ').append(k.method());
-                if (count > 1) {
-                    sb.append(" x").append(count);
-                }
+                appendCount(sb, count);
                 sb.append('\n');
             });
         }
@@ -300,9 +350,7 @@ public final class SelectAuditReport {
             snap.missingHooks.forEach((k, count) -> {
                 sb.append("  ").append(k.model()).append("  model of ").append(k.callSite()).append(' ')
                         .append(k.method());
-                if (count > 1) {
-                    sb.append(" x").append(count);
-                }
+                appendCount(sb, count);
                 sb.append(": loaded before the agent; reads not recorded\n");
             });
         }
@@ -317,6 +365,12 @@ public final class SelectAuditReport {
                     .append(String.join(",", entry.tests)).append('\n'));
         }
         return sb.toString();
+    }
+
+    private static void appendCount(StringBuilder sb, long count) {
+        if (count > 1) {
+            sb.append(" x").append(count);
+        }
     }
 
     private static void parseInto(List<String> lines, Snapshot target) {
@@ -378,10 +432,10 @@ public final class SelectAuditReport {
                                 readerPart.length() - " (may not have failed a test)".length());
                     }
                     CountTail tail = splitCount(body.substring(modelOf + 11));
-                    int sp = tail.Rest().indexOf(' ');
+                    int sp = tail.rest().indexOf(' ');
                     if (sp > 0) {
                         UnselectedKey key = new UnselectedKey(prop, readerPart, otherThread,
-                                tail.Rest().substring(0, sp), tail.Rest().substring(sp + 1));
+                                tail.rest().substring(0, sp), tail.rest().substring(sp + 1));
                         target.unselected.merge(key, tail.count(), Long::sum);
                     }
                 }
@@ -393,10 +447,10 @@ public final class SelectAuditReport {
                     String prop = body.substring(0, readBy);
                     String ser = body.substring(readBy + 10, modelOf);
                     CountTail tail = splitCount(body.substring(modelOf + 11));
-                    int sp = tail.Rest().indexOf(' ');
+                    int sp = tail.rest().indexOf(' ');
                     if (sp > 0) {
                         SerializerKey key = new SerializerKey(prop, ser,
-                                tail.Rest().substring(0, sp), tail.Rest().substring(sp + 1));
+                                tail.rest().substring(0, sp), tail.rest().substring(sp + 1));
                         target.serializer.merge(key, tail.count(), Long::sum);
                     }
                 }
@@ -410,10 +464,10 @@ public final class SelectAuditReport {
                     String inh = body.substring(open + 2, readAt);
                     String reader = body.substring(readAt + 11, modelOf);
                     CountTail tail = splitCount(body.substring(modelOf + 11));
-                    int sp = tail.Rest().indexOf(' ');
+                    int sp = tail.rest().indexOf(' ');
                     if (sp > 0) {
                         InheritedKey key = new InheritedKey(prop, inh, reader,
-                                tail.Rest().substring(0, sp), tail.Rest().substring(sp + 1));
+                                tail.rest().substring(0, sp), tail.rest().substring(sp + 1));
                         target.inherited.merge(key, tail.count(), Long::sum);
                     }
                 }
@@ -426,10 +480,10 @@ public final class SelectAuditReport {
                     if (modelOf > 0) {
                         String model = head.substring(0, modelOf);
                         CountTail tail = splitCount(head.substring(modelOf + 11));
-                        int sp = tail.Rest().indexOf(' ');
+                        int sp = tail.rest().indexOf(' ');
                         if (sp > 0) {
                             MissingHookKey key = new MissingHookKey(model,
-                                    tail.Rest().substring(0, sp), tail.Rest().substring(sp + 1));
+                                    tail.rest().substring(0, sp), tail.rest().substring(sp + 1));
                             target.missingHooks.merge(key, tail.count(), Long::sum);
                         }
                     }
@@ -439,7 +493,7 @@ public final class SelectAuditReport {
         }
     }
 
-    private record CountTail(String Rest, long count) {}
+    private record CountTail(String rest, long count) {}
 
     private static CountTail splitCount(String text) {
         int idx = text.lastIndexOf(" x");

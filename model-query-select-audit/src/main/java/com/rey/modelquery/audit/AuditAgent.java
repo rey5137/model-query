@@ -37,15 +37,8 @@ public final class AuditAgent {
         return installed;
     }
 
-    /** The {@link Instrumentation} instance handed to the agent, or {@code null} when not attached. */
-    @Incubating
-    public static Instrumentation instrumentation() {
+    /** The {@link Instrumentation} instance handed to the agent, or {@code null}; package-private for tests. */
+    static Instrumentation instrumentation() {
         return instrumentation;
-    }
-
-    /** Looks up the audit tag for {@code model}, or {@code null} if untagged. */
-    @Incubating
-    public static Tag tagOf(Object model) {
-        return AuditObserver.tagOf(model);
     }
 }

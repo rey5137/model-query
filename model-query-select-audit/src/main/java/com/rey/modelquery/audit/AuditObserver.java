@@ -7,10 +7,17 @@ import com.rey.modelquery.core.Row;
 import com.rey.modelquery.jpa.vendor.HandOffObserver;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
+import java.util.BitSet;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.WeakHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
 
 /**
  * Observes models handed off by the JPA executor and tags them with their selected columns (RFC 0026, R-INS-18).
@@ -21,8 +28,8 @@ public final class AuditObserver implements HandOffObserver {
     private static final Logger LOG = System.getLogger(AuditObserver.class.getName());
     private static final AtomicBoolean WARNED_MISSING_AGENT = new AtomicBoolean();
     private static final WeakIdentityMap<Object, Tag> TAGS = new WeakIdentityMap<>();
-    private static final java.util.Set<Class<?>> MISSING_HOOKS = java.util.Collections.synchronizedSet(
-            java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>()));
+    private static final Set<Class<?>> MISSING_HOOKS = Collections.synchronizedSet(
+            Collections.newSetFromMap(new WeakHashMap<>()));
 
     /** Creates an audit observer. */
     @Incubating
@@ -30,28 +37,15 @@ public final class AuditObserver implements HandOffObserver {
         this(CallSiteCapture::capture);
     }
 
-    private final java.util.function.Supplier<CallSiteCapture.Site> capture;
+    private final Supplier<CallSiteCapture.Site> capture;
 
-    AuditObserver(java.util.function.Supplier<CallSiteCapture.Site> capture) {
+    AuditObserver(Supplier<CallSiteCapture.Site> capture) {
         this.capture = capture;
     }
 
     /** Looks up the audit tag for {@code model}, or {@code null} if untagged. */
-    @Incubating
-    public static Tag tagOf(Object model) {
+    static Tag tagOf(Object model) {
         return model != null ? TAGS.get(model) : null;
-    }
-
-    /** Looks up the audit tag for {@code model} as an {@link Optional}. */
-    @Incubating
-    public static Optional<Tag> optionalTagOf(Object model) {
-        return Optional.ofNullable(tagOf(model));
-    }
-
-    /** The number of tagged models currently held weakly. */
-    @Incubating
-    public static int taggedCount() {
-        return TAGS.size();
     }
 
     static void clearMissingHooks() {
@@ -60,12 +54,11 @@ public final class AuditObserver implements HandOffObserver {
 
     private static final ThreadLocal<Call> CALL = new ThreadLocal<>();
 
-    private record TagKey(String method, String prefix, Class<?> model, java.util.BitSet selected) {}
+    private record TagKey(String method, String prefix, Class<?> model, BitSet selected) {}
 
     private static final class Call {
         private final CallSiteCapture.Site site;
-        private final java.util.IdentityHashMap<ModelQuery<?, ?, ?>, Map<TagKey, Tag>> tags =
-                new java.util.IdentityHashMap<>();
+        private final IdentityHashMap<ModelQuery<?, ?, ?>, Map<TagKey, Tag>> tags = new IdentityHashMap<>();
 
         private Call(CallSiteCapture.Site site) {
             this.site = site;
@@ -77,6 +70,23 @@ public final class AuditObserver implements HandOffObserver {
             CALL.remove();
         } else {
             CALL.set(previous);
+        }
+    }
+
+    /** Active only with the agent attached; without it, one warning and the executor keeps no rows (D-242). */
+    @Override
+    @Incubating
+    public boolean active() {
+        if (AuditAgent.isInstalled()) {
+            return true;
+        }
+        warnMissingAgent();
+        return false;
+    }
+
+    private static void warnMissingAgent() {
+        if (WARNED_MISSING_AGENT.compareAndSet(false, true)) {
+            LOG.log(Level.WARNING, "model-query-select-audit is on the classpath without its agent; audit is disabled");
         }
     }
 
@@ -116,11 +126,13 @@ public final class AuditObserver implements HandOffObserver {
     public void handedOff(ModelQuery<?, ?, ?> query, Optional<ChildLoad<?, ?>> child, List<?> models,
             List<Row> rows) {
         if (!AuditAgent.isInstalled()) {
-            if (WARNED_MISSING_AGENT.compareAndSet(false, true)) {
-                LOG.log(Level.WARNING,
-                        "model-query-select-audit is on the classpath without its agent; audit is disabled");
-            }
+            warnMissingAgent();
             return;
+        }
+        String unapplied = ReadTransformer.unappliedSeams();
+        if (unapplied != null) {
+            throw new IllegalStateException("select-audit engine seams loaded without their hooks (D-241): "
+                    + unapplied + "; a core or jpa refactor renamed one, or the agent attached after the class loaded");
         }
         if (models.isEmpty()) {
             return;
@@ -139,7 +151,7 @@ public final class AuditObserver implements HandOffObserver {
         String method = child.map(load -> "child " + load.field().name() + " select "
                 + props.describeSelect(query.select())).orElse(call.site.method());
         synchronized (call) {
-            Map<TagKey, Tag> tags = call.tags.computeIfAbsent(query, ignored -> new java.util.HashMap<>());
+            Map<TagKey, Tag> tags = call.tags.computeIfAbsent(query, ignored -> new HashMap<>());
             for (int i = 0; i < models.size(); i++) {
                 tagModel(models.get(i), rows.get(i), query, props, tags, call.site.callSite(), method,
                         call.site.test());
@@ -147,7 +159,7 @@ public final class AuditObserver implements HandOffObserver {
         }
     }
 
-    private Tag tagModel(Object model, Row row, ModelQuery<?, ?, ?> query, ModelProperties props,
+    private void tagModel(Object model, Row row, ModelQuery<?, ?, ?> query, ModelProperties props,
             Map<TagKey, Tag> tags, String callSite, String method, String test) {
         TagKey key = new TagKey(method, props.prefix(), model.getClass(), props.selectionBitSet(query, row));
         Tag tag = tags.computeIfAbsent(key, ignored -> {
@@ -182,6 +194,5 @@ public final class AuditObserver implements HandOffObserver {
             }
         }
         TAGS.put(model, tag);
-        return tag;
     }
 }

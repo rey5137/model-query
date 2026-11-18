@@ -67,7 +67,7 @@ source tree ships in 0.1 and CI builds it (D-76); it is published to GitHub Page
 - `select-audit` depends on `jpa` only: jakarta types, the JDK, the public types of `jpa`, `core` and
   `annotations`, including `core`'s `@EngineFacing` members (D-234), and Byte Buddy (shaded and relocated
   into the agent jar); never `org.hibernate`, `org.springframework`
-  or `org.assertj`, nor the `hibernate`, `spring`, `test` or `processor` modules; no production module depends on it
+  or `org.assertj`, nor the `hibernate`, `spring`, `test`, `portability` or `processor` modules; no production module depends on it
   (D-230). The TCK has a test dependency for reactor ordering, excluded from its test runtime so the audit listener
   does not run there.
   It implements exactly one not-API `jpa.vendor` service type, `HandOffObserver`, registered through

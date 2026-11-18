@@ -115,13 +115,44 @@ public class AcIns21Test {
                 bean.getId();
                 bean.getMissing();
             });
-            assertThat(tag.wasRead("id")).isFalse();
+            assertThat(tag.wasRead("id")).isTrue();
             assertThat(tag.unselectedReads()).isEmpty();
             assertThatThrownBy(() -> otherLambda(bean)).isInstanceOf(UnselectedColumnRead.class)
                     .hasMessageContaining("lambda$otherLambda$");
         } finally {
             System.clearProperty("modelquery.selectAudit.ignore");
         }
+    }
+
+    @Test
+    void ac_ins_21_ignored_reader_counts_selected_column_and_takes_no_stack_walk_on_selected_reads()
+            throws Exception {
+        ReadEvents.clear();
+        BitSet selected = new BitSet();
+        selected.set(0);
+        Bean bean = new Bean();
+        Tag tag = new Tag("Caller.load:99", "list", null, "ALL", "Bean", selected,
+                Map.of("id", 0, "missing", 1), java.util.Set.of("id", "missing"), Map.of(), java.util.List.of("id"));
+        putTag(bean, tag);
+        System.setProperty("modelquery.selectAudit.ignore", IgnoredReader.class.getName() + "#read");
+        try {
+            long before = ReadSite.CAPTURES.sum();
+            bean.getId();
+            assertThat(ReadSite.CAPTURES.sum()).isEqualTo(before);
+            IgnoredReader.read(bean);
+            assertThat(tag.unselectedReads()).isEmpty();
+            assertThat(tag.callSiteStats().readProperties).containsExactly("id");
+        } finally {
+            System.clearProperty("modelquery.selectAudit.ignore");
+            ReadEvents.clear();
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void putTag(Bean bean, Tag tag) throws Exception {
+        Field field = AuditObserver.class.getDeclaredField("TAGS");
+        field.setAccessible(true);
+        ((WeakIdentityMap<Object, Tag>) field.get(null)).put(bean, tag);
     }
 
     @Test
@@ -155,7 +186,7 @@ public class AcIns21Test {
     }
 
     @Test
-    void ac_ins_21_class_method_and_package_ignores_neither_fail_nor_count() throws Exception {
+    void ac_ins_21_class_method_and_package_ignores_never_fail_and_selected_reads_count() throws Exception {
         for (String rule : new String[] {IgnoredReader.class.getName() + "#read",
                 "org.example.audit.ignored."}) {
             Bean bean = new Bean();
@@ -163,7 +194,7 @@ public class AcIns21Test {
             System.setProperty("modelquery.selectAudit.ignore", rule);
             try {
                 IgnoredReader.read(bean);
-                assertThat(tag.wasRead("id")).isFalse();
+                assertThat(tag.wasRead("id")).isTrue();
                 assertThat(tag.unselectedReads()).isEmpty();
                 assertThatThrownBy(() -> IgnoredReader.callOther(bean)).isInstanceOf(UnselectedColumnRead.class);
             } finally {

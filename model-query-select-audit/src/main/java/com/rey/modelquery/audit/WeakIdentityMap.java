@@ -3,6 +3,7 @@ package com.rey.modelquery.audit;
 import java.lang.ref.ReferenceQueue;
 import java.lang.ref.WeakReference;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 
 /**
  * A concurrent map with weak keys compared by object identity ({@code ==}), so models are never held strongly
@@ -20,6 +21,15 @@ final class WeakIdentityMap<K, V> {
 
     V get(Object key) {
         return map.isEmpty() ? null : map.get(new Lookup(key));
+    }
+
+    V computeIfAbsent(K key, Supplier<V> factory) {
+        V value = get(key);
+        if (value == null) {
+            value = factory.get();
+            put(key, value);
+        }
+        return value;
     }
 
     boolean containsKey(Object key) {

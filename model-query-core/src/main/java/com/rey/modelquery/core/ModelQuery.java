@@ -1733,6 +1733,7 @@ public final class ModelQuery<E, K, M> {
         return node.above();
     }
 
+    // Select-audit seam (D-241, R-INS-19): the agent instruments this method by name and arity; keep its signature.
     private M toModel(Row row) {
         M model = mapper.map(row);
         if (afterMap != null) {
