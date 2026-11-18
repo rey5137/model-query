@@ -1,6 +1,6 @@
 # API stability
 
-model-query is at 0.14.1. Until 1.0.0 the public API may change in any minor release, and the commit that does it is
+model-query is at 0.15.0. Until 1.0.0 the public API may change in any minor release, and the commit that does it is
 marked breaking. From 1.0.0 the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Today: everything is `@Incubating`
@@ -192,6 +192,11 @@ The recorded-call members are new in 0.14.0 and `@Incubating` through 1.0 (D-222
 `ProviderSupport` default `dialectVersion(EntityManagerFactory)`. A method added to `ModelQueryExecutor` gets a
 forwarder in `ForwardingModelQueryExecutor` in the same release, so a decorator that extends it keeps compiling. See
 [record and replay calls](portability.md#record-and-replay-calls).
+
+The select-audit module is new in 0.15.0, test-scope and `@Incubating` (D-228 to D-244): `AuditAgent`, `AuditObserver`,
+`AuditLauncherSessionListener`, `UnselectedColumnRead`, `SelectAuditReport` and the `modelquery.selectAudit.*`
+properties. `ReadAccess` is public only because hooked model classes call it and is not API. See
+[Select audit](select-audit.md).
 
 The fetch-plan types are new in 0.2.0, `@Incubating`, and not yet placed in the 1.0 freeze list above:
 `FetchPlan`, `ChildField`, `JoinField`, `ChildQuery`, `Enricher` and the `@Child` annotation. The executor-facing
