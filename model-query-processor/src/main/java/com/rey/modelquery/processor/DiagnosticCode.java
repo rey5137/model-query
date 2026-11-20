@@ -235,15 +235,18 @@ enum DiagnosticCode {
     MQ3404("@Child with a composite or array-typed key"),
     /**
      * A {@code List} {@code @Child} without {@code foreignKey} (unless {@code through}), or whose model has no
-     * {@code @PrimaryKey}.
+     * {@code @PrimaryKey}; a value child needs none.
      */
     MQ3405("List @Child without foreignKey, or whose model has no @PrimaryKey"),
     /**
      * A {@code @Child} {@code through} path that is blank, crosses a non-association or an embedded value, or ends at
-     * another type than the child's root; a {@code key} that is not the parent root's single {@code @Id}; or a grouped
-     * child model.
+     * another type than the child's root; one ending at an element collection that crosses a collection before it,
+     * goes on past it or ends at a {@code Map}; a {@code key} that is not the parent root's single {@code @Id}, a
+     * composite parent id under a value child; or a grouped child model.
      */
     MQ3406("@Child through path, key or child model that a through child can't load"),
+    /** A value child whose field is not a {@code List} or {@code Set}, or whose elements are not basic. */
+    MQ3407("Value child field that is not a List or Set of basic elements"),
 
     /**
      * An insert model that names its root's generated id, or does not name with {@code @PrimaryKey} an id that has

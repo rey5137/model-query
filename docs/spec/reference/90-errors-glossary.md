@@ -113,7 +113,8 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ1705` | A join plan selects an `AggregateField` or an expression, which cannot be re-rooted under the join | `api/15` R-FCH-07 |
 | `MQ1706` | `Enricher.byKeys(…).reading(…)` with no `key(…)` | `api/15` R-FCH-15, D-114 |
 | `MQ1707` | `Enricher.Keys.batchSize(n)` with `n` below 1 | `api/15` R-FCH-15 |
-| `MQ1708` | A key-group definition that doesn't match its child or query: a key type unequal to the matched key's attribute type (for a query, its primary key's type, or no primary key), a param the groups bind that nothing reads or that the model's or query's own `bind` also binds, `verifyMissing` with no `bind` or on a to-many child (a `List` `through` child included), or a group param read as the child or query doesn't allow (on a to-many child anything but a lower bound or `EQ`; under a catch-all, `groupWhen` or `verifyMissing`, anything but a `GT`/`GTE`/`LT`/`LTE` compare against a column, one direction per param); at the plan build for a child, at `ModelQuery.Builder#build()` for a query. Also `verifyMissing(all)` unequal to `groupWhen`'s `all`, at the `KeyGroups` terminal call | `api/15` R-FCH-18, `engine/20` R-EXE-18, D-206, D-208, D-209, D-211 |
+| `MQ1708` | A key-group definition that doesn't match its child or query: a key type unequal to the matched key's attribute type (for a query, its primary key's type, or no primary key), a param the groups bind that nothing reads or that the model's or query's own `bind` also binds, `verifyMissing` with no `bind` or on a to-many child (a `List` `through` child and every value child included), or a group param read as the child or query doesn't allow (on a to-many child anything but a lower bound or `EQ`; under a catch-all, `groupWhen` or `verifyMissing`, anything but a `GT`/`GTE`/`LT`/`LTE` compare against a column, one direction per param); at the plan build for a child, at `ModelQuery.Builder#build()` for a query. Also `verifyMissing(all)` unequal to `groupWhen`'s `all`, at the `KeyGroups` terminal call | `api/15` R-FCH-18, `engine/20` R-EXE-18, D-206, D-208, D-209, D-211, D-247 |
+| `MQ1713` | A value child's statement joins a collection besides its element collection, which would repeat its values (a hand-written `ValueChildField` whose owner path crosses a collection); at the plan build, before the parent's statement | `api/15` R-FCH-19, D-247 |
 | `MQ1801` | An insert column not mapped, mapped twice, or not in the model's `InsertColumns`; a `map` whose columns have different converter classes (at `build()`) or entity attribute types (on first execution); a `set` on a column the model has, a column set twice, or a column added or set that is not on the written root; `lockKeys()` on insert-values (at `build()`); `insertReturningKeys` on a definition with `commitEachChunk()` (at that call, before the flush) | `api/14` R-WRT-25, R-WRT-27, R-WRT-29, R-WRT-32, R-WRT-33, D-117 |
 | `MQ1802` | An insert model naming a generated id, lacking an id that has no generator, or writing part of a composite id, or a `setExpression` writing an insert's id (R-WRT-53), also under `persist`, which checks a generated id only where the provider reports the generator (on first execution); a row with a `null` assigned id (at `build()` or `ModelPersist.of`) | `api/14` R-WRT-26, R-WRT-30, R-WRT-53, D-117 |
 | `MQ1803` | A `null` insert row, at `build()` or `ModelPersist.of` | `api/14` R-WRT-30, D-117 |
@@ -168,7 +169,7 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ2503` | An entity-mode update loaded an instance whose class is no mapped entity class, a proxy the persistence context held for the row, and the factory's `ProviderSupport` has no `EntityWriteSupport` to unwrap it; before any entity of the chunk is changed | `api/14` R-WRT-42, R-WRT-45, D-119 |
 | `MQ2601` | A to-one child finds two distinct rows for one key | `api/15` R-FCH-04 |
 | `MQ2602` | An `Enricher.of` returns a page of another size, or `null` | `api/15` R-FCH-08 |
-| `MQ2603` | A parent has more children than `maxPerParent`, or a round reaches its row cap | `api/15` R-FCH-11 |
+| `MQ2603` | A parent has more children than `maxPerParent` (a value child's counted in rows, before a `Set` collapses equal values), or a round reaches its row cap | `api/15` R-FCH-11, R-FCH-19 |
 | `MQ2604` | A child row's key equals none of its round's keys (a case-insensitive or padding collation) | `api/15` R-FCH-05 |
 | `MQ2605` | `stream` with a fetch plan that has a child, join plan or enricher | `api/15` R-FCH-09 |
 | `MQ2606` | An `Enricher.byKey` or `byKeys` lookup returned `null` | `api/15` R-FCH-08, R-FCH-15 |
@@ -197,8 +198,8 @@ aggregates, `MQ3046` includes an unknown join and a nonempty `entityJoin` combin
 expression, for any function (R-PROC-47, D-202). The remaining families are
 `MQ3201`–`MQ3208` for aggregate models,
 `MQ3301`–`MQ3307` for update models,
-`MQ3401`–`MQ3406` for `@Child` (`api/15`), `MQ3501`–`MQ3506` for insert models and `generateInserts` (D-116, D-117,
-D-123). Codes are not repeated here to keep one owner.
+`MQ3401`–`MQ3407` for `@Child` (`api/15`; `MQ3407` for value children, D-251), `MQ3501`–`MQ3506` for insert
+models and `generateInserts` (D-116, D-117, D-123). Codes are not repeated here to keep one owner.
 
 ## 5. `MQ4xxx` — configuration
 

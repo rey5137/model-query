@@ -3,6 +3,7 @@ package com.rey.modelquery.core;
 import static com.rey.modelquery.annotations.WindowFrame.NONE;
 import static com.rey.modelquery.annotations.WindowFunction.FIRST_VALUE;
 import static com.rey.modelquery.annotations.WindowFunction.ROW_NUMBER;
+import static jakarta.persistence.criteria.JoinType.INNER;
 import static jakarta.persistence.criteria.JoinType.LEFT;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -174,6 +175,29 @@ class TreatChecksTest {
         var treated = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(NUMBER)).build();
         missing(treated);
         missing(treated);
+    }
+
+    @Test
+    void ac_vnd_16_a_value_childs_owner_path_is_scanned() {
+        var treated = FetchPlan.<View>of(SelectSet.of(ID))
+                .values(tags(TableField.join(ROOT, "parent", INNER).treat(Card.class)));
+        missing(ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(ID)).fetch(treated).build());
+
+        var plain = FetchPlan.<View>of(SelectSet.of(ID)).values(tags(TableField.join(ROOT, "parent", INNER)));
+        assertThatCode(() -> TreatChecks.check(ModelQuery.builder(ROOT, row -> new View())
+                .select(SelectSet.of(ID)).fetch(plain).build())).doesNotThrowAnyException();
+    }
+
+    private static ValueChildField<View, String> tags(TableField<?, ?> owner) {
+        return new ValueChildField<>() {
+            @Override public String name() { return "tags"; }
+            @Override public ColumnField<View, ?, ?> key() { return ID; }
+            @Override public TableField<?, ?> owner() { return owner; }
+            @Override public String attribute() { return "tags"; }
+            @Override public boolean isOrdered() { return false; }
+            @Override public boolean ordersByValue() { return true; }
+            @Override public View with(View parent, List<String> values) { return parent; }
+        };
     }
 
     private static void missing(Object definition) {

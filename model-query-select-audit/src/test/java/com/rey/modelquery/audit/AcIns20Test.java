@@ -1,14 +1,17 @@
 package com.rey.modelquery.audit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rey.modelquery.audit.test.AuditCustomerView;
 import com.rey.modelquery.audit.test.AuditLineView;
 import com.rey.modelquery.audit.test.AuditOrderEntity;
 import com.rey.modelquery.audit.test.AuditOrderView;
+import com.rey.modelquery.audit.test.AuditTaggedOrderView;
 import com.rey.modelquery.audit.test.ProjectionAuditCustomerView;
 import com.rey.modelquery.audit.test.QAuditLineView;
 import com.rey.modelquery.audit.test.QAuditOrderView;
+import com.rey.modelquery.audit.test.QAuditTaggedOrderView;
 import com.rey.modelquery.core.FetchPlan;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.SelectSet;
@@ -19,7 +22,8 @@ import org.junit.jupiter.api.Test;
 
 /**
  * AC-INS-20: A {@code @Join} is selected by its presence key, an empty {@code Optional} tags nothing;
- * a {@code @Child} loaded by the plan is tagged from the child query's rows and reported as {@code child}.
+ * a {@code @Child} loaded by the plan is tagged from the child query's rows and reported as {@code child}; a value
+ * child loaded by {@code FetchPlan#values} is selected.
  */
 class AcIns20Test extends AuditTestBase {
 
@@ -120,6 +124,29 @@ class AcIns20Test extends AuditTestBase {
             Tag orderTag = AuditObserver.tagOf(order);
             assertThat(orderTag).isNotNull();
             assertThat(orderTag.isSelected("lines")).isFalse();
+        }
+    }
+
+    @Test
+    void ac_ins_20_value_child_loaded_by_plan_is_selected_and_unloaded_is_unselected() {
+        try (EntityManager em = sessions.createEntityManager()) {
+            ModelQueryExecutor<AuditOrderEntity> executor = orderExecutor(em);
+            FetchPlan<AuditTaggedOrderView> plan = FetchPlan.of(QAuditTaggedOrderView.ALL)
+                    .values(QAuditTaggedOrderView.TAGS);
+            AuditTaggedOrderView loaded = executor.one(QAuditTaggedOrderView.query()
+                    .where(f -> f.eq(QAuditTaggedOrderView.ID, 1L)).fetch(plan).build()).orElseThrow();
+
+            assertThat(AuditObserver.tagOf(loaded).isSelected("tags")).isTrue();
+            assertThat(loaded.tags()).containsExactlyInAnyOrder("rush", "gift");
+            assertThat(AuditObserver.tagOf(loaded).unselectedReads()).isEmpty();
+
+            AuditTaggedOrderView unloaded = executor.one(QAuditTaggedOrderView.query()
+                    .select(QAuditTaggedOrderView.ALL).where(f -> f.eq(QAuditTaggedOrderView.ID, 1L)).build())
+                    .orElseThrow();
+
+            assertThat(AuditObserver.tagOf(unloaded).isSelected("tags")).isFalse();
+            assertThatThrownBy(unloaded::tags).isInstanceOf(UnselectedColumnRead.class);
+            assertThat(AuditObserver.tagOf(unloaded).unselectedReads()).hasSize(1);
         }
     }
 

@@ -363,6 +363,25 @@ public final class TckFixture {
                     + "(200, 201), (200, 202), (201, 203), (202, 203)");
         }
         seedCompositeNodes(c);
+        seedTaggedCards(c);
+    }
+
+    /**
+     * Cards 1 to 5 and their element collections (AC-FCH-30 to AC-FCH-32): card 1 has a repeated and a {@code NULL}
+     * tag, states and scores with a repeat and a {@code NULL}, its scores seeded backwards from their {@code pos}; card
+     * 2 a tag and a {@code NULL} state; cards 3 and 4 nothing, held by cards 1 and 2; card 4 one score; card 5 nothing.
+     */
+    private static void seedTaggedCards(Connection c) throws SQLException {
+        try (Statement statement = c.createStatement()) {
+            statement.executeUpdate("INSERT INTO tagged_cards (id, name, holder_id) VALUES "
+                    + "(1, 'alpha', NULL), (2, 'beta', NULL), (3, 'gamma', 1), (4, 'delta', 2), (5, 'epsilon', NULL)");
+            statement.executeUpdate("INSERT INTO tagged_card_tags (card_id, tag) VALUES "
+                    + "(1, 'red'), (1, 'blue'), (1, 'red'), (1, NULL), (2, 'green')");
+            statement.executeUpdate("INSERT INTO tagged_card_states (card_id, state) VALUES "
+                    + "(1, 'P'), (1, 'C'), (1, 'P'), (2, 'F'), (2, NULL)");
+            statement.executeUpdate("INSERT INTO tagged_card_scores (card_id, pos, score) VALUES "
+                    + "(1, 3, 30), (1, 2, 10), (1, 1, NULL), (1, 0, 30), (4, 0, 5)");
+        }
     }
 
     /** A {@code folder_nodes} row: its id and its parent's, {@code null} at a root. */

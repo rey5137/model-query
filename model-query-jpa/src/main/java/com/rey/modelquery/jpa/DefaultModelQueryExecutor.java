@@ -55,6 +55,7 @@ import com.rey.modelquery.core.SelectField;
 import com.rey.modelquery.core.ModelUpdate;
 import com.rey.modelquery.core.SetOperation;
 import com.rey.modelquery.core.Slice;
+import com.rey.modelquery.core.ValueLoad;
 import com.rey.modelquery.core.ValueOperands;
 import com.rey.modelquery.core.ValuesInsert;
 import com.rey.modelquery.core.SourceRenderer;
@@ -3348,9 +3349,28 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
         for (ChildLoad<M, ?> load : plan.childLoads()) {
             checkChildBuild(load);
         }
+        for (ValueLoad<M, ?> load : plan.valueLoads()) {
+            checkValueBuild(load);
+        }
         for (JoinPlan<M, ?> join : plan.joinPlans()) {
             checkBuilds(join.plan());
         }
+    }
+
+    /**
+     * Builds {@code load}'s statement as {@link #valuesOf} does, which throws {@code MQ1713} for a second collection
+     * join, and checks it binds one key within the limit (R-FCH-19, D-247).
+     */
+    private void checkValueBuild(ValueLoad<?, ?> load) {
+        ValueLoad.Statement statement = load.build(em.getCriteriaBuilder(), renderOptions);
+        load.requireBindableKeys(statement);
+        withinBindLimit(load, valueOwnBinds(load, statement) + 1, 0);
+    }
+
+    /** A value statement's own binds, before any key is added, as {@link #childOwnBinds} counts a child's. */
+    private int valueOwnBinds(ValueLoad<?, ?> load, ValueLoad.Statement statement) {
+        return em.createQuery(statement.query()).getParameters().size() + statement.joins().repeatedExpressionBinds()
+                + (load.maxPerParent() > 0 ? 1 : 0);
     }
 
     /** Builds {@code load}'s statement as {@link #childrenOf} does and checks it binds one key within the limit. */
@@ -3968,7 +3988,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
     }
 
     private static boolean hasFetchWork(FetchPlan<?> plan) {
-        return !plan.childLoads().isEmpty() || !plan.joinPlans().isEmpty() || !plan.enrichers().isEmpty();
+        return !plan.isSelectionOnly();
     }
 
     // ---- fetch plans
@@ -4052,6 +4072,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
         for (ChildLoad<M, ?> load : plan.childLoads()) {
             loadChild(load, rows, models);
         }
+        for (ValueLoad<M, ?> load : plan.valueLoads()) {
+            loadValues(load, rows, models);
+        }
         for (JoinPlan<M, ?> join : plan.joinPlans()) {
             runJoin(join, owner, rows, models);
         }
@@ -4120,6 +4143,137 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
                 models.set(i, load.field().with(models.get(i), found));
             }
         }
+    }
+
+    /**
+     * Loads {@code load}'s values for the distinct non-null keys of {@code rows}, and sets them on the parent at the
+     * same position of {@code models}; a parent whose key is null, or that has no value, keeps the empty value it was
+     * mapped with (R-FCH-19). Basic values have no getter, so nothing is handed off (RFC 0027 Part A).
+     */
+    private <M, V> void loadValues(ValueLoad<M, V> load, List<Loaded<M>> rows, List<M> models) {
+        ColumnField<M, ?, ?> key = load.field().key();
+        if (!rows.isEmpty() && !rows.get(0).row().isSelected(key)) {
+            throw new IllegalStateException(load + ": the parent key " + key + " is not selected, so no value can be "
+                    + "matched to a parent");
+        }
+        Object[] keys = new Object[rows.size()];
+        var distinct = new LinkedHashSet<Object>();
+        for (int i = 0; i < keys.length; i++) {
+            keys[i] = rows.get(i).row().raw(key);
+            if (keys[i] != null) {
+                distinct.add(keys[i]);
+            }
+        }
+        if (distinct.isEmpty()) {
+            LOG.log(DEBUG, () -> "value child " + load + ": no key on the page, so no value query");
+            return;
+        }
+        Map<Object, List<V>> values = valuesOf(load, List.copyOf(distinct));
+        for (int i = 0; i < keys.length; i++) {
+            List<V> found = keys[i] == null ? null : values.get(keys[i]);
+            if (found != null) {
+                models.set(i, load.field().with(models.get(i), found));
+            }
+        }
+    }
+
+    /**
+     * The values of {@code keys}, by key in row order, every row kept, {@code NULL}s and repeats included (D-247).
+     * The keys go in rounds of at most the largest power of two within the profile's limits, as a child's do; with
+     * {@code maxPerParent}, a round reads at most keys × n + 1 rows, and a key over the bound is {@code MQ2603}
+     * (R-FCH-05, R-FCH-11, R-FCH-19).
+     */
+    @SuppressWarnings("unchecked")
+    private <V> Map<Object, List<V>> valuesOf(ValueLoad<?, V> load, List<Object> keys) {
+        CriteriaBuilder cb = em.getCriteriaBuilder();
+        int size = keyLimits.clamp(valueOwnBinds(load, load.build(cb, renderOptions)), 1, OptionalInt.empty());
+        LOG.log(DEBUG, () -> "value child " + load + ": " + keys.size() + (keys.size() == 1 ? " key" : " keys")
+                + " in " + chunks(keys.size(), size) + " round(s)");
+        Map<Object, List<V>> values = new HashMap<>();
+        for (int from = 0; from < keys.size(); from += size) {
+            List<Object> roundKeys = keys.subList(from, Math.min(keys.size(), from + size));
+            ValueLoad.Statement statement = load.build(cb, renderOptions);
+            statement.query().where(load.keyIn(statement, roundKeys));
+            TypedQuery<Tuple> query = create(load, em, statement.query(), null, null, statement.joins());
+            long cap = (long) roundKeys.size() * load.maxPerParent() + 1;
+            if (load.maxPerParent() > 0) {
+                query.setMaxResults((int) Math.min(cap, Integer.MAX_VALUE));
+            }
+            List<Tuple> tuples = rows(load, query);
+            Set<Object> wanted = new HashSet<>(roundKeys);
+            Map<Object, Integer> read = new HashMap<>();
+            for (Tuple tuple : tuples) {
+                Object parent = tuple.get(0);
+                if (!wanted.contains(parent)) {
+                    throw new ModelQueryExecutionException(MqCode.MQ2604, load + ": a value row's "
+                            + load.field().key() + " is " + parent + ", which equals none of the " + roundKeys.size()
+                            + " keys of the statement that matched it; the column's collation equates values Java "
+                            + "tells apart, by case or trailing spaces, so key the parent on a column with a binary "
+                            + "collation");
+                }
+                read.merge(parent, 1, Integer::sum);
+                values.computeIfAbsent(parent, k -> new ArrayList<>()).add((V) tuple.get(1));
+            }
+            if (load.maxPerParent() > 0) {
+                checkValueBound(load, roundKeys.size(), tuples.size() >= cap, read);
+            }
+        }
+        return values;
+    }
+
+    /**
+     * {@code load}'s rows, with their count and time in the trace log (D-95). A value child's statement is rooted at
+     * an entity, never a source (MQ3406), so it has no source check to read from its first row (AC-SRC-25).
+     */
+    private List<Tuple> rows(ValueLoad<?, ?> load, TypedQuery<Tuple> query) {
+        Object label = load;
+        long start = System.nanoTime();
+        List<Tuple> rows;
+        try {
+            rows = query.getResultList();
+        } catch (PersistenceException e) {
+            throw timeoutCancellation(e);
+        }
+        traceTimed(label, rows.size() + (rows.size() == 1 ? " row" : " rows"), start);
+        return rows;
+    }
+
+    /**
+     * {@code MQ2603} when a key of a round read more rows than {@code maxPerParent}, before a {@code Set} field
+     * collapses equal values, or the round read its cap of keys × n + 1 rows (R-FCH-11, D-247).
+     */
+    private static void checkValueBound(ValueLoad<?, ?> load, int keys, boolean capped, Map<Object, Integer> read) {
+        int bound = load.maxPerParent();
+        Object most = null;
+        for (Map.Entry<Object, Integer> entry : read.entrySet()) {
+            if (most == null || entry.getValue() > read.get(most)) {
+                most = entry.getKey();
+            }
+        }
+        if (most != null && read.get(most) > bound) {
+            throw new ModelQueryExecutionException(MqCode.MQ2603, load + ": key " + most + " has " + read.get(most)
+                    + " values, more than maxPerParent(" + bound + "); raise the bound");
+        }
+        if (capped) {
+            throw new ModelQueryExecutionException(MqCode.MQ2603, load + ": a round of " + keys + " keys read its "
+                    + "cap of " + keys + " x maxPerParent(" + bound + ") + 1 rows; raise the bound");
+        }
+    }
+
+    /**
+     * {@code load}'s statement of {@code keys} in one run, for the portability dry run, as {@link #runChildLoad} runs
+     * a child's: the statement's own check, then its rounds; the values read are dropped (RFC 0025 Part C, D-224).
+     *
+     * @throws IllegalArgumentException when {@code keys} is empty, holds a null or holds a key twice
+     */
+    @Override
+    public void runValueLoad(ValueLoad<?, ?> load, List<Object> keys) {
+        if (keys.isEmpty() || keys.stream().anyMatch(Objects::isNull) || new HashSet<>(keys).size() != keys.size()) {
+            throw new IllegalArgumentException(load + ": a value run takes one or more distinct keys, none null, not "
+                    + keys);
+        }
+        checkValueBuild(load);
+        valuesOf(load, keys);
     }
 
     /**

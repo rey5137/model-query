@@ -7,10 +7,12 @@ import com.rey.modelquery.core.Row;
 import com.rey.modelquery.core.SelectField;
 import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
+import com.rey.modelquery.core.ValueChildField;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.BitSet;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -101,8 +103,10 @@ final class ModelProperties {
             }
         }
         this.joins = Map.copyOf(tables);
+        Set<String> values = prefix.isEmpty() ? valueChildren(qClass) : Set.of();
         this.mapped = bits.keySet().stream().filter(property -> joins.containsKey(property)
-                || fields.select(prefix + property).isPresent() || fields.child(prefix + property).isPresent())
+                || fields.select(prefix + property).isPresent() || fields.child(prefix + property).isPresent()
+                || values.contains(property))
                 .collect(Collectors.toUnmodifiableSet());
         Map<String, String> names = new LinkedHashMap<>();
         Map<SelectField<?, ?>, String> propertiesByField = new LinkedHashMap<>();
@@ -225,6 +229,21 @@ final class ModelProperties {
                 new ModelProperties(qClass, rootModel, modelClass, fields, path));
     }
 
+    /** The names of {@code qClass}'s value children (R-FCH-19), which a fetch plan loads as it does a child. */
+    private static Set<String> valueChildren(Class<?> qClass) {
+        Set<String> names = new HashSet<>();
+        for (var field : qClass.getFields()) {
+            if (Modifier.isStatic(field.getModifiers()) && ValueChildField.class.isAssignableFrom(field.getType())) {
+                try {
+                    names.add(((ValueChildField<?, ?>) field.get(null)).name());
+                } catch (IllegalAccessException e) {
+                    throw new IllegalStateException("Cannot read value child metadata in " + qClass.getName(), e);
+                }
+            }
+        }
+        return names;
+    }
+
     Map<String, Integer> propertyBits() {
         return propertyBits;
     }
@@ -260,6 +279,9 @@ final class ModelProperties {
                         .anyMatch(load -> load.field().name().equals(property))) {
                     selected.set(bit);
                 }
+            } else if (prefix.isEmpty() && query.fetch().stream().flatMap(plan -> plan.valueLoads().stream())
+                    .anyMatch(load -> load.field().name().equals(property))) {
+                selected.set(bit); // a loaded value child (R-FCH-19); its elements have no getter to audit
             } else if (fields.select(prefix + property).filter(row::isSelected).isPresent()) {
                 selected.set(bit);
             }

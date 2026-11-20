@@ -12,6 +12,7 @@ import com.rey.modelquery.core.FetchPlan;
 import com.rey.modelquery.core.KeyGroups;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
+import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.Op;
@@ -19,10 +20,14 @@ import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.QueryParam;
 import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
+import com.rey.modelquery.core.ValueChildField;
+import com.rey.modelquery.core.ValueLoad;
 import com.rey.modelquery.jpa.vendor.ChildStatements;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.criteria.JoinType;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -39,8 +44,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * {@link ChildStatements#run}: one child load of a fetch plan on chosen keys, as the portability dry run renders it
- * (api/16 R-INS-17, D-224), over in-memory H2.
+ * {@link ChildStatements#run}: one child or value load of a fetch plan on chosen keys, as the portability dry run
+ * renders it (api/16 R-INS-17, D-224; api/15 R-FCH-19), over in-memory H2.
  */
 class ChildStatementsTest {
 
@@ -48,12 +53,19 @@ class ChildStatementsTest {
 
     record Row(Long id, Integer b) {}
 
+    record Tagged(Long id, List<String> tags) {}
+
     private static final TableField<KeysetRowEntity, KeysetRowEntity> ROOT = TableField.root(KeysetRowEntity.class);
     private static final ColumnField<Parent, KeysetRowEntity, Long> PARENT_ID =
             ColumnField.of(Parent.class, ROOT, "id", Long.class);
     private static final ColumnField<Row, KeysetRowEntity, Long> ID = ColumnField.of(Row.class, ROOT, "id", Long.class);
     private static final ColumnField<Row, KeysetRowEntity, Integer> B =
             ColumnField.of(Row.class, ROOT, "b", Integer.class);
+
+    private static final TableField<TaggedRowEntity, TaggedRowEntity> TAGGED_ROOT =
+            TableField.root(TaggedRowEntity.class);
+    private static final ColumnField<Tagged, TaggedRowEntity, Long> TAGGED_ID =
+            ColumnField.of(Tagged.class, TAGGED_ROOT, "id", Long.class);
 
     static final QueryParam<Integer> LO = QueryParam.of("bFrom", Integer.class);
     static final QueryParam<Long> MAX_ID = QueryParam.of("maxId", Long.class);
@@ -82,6 +94,7 @@ class ChildStatementsTest {
     static void seed() {
         sessions = new Configuration()
                 .addAnnotatedClass(KeysetRowEntity.class)
+                .addAnnotatedClass(TaggedRowEntity.class)
                 .buildSessionFactory(new StandardServiceRegistryBuilder()
                         .applySetting(AvailableSettings.JAKARTA_JDBC_URL,
                                 "jdbc:h2:mem:child-statements;DB_CLOSE_DELAY=-1")
@@ -100,6 +113,8 @@ class ChildStatementsTest {
             em.persist(new KeysetRowEntity(3, 3, 30, 0));
             em.persist(new KeysetRowEntity(4, 4, 110, 1));
             em.persist(new KeysetRowEntity(5, 5, 120, 1));
+            em.persist(new TaggedRowEntity(1, "b", "a", "b"));
+            em.persist(new TaggedRowEntity(2, "c"));
             em.getTransaction().commit();
         }
     }
@@ -212,6 +227,52 @@ class ChildStatementsTest {
         assertThat(SQL).isEmpty();
     }
 
+    @Test
+    void ac_fch_32_a_value_run_prepares_the_statement_a_page_of_those_parents_prepares() {
+        ValueLoad<Tagged, String> load = valueLoad(TAGGED_ROOT);
+        ModelQuery<TaggedRowEntity, Long, Tagged> parents = ModelQuery
+                .builder(TAGGED_ROOT, row -> new Tagged(row.get(TAGGED_ID), List.of()))
+                .select(SelectSet.of(TAGGED_ID))
+                .primaryKey(PrimaryKey.of(TAGGED_ID))
+                .fetch(FetchPlan.of(SelectSet.of(TAGGED_ID)).values(load.field()))
+                .build();
+        withTaggedExecutor(executor -> assertThat(executor.list(parents, Limit.unlimited())).containsExactly(
+                new Tagged(1L, List.of("a", "b", "b")), new Tagged(2L, List.of("c"))));
+        assertThat(SQL).hasSize(2);
+        String pageValueStatement = SQL.get(1);
+        SQL.clear();
+
+        withTaggedExecutor(executor -> ChildStatements.run(executor, load, List.of(1L, 2L)));
+        assertThat(SQL).containsExactly(pageValueStatement);
+        assertThat(pageValueStatement).contains("in (?,?)");
+    }
+
+    @Test
+    void ac_fch_32_a_value_run_refuses_another_executor_no_or_repeated_keys_and_a_second_collection() {
+        ValueLoad<Tagged, String> load = valueLoad(TAGGED_ROOT);
+        @SuppressWarnings("unchecked")
+        ModelQueryExecutor<Object> other = (ModelQueryExecutor<Object>) Proxy.newProxyInstance(
+                getClass().getClassLoader(), new Class<?>[] {ModelQueryExecutor.class}, (proxy, method, args) -> null);
+        assertThatThrownBy(() -> ChildStatements.run(other, load, List.of(1L)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("ModelQueryExecutor.create");
+        withTaggedExecutor(executor -> {
+            assertThatThrownBy(() -> ChildStatements.run(executor, load, List.of()))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("distinct keys");
+            assertThatThrownBy(() -> ChildStatements.run(executor, load, List.of(1L, 1L)))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("distinct keys");
+            ChildStatements.Runner runner = (ChildStatements.Runner) executor;
+            assertThatThrownBy(() -> runner.runValueLoad(load, Arrays.asList(1L, null)))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("none null");
+            // The run makes the plan build's check: a path across the collection of children, then their tags.
+            ValueLoad<Tagged, String> twice = valueLoad(
+                    TableField.<TaggedRowEntity, TaggedRowEntity>join(TAGGED_ROOT, "children", JoinType.INNER));
+            assertThatThrownBy(() -> ChildStatements.run(executor, twice, List.of(1L)))
+                    .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ1713));
+        });
+        assertThat(SQL).isEmpty();
+    }
+
     /**
      * The one child load of a plan over {@link Parent}: the rows whose id is the parent's, filtered to
      * {@code bFrom} or more when {@code ranged}: a to-many child's group param is a lower bound only.
@@ -263,6 +324,54 @@ class ChildStatementsTest {
     @SuppressWarnings("unchecked")
     private static ChildLoad<Parent, Row> cast(ChildLoad<Parent, ?> load) {
         return (ChildLoad<Parent, Row>) load;
+    }
+
+    /** The one value load of a plan over {@link Tagged}: the tags of {@code owner}, by value. */
+    @SuppressWarnings("unchecked")
+    private static ValueLoad<Tagged, String> valueLoad(TableField<?, ?> owner) {
+        ValueChildField<Tagged, String> tags = new ValueChildField<>() {
+            @Override
+            public String name() {
+                return "tags";
+            }
+
+            @Override
+            public ColumnField<Tagged, ?, ?> key() {
+                return TAGGED_ID;
+            }
+
+            @Override
+            public TableField<?, ?> owner() {
+                return owner;
+            }
+
+            @Override
+            public String attribute() {
+                return "tags";
+            }
+
+            @Override
+            public boolean isOrdered() {
+                return false;
+            }
+
+            @Override
+            public boolean ordersByValue() {
+                return true;
+            }
+
+            @Override
+            public Tagged with(Tagged parent, List<String> values) {
+                return new Tagged(parent.id(), values);
+            }
+        };
+        return (ValueLoad<Tagged, String>) FetchPlan.of(SelectSet.of(TAGGED_ID)).values(tags).valueLoads().get(0);
+    }
+
+    private static void withTaggedExecutor(Consumer<ModelQueryExecutor<TaggedRowEntity>> work) {
+        try (EntityManager em = sessions.createEntityManager()) {
+            work.accept(ModelQueryExecutor.create(em, TaggedRowEntity.class, ModelQueryConfig.defaults()));
+        }
     }
 
     private static void withExecutor(Consumer<ModelQueryExecutor<KeysetRowEntity>> work) {

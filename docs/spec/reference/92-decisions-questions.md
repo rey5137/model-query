@@ -3240,8 +3240,10 @@ list can't be detected either. So a child is to-many when it is matched on its `
 `through`: `verifyMissing` on it is `MQ1708`, and a group param may be read only as a lower bound or, without
 `groupWhen`, with `EQ` (`MQ1708` otherwise). Only a to-one (`Optional`) `through` child takes either ending and any
 read without `groupWhen`. Rejected: keeping every `through` child to-one (an upper bound would silently cut a `List`
-child's rows, INV-5).
-→ `api/15` R-FCH-18, AC-FCH-21, AC-FCH-24, `reference/90` MQ1708.
+child's rows, INV-5). Amended by D-247 (M39.1, 2026-11-20): a value child, a `through` ending at an
+`@ElementCollection`, has no key unique per row either, so `verifyMissing` is refused for every value child; a basic
+value child's `ValueChildQuery` has no `keyGroups`, so neither ending can be written for it.
+→ `api/15` R-FCH-18, R-FCH-19, AC-FCH-21, AC-FCH-24, `reference/90` MQ1708.
 
 **D-210 — A locked grouped `byKeys` locks its rounds in sorted key order (M35.2, 2026-11-10, user decision; amends
 D-206's lock note in `engine/20`).** Run one round per group in the order of each group's smallest key, groups that
@@ -3491,6 +3493,27 @@ paths (`MQ3044`). → `rfc/0027` Part C, `processor/30` R-PROC-13, `engine/20` R
 
 **D-250 — Element collections are M39; the freeze moves to M40 (RFC 0027, 2026-11-20, user decision).** M39 ships in
 0.16.0, slices M39.0 to M39.4; the freeze, M40, stays last. → `docs/plan/mvp-plan` §39.
+
+**D-251 — `MQ3407` refuses a value child field it can't fill, from M39.1 (M39.1, 2026-11-20, user decision).** RFC
+0027 Part A names `MQ3407` for an `Optional<E>` value child and other field types; it ships with the basic value
+children rather than waiting for `@ElementModel`. A `through` ending at an `@ElementCollection` on a field that is not
+a `List` or `Set` (`Optional` and `Collection` included), or over `@Embeddable` elements, is `MQ3407`, so a field
+never compiles to a load that can't fill it. M39.2 extends the code to element models (D-246). Rejected: `MQ3401`
+(it means a field that is no child at all) and deferring the check to M39.2 (an `Optional` value child would compile
+and then hold nothing). → `api/15` R-FCH-19, AC-FCH-27, `processor/32` MQ3407.
+
+**D-252 — A value child's element type mismatch is `MQ3002` (M39.1, 2026-11-20, user decision).** The type argument of
+a value child's `List` or `Set` must be the element collection's element type, as a column's model type must be its
+attribute's (INV-3); a converted element is compared as its attribute type, which the converter already produces.
+Reusing `MQ3002` keeps one code for every model-to-entity type mismatch. Rejected: a new `MQ34xx` code (a second name
+for the same check) and no check (a `ClassCastException` on first read). → `api/15` R-FCH-19, AC-FCH-27,
+`processor/32` MQ3002.
+
+**D-253 — A `Map` element collection stays `MQ3406` until map children (M39.1, 2026-11-20, user decision).** M39.1
+loads `List` and `Set` value children only; a `through` ending at an `@ElementCollection Map<K, V>` is `MQ3406`, the
+message saying a `List` or `Set` value child can't hold a map. M39.3 replaces it with `MapChildField` and
+`FetchPlan#map` (D-248). Rejected: loading a map's values into a `List` (drops its keys) and `MQ3407` (the field
+isn't at fault until a map field type exists). → `api/15` R-FCH-14, R-FCH-19, AC-FCH-27, `processor/32` MQ3406.
 
 ## 2. Open questions
 

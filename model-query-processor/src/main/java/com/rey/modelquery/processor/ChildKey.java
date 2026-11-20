@@ -2,6 +2,7 @@ package com.rey.modelquery.processor;
 
 import com.rey.modelquery.processor.EntityMetamodel.Step;
 import com.rey.modelquery.processor.EntityMetamodel.Walk;
+import com.rey.modelquery.processor.ModelDefinition.ChildDefinition;
 import com.rey.modelquery.processor.ModelDefinition.ModelField;
 import java.util.ArrayList;
 import java.util.List;
@@ -118,12 +119,15 @@ record ChildKey(
 
     /**
      * The associations a {@code through} path joins from {@code root}, one per step, or why it can't: a step that is
-     * not an association of a known target, or that sits in an embedded value (api/15 R-FCH-14).
+     * not an association of a known target, or that sits in an embedded value (api/15 R-FCH-14). A path may end at an
+     * {@code @ElementCollection} after to-one associations only, and go no further (R-FCH-19).
      *
-     * @param joins the joins, in order; empty when the path fails
+     * @param joins the joins, in order, the element collection's excluded; empty when the path fails
+     * @param elements the element collection the path ends at, read on the last join or the root, or the one it
+     *     fails at; {@code null} when it ends at an entity or fails before reaching one
      * @param problem why the path fails, worded to follow {@code "through 'path' "}; {@code null} when it does not
      */
-    record Through(List<Join> joins, String problem) {
+    record Through(List<Join> joins, EntityAttribute elements, String problem) {
 
         Through {
             joins = List.copyOf(joins);
@@ -140,25 +144,54 @@ record ChildKey(
         }
     }
 
+    /**
+     * The {@code through} path of {@code field}, a {@code @Child} of {@code model}, when it ends or fails at an
+     * element collection, which makes the field a value child (R-FCH-19); {@code null} for any other field.
+     */
+    static Through elementsOf(EntityMetamodel metamodel, ModelDefinition model, ModelField field) {
+        if (field.child() == null || field.child().through().isEmpty() || model.readsSource()) {
+            return null;
+        }
+        Through through = through(metamodel, model.root(), field.child().through());
+        return through.elements() == null ? null : through;
+    }
+
+    /**
+     * The parent-side key of the value child {@code definition} on {@code model}: the path {@code key} names, else
+     * the root's single {@code @Id}, read on the root whether or not a {@code @PrimaryKey} names it (R-FCH-19).
+     */
+    static List<String> valueKey(EntityMetamodel metamodel, ModelDefinition model, ChildDefinition definition) {
+        Set<String> ids = metamodel.id(model.root()).attributes();
+        return definition.key().isEmpty() && ids.size() == 1 ? List.copyOf(ids) : definition.key();
+    }
+
     /** Lays the {@code through} path {@code path} out from {@code root}. */
     static Through through(EntityMetamodel metamodel, TypeElement root, String path) {
         if (path.isBlank()) {
-            return new Through(List.of(), "is blank");
+            return failed("is blank");
         }
         Walk walk = metamodel.walk(root, path);
-        if (walk.problem() != null) {
-            return new Through(List.of(), "can't be followed: " + walk.problem());
+        List<Step> steps = walk.steps();
+        if (walk.problem() != null && steps.stream().allMatch(step -> step.attribute().elements() == null)) {
+            return failed("can't be followed: " + walk.problem());
         }
         var joins = new ArrayList<Join>();
         TypeElement entity = root;
-        for (Step step : walk.steps()) {
+        for (int i = 0; i < steps.size(); i++) {
+            Step step = steps.get(i);
             EntityAttribute attribute = step.attribute();
             if (attribute.kind() == EntityAttribute.Kind.EMBEDDED) {
-                return new Through(List.of(), "crosses the embedded value '" + attribute.name() + "' of "
+                // An element collection inside the embedded value still makes the field a value child.
+                EntityAttribute inside = steps.subList(i, steps.size()).stream().map(Step::attribute)
+                        .filter(later -> later.elements() != null).findFirst().orElse(null);
+                return new Through(List.of(), inside, "crosses the embedded value '" + attribute.name() + "' of "
                         + step.owner() + ", which a join can't reach into");
             }
+            if (attribute.elements() != null) {
+                return elements(joins, attribute, step.owner(), walk.problem() != null || i < steps.size() - 1);
+            }
             if (!attribute.joinable()) {
-                return new Through(List.of(), "crosses '" + attribute.name() + "' on " + step.owner()
+                return failed("crosses '" + attribute.name() + "' on " + step.owner()
                         + ", which is not an association to an entity");
             }
             var target = (TypeElement) attribute.target().asElement();
@@ -166,7 +199,33 @@ record ChildKey(
                     attribute.kind() == EntityAttribute.Kind.COLLECTION));
             entity = target;
         }
-        return new Through(joins, null);
+        return new Through(joins, null, null);
+    }
+
+    /**
+     * A {@code through} path ending at the element collection {@code attribute} of {@code owner}, after
+     * {@code joins}: refused when it goes on past it ({@code past}) or crosses a collection before it, whose elements'
+     * values would merge into one list (R-FCH-19).
+     */
+    private static Through elements(List<Join> joins, EntityAttribute attribute, String owner, boolean past) {
+        String collection = "the element collection '" + attribute.name() + "' of " + owner;
+        if (past) {
+            return new Through(List.of(), attribute, "goes on past " + collection + ", whose elements a path can't "
+                    + "step into; end it there");
+        }
+        for (Join join : joins) {
+            if (join.collection()) {
+                return new Through(List.of(), attribute, "crosses the collection '" + join.attribute() + "' of "
+                        + join.parent().getSimpleName() + " before " + collection + ", which would merge the "
+                        + "elements of every " + join.entity().getSimpleName() + " into one list; put the child on "
+                        + "a model of " + join.entity().getSimpleName() + " instead");
+            }
+        }
+        return new Through(joins, attribute, null);
+    }
+
+    private static Through failed(String problem) {
+        return new Through(List.of(), null, problem);
     }
 
     private static ChildKey failed(String path, DiagnosticCode code, String problem) {

@@ -1786,7 +1786,7 @@ final class ModelValidator {
         String target = display(attribute.type());
         if (field.converter() != null) {
             var idAttribute = new EntityAttribute(attribute.name(), id, EntityAttribute.Kind.BASIC, null, false,
-                    true, true, null, false, null, false, false, null, null);
+                    true, true, null, false, null, false, false, null, null, null);
             checkConverter(model, field.element(), field.converter(), field.type(), idAttribute, where, diagnostics);
         } else if (!types.isSameType(boxed(field.type()), boxed(id))) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3002, where + "model type " + display(field.type())

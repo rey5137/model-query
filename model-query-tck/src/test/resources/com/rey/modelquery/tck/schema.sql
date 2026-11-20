@@ -235,3 +235,29 @@ CREATE TABLE composite_nodes (
     name      VARCHAR(40) @COLLATE@ NOT NULL,
     PRIMARY KEY (tenant_id, id)
 );
+-- Cards whose tags, states and scores are element collections a value child reads (TCK AC-FCH-30 to AC-FCH-32):
+-- repeated and NULL elements, a converted element stored as one letter, and scores in their own pos order, seeded
+-- out of it. No key on the element tables, which hold bags.
+CREATE TABLE tagged_cards (
+    id        BIGINT NOT NULL PRIMARY KEY,
+    name      VARCHAR(40) @COLLATE@ NOT NULL,
+    holder_id BIGINT NULL,
+    CONSTRAINT fk_tagged_cards_holder FOREIGN KEY (holder_id) REFERENCES tagged_cards (id)
+);
+CREATE TABLE tagged_card_tags (
+    card_id BIGINT NOT NULL,
+    tag     VARCHAR(40) @COLLATE@ NULL,
+    CONSTRAINT fk_tagged_card_tags_card FOREIGN KEY (card_id) REFERENCES tagged_cards (id)
+);
+CREATE TABLE tagged_card_states (
+    card_id BIGINT NOT NULL,
+    state   VARCHAR(1) @COLLATE@ NULL,
+    CONSTRAINT fk_tagged_card_states_card FOREIGN KEY (card_id) REFERENCES tagged_cards (id)
+);
+CREATE TABLE tagged_card_scores (
+    card_id BIGINT NOT NULL,
+    pos     INTEGER NOT NULL,
+    score   INTEGER NULL,
+    PRIMARY KEY (card_id, pos),
+    CONSTRAINT fk_tagged_card_scores_card FOREIGN KEY (card_id) REFERENCES tagged_cards (id)
+);

@@ -6,6 +6,7 @@ import com.rey.modelquery.core.JoinPlan;
 import com.rey.modelquery.core.KeyGroups;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryException;
+import com.rey.modelquery.core.ValueLoad;
 import com.rey.modelquery.jpa.ChunkTransactions;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
@@ -26,6 +27,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiFunction;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.BaseStream;
@@ -158,11 +160,26 @@ public final class DryRun {
                         + "not checked; with real keys it runs").withChild(at));
                 continue;
             }
-            CallResult child = child(emf, target, config, call, load, keys.get()).withChild(at);
+            CallResult child = child(emf, target, config, call, load, keys.get(),
+                    executor -> ChildStatements.run(executor, load, keys.get())).withChild(at);
             results.add(child);
             if (child.outcome() == Outcome.REACHED) {
                 load.query().fetch().ifPresent(own -> children(emf, target, config, call, own, at, results));
             }
+        }
+        // A value child has no plan of its own, so its line is the last of its path (R-FCH-19).
+        for (ValueLoad<?, ?> load : plan.valueLoads()) {
+            String at = path.isEmpty() ? load.field().name() : path + "." + load.field().name();
+            Class<?> type = Placeholders.boxed(load.field().key().attributeType());
+            Optional<List<Object>> keys = Placeholders.of(type);
+            if (keys.isEmpty()) {
+                results.add(new CallResult(call.label(), target, Outcome.HARNESS_ERROR, false, "the checker can't "
+                        + "build a placeholder key of " + type.getName() + " for " + load + ", so its statement is "
+                        + "not checked; with real keys it runs").withChild(at));
+                continue;
+            }
+            results.add(child(emf, target, config, call, null, keys.get(),
+                    executor -> ChildStatements.run(executor, load, keys.get())).withChild(at));
         }
         for (JoinPlan<?, ?> join : plan.joinPlans()) {
             String at = path.isEmpty() ? join.field().name() : path + "." + join.field().name();
@@ -170,9 +187,13 @@ public final class DryRun {
         }
     }
 
-    /** {@code load} run on {@code keys}, on its own {@code EntityManager} and recording, classified. */
+    /**
+     * {@code run}, a child or value load's run on {@code keys}, on its own {@code EntityManager} and recording,
+     * classified; {@code load} is the child load whose key groups may explain a failure, or {@code null} for a value
+     * load, which has none.
+     */
     private static CallResult child(EntityManagerFactory emf, Target target, ModelQueryConfig config, DryCall call,
-            ChildLoad<?, ?> load, List<Object> keys) {
+            ChildLoad<?, ?> load, List<Object> keys, Consumer<ModelQueryExecutor<Object>> run) {
         Throwable thrown = null;
         try (JdbcRecording recording = JdbcRecording.call()) {
             EntityManager em = emf.createEntityManager();
@@ -183,7 +204,7 @@ public final class DryRun {
                 @SuppressWarnings("unchecked")
                 ModelQueryExecutor<Object> executor = ModelQueryExecutor.create(em, (Class<Object>) call.root(),
                         config);
-                ChildStatements.run(executor, load, keys);
+                run.accept(executor);
             } catch (VirtualMachineError fatal) {
                 throw fatal;
             } catch (Throwable t) { // any other throwable is classified, never propagated
@@ -194,7 +215,7 @@ public final class DryRun {
             CallResult result = classify(call.label(), target, false, recording, thrown, providerPackage(emf));
             boolean beforeStatement = thrown != null && recording.statements().isEmpty()
                     && recording.deniedBeforeStatement().isEmpty();
-            return beforeStatement && placeholderGroupFails(load, keys.get(0))
+            return beforeStatement && load != null && placeholderGroupFails(load, keys.get(0))
                     ? new CallResult(call.label(), target, Outcome.HARNESS_ERROR, false, "the checker's limit, not "
                             + "the application's error: the key groups of " + load + " have no catch-all, and their "
                             + "group of the placeholder key " + keys.get(0) + " fails: " + result.detail())

@@ -30,16 +30,29 @@ import javax.lang.model.type.TypeMirror;
  *     without the annotation; what the database stores, which a branch must share with its shape (R-PROC-38)
  * @param temporal the constant named by {@code @Temporal}, or {@code null} without it; as {@code enumType}, a branch
  *     and its shape must agree on it (R-PROC-38)
+ * @param elements what an {@code @ElementCollection} holds; {@code null} for any other attribute
  */
 record EntityAttribute(
         String name, TypeMirror type, Kind kind, DeclaredType target, boolean version, boolean updatable,
         boolean insertable, String mappedBy, boolean filledByDatabase, String idFormRefusal,
-        boolean mapsId, boolean nullable, String enumType, String temporal) {
+        boolean mapsId, boolean nullable, String enumType, String temporal, Elements elements) {
 
     /** Whether a join may follow the attribute: a to-one or collection association of a known target. */
     boolean joinable() {
         return target != null;
     }
+
+    /**
+     * What an {@code @ElementCollection} holds, which a value child reads (api/15 R-FCH-19).
+     *
+     * @param element the element type: a {@code Collection<E>}'s {@code E}, a {@code Map<K, V>}'s {@code V}, boxed;
+     *     {@code null} when the declared type names none
+     * @param map whether the attribute is a {@code Map}
+     * @param embeddable whether the element is an {@code @Embeddable}
+     * @param ordered whether it carries {@code @OrderColumn}, so a join reads its position with {@code index()}
+     * @param lob whether it carries {@code @Lob}, whose value no statement orders by
+     */
+    record Elements(TypeMirror element, boolean map, boolean embeddable, boolean ordered, boolean lob) {}
 
     /** What an attribute is to a path (R-GEN-02). */
     enum Kind {
