@@ -282,6 +282,9 @@ final class ModelProperties {
             } else if (prefix.isEmpty() && query.fetch().stream().flatMap(plan -> plan.valueLoads().stream())
                     .anyMatch(load -> load.field().name().equals(property))) {
                 selected.set(bit); // a loaded value child (R-FCH-19); its elements have no getter to audit
+            } else if (prefix.isEmpty() && query.fetch().stream().flatMap(plan -> plan.mapLoads().stream())
+                    .anyMatch(load -> load.field().name().equals(property))) {
+                selected.set(bit); // a loaded map child (R-FCH-20)
             } else if (fields.select(prefix + property).filter(row::isSelected).isPresent()) {
                 selected.set(bit);
             }

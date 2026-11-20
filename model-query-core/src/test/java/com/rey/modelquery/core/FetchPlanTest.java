@@ -634,6 +634,95 @@ class FetchPlanTest {
                         + "single key to match children on; load it from an ungrouped query");
     }
 
+    @Test
+    void ac_fch_45_a_map_child_is_a_copy_whose_key_is_selected_and_bounded_in_rows() {
+        var base = FetchPlan.of(SelectSet.of(STATUS));
+        var plan = base.map(mapField("tagsMap"), q -> q.maxPerParent(3));
+
+        assertThat(base.mapLoads()).isEmpty();
+        assertThat(base.isSelectionOnly()).isTrue();
+        assertThat(plan.isSelectionOnly()).isFalse();
+        assertThat(plan.childLoads()).isEmpty();
+        assertThat(plan.valueLoads()).isEmpty();
+        assertThat(plan.mapLoads()).singleElement().satisfies(load -> {
+            assertThat(load.field().name()).isEqualTo("tagsMap");
+            assertThat(load.maxPerParent()).isEqualTo(3);
+            assertThat(load).hasToString("InvoiceView.tagsMap");
+        });
+        assertThat(plan.map(mapField("labelsMap")).mapLoads()).hasSize(2);
+        assertThat(FetchPlan.of(SelectSet.of(STATUS)).map(mapField("tagsMap")).mapLoads().get(0).maxPerParent())
+                .isZero();
+        // The parent's key is needed though not selected (R-FCH-02).
+        assertThat(plan.needed()).containsExactly(ID);
+    }
+
+    @Test
+    void ac_fch_45_a_map_child_named_twice_or_beside_a_child_or_value_throws_mq1703() {
+        var withTagsMap = FetchPlan.of(SelectSet.of(ID)).map(mapField("tagsMap"));
+        var withLines = FetchPlan.of(SelectSet.of(ID)).child(LINES, LINE);
+        var withTagsValue = FetchPlan.of(SelectSet.of(ID)).values(valueField("tags"));
+
+        assertCode(() -> withTagsMap.map(mapField("tagsMap"), q -> q.maxPerParent(2)), MqCode.MQ1703,
+                "MQ1703: InvoiceView.tagsMap: the fetch plan names this child twice; pass one plan for it, with "
+                        + "everything it loads");
+        assertCode(() -> withLines.map(mapField("lines")), MqCode.MQ1703,
+                "MQ1703: InvoiceView.lines: the fetch plan names this child twice; pass one plan for it, with "
+                        + "everything it loads");
+        assertCode(() -> withTagsValue.map(mapField("tags")), MqCode.MQ1703,
+                "MQ1703: InvoiceView.tags: the fetch plan names this child twice; pass one plan for it, with "
+                        + "everything it loads");
+        assertCode(() -> withTagsMap.child(childField("tagsMap", ID, LINE_INVOICE_ID, LINES::query), LINE),
+                MqCode.MQ1703, "MQ1703: InvoiceView.tagsMap: the fetch plan names this child twice; pass one plan for "
+                        + "it, with everything it loads");
+        assertCode(() -> withTagsMap.values(valueField("tagsMap")), MqCode.MQ1703,
+                "MQ1703: InvoiceView.tagsMap: the fetch plan names this child twice; pass one plan for "
+                        + "it, with everything it loads");
+    }
+
+    @Test
+    void ac_fch_45_grouped_query_with_map_throws_mq1704_and_max_per_parent_below_one_throws_mq2001() {
+        var grouped = FetchPlan.of(SelectSet.of(STATUS, Agg.count(ROOT))).map(mapField("tagsMap"));
+        assertCode(() -> invoices().fetch(grouped).groupBy(STATUS).build(), MqCode.MQ1704,
+                "MQ1704: InvoiceView.tagsMap: a fetch plan loads this child on a grouped query, whose rows have no "
+                        + "single key to match children on; load it from an ungrouped query");
+
+        for (int n : new int[] {0, -1}) {
+            assertThatThrownBy(() -> FetchPlan.of(SelectSet.of(ID)).map(mapField("tagsMap"), v -> v.maxPerParent(n)))
+                    .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ2001))
+                    .hasMessage("MQ2001: maxPerParent(" + n + ") must be positive");
+        }
+    }
+
+    private static MapChildField<InvoiceView, String, String> mapField(String name) {
+        return new MapChildField<>() {
+            @Override
+            public String name() {
+                return name;
+            }
+
+            @Override
+            public ColumnField<InvoiceView, ?, ?> key() {
+                return ID;
+            }
+
+            @Override
+            public TableField<?, ?> owner() {
+                return ROOT;
+            }
+
+            @Override
+            public String attribute() {
+                return "tagsMap";
+            }
+
+            @Override
+            public InvoiceView with(InvoiceView parent, Map<String, String> entries) {
+                return parent;
+            }
+        };
+    }
+
     private static <M, C> ChildField<M, C> childField(String name, ColumnField<M, ?, ?> key,
             ColumnField<C, ?, ?> foreignKey, Supplier<ModelQuery.Builder<?, ?, C>> query) {
         return childField(name, key, foreignKey, null, query);

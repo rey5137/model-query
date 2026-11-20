@@ -7,10 +7,13 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.MapKeyColumn;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /** Test entity for {@link ChildStatementsTest}'s value runs: a row, its tags, an element collection,
  * and the rows it parents. */
@@ -33,10 +36,19 @@ public class TaggedRowEntity {
     @Column(name = "tag")
     List<String> tags = new ArrayList<>();
 
+    @ElementCollection
+    @CollectionTable(name = "tagged_row_labels", joinColumns = @JoinColumn(name = "row_id"))
+    @Column(name = "label_val")
+    @MapKeyColumn(name = "label_key")
+    Map<String, String> labels = new HashMap<>();
+
     protected TaggedRowEntity() {}
 
     TaggedRowEntity(long id, String... tags) {
         this.id = id;
         this.tags.addAll(List.of(tags));
+        for (int i = 0; i < tags.length; i++) {
+            this.labels.put("k" + i, tags[i]);
+        }
     }
 }

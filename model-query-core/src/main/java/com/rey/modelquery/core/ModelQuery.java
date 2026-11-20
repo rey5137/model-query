@@ -1626,6 +1626,16 @@ public final class ModelQuery<E, K, M> {
         return mapReturning(returningRow(attributeValues));
     }
 
+    /** The row selection this query maps from. */
+    RowSelection modelSelection() {
+        return modelSelection;
+    }
+
+    /** The mapping function from a row to a model instance. */
+    Function<Row, M> mapping() {
+        return mapping;
+    }
+
     /**
      * The row {@link #mapReturning(Function)} maps {@code attributeValues} from, so the executor can hand the model on
      * with its row as it hands on a read's (R-INS-18). Only after {@link #checkReturning} passed (R-WRT-48).

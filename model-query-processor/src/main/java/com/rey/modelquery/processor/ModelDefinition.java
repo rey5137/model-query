@@ -424,11 +424,13 @@ record ModelDefinition(
      * @param through the association path written for {@code through}; {@code ""} for none
      * @param toMany whether the field is a {@code List} or a {@code Set}, rather than an {@code Optional}
      * @param set whether the field is a {@code Set}, which only a value child may be (R-FCH-19)
-     * @param model {@code X} of a field declared {@code List<X>}, {@code Set<X>} or {@code Optional<X>}, or
-     *     {@code null} for any other type
+     * @param map whether the field is a {@code Map}, which only a map child may be (R-FCH-20)
+     * @param keyType the key type of a {@code Map<K, V>}, or {@code null}
+     * @param model {@code X} of a field declared {@code List<X>}, {@code Set<X>}, {@code Optional<X>} or
+     *     {@code Map<K, X>}, or {@code null} for any other type
      */
     record ChildDefinition(List<String> key, List<String> foreignKey, String through, boolean toMany, boolean set,
-            TypeMirror model) {
+            boolean map, TypeMirror keyType, TypeMirror model) {
 
         ChildDefinition {
             key = List.copyOf(key);

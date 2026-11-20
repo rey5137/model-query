@@ -277,3 +277,37 @@ CREATE TABLE tagged_card_ordered_spots (
     PRIMARY KEY (card_id, pos),
     CONSTRAINT fk_tagged_card_ordered_spots_card FOREIGN KEY (card_id) REFERENCES tagged_cards (id)
 );
+CREATE TABLE tagged_card_labels (
+    card_id   BIGINT NOT NULL,
+    label_key VARCHAR(40) @COLLATE@ NOT NULL,
+    label_val VARCHAR(40) @COLLATE@ NULL,
+    CONSTRAINT fk_tagged_card_labels_card FOREIGN KEY (card_id) REFERENCES tagged_cards (id)
+);
+CREATE TABLE tagged_card_counts (
+    card_id    BIGINT NOT NULL,
+    status_key VARCHAR(40) @COLLATE@ NOT NULL,
+    count_val  INTEGER NULL,
+    CONSTRAINT fk_tagged_card_counts_card FOREIGN KEY (card_id) REFERENCES tagged_cards (id)
+);
+CREATE TABLE tagged_card_spots_map (
+    card_id  BIGINT NOT NULL,
+    spot_key VARCHAR(40) @COLLATE@ NOT NULL,
+    city     VARCHAR(40) @COLLATE@ NULL,
+    lat      DECIMAL(10,2) NULL,
+    state    VARCHAR(1) @COLLATE@ NULL,
+    CONSTRAINT fk_tagged_card_spots_map_card FOREIGN KEY (card_id) REFERENCES tagged_cards (id)
+);
+CREATE TABLE tagged_card_case_labels (
+    card_id   BIGINT NOT NULL,
+    label_key VARCHAR(40) @COLLATE@ NOT NULL,
+    label_val VARCHAR(40) @COLLATE@ NULL,
+    CONSTRAINT fk_tagged_card_case_labels_card FOREIGN KEY (card_id) REFERENCES tagged_cards (id)
+);
+CREATE TABLE tagged_card_held_map (
+    holder_id BIGINT NOT NULL,
+    card_id   BIGINT NOT NULL,
+    role_key  VARCHAR(40) @COLLATE@ NOT NULL,
+    PRIMARY KEY (holder_id, role_key),
+    CONSTRAINT fk_held_map_holder FOREIGN KEY (holder_id) REFERENCES tagged_cards (id),
+    CONSTRAINT fk_held_map_card FOREIGN KEY (card_id) REFERENCES tagged_cards (id)
+);

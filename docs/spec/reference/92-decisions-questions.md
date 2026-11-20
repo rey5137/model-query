@@ -3532,6 +3532,14 @@ adding query state to immutable table definitions. The child plan is `FetchPlan.
 unselected element fields retain their mapped defaults, as for any child. A hand-written element child with a
 customizer is refused at plan build with `MQ1704`. → `api/15` R-FCH-21, AC-FCH-36.
 
+**D-256 — Map child field, FetchPlan#map, MapLoad, and MQ3408/MQ2609 diagnostics (M39.3, 2026-11-20).** A `through`
+ending at an `@ElementCollection Map<K, V>` generates a `MapChildField<M, K, V>` that loads through
+`FetchPlan#map(field)`. The query is resolved against the map join via `MapJoin.key()` and `value()` (or element
+model columns over `value()`), with no `ORDER BY key` (EclipseLink incompatibility). Run-time duplicate keys for one
+parent (such as from lossy key converters) fail with `MQ2609`. At compile-time, entity or embeddable map keys, as
+well as `Map<K, Entity>` associations, fail with `MQ3408` (which suggests `@Child(through = "...") List<...>`).
+→ `api/15` R-FCH-20, `processor/32` MQ3408, `reference/90` MQ2609, MQ3408.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

@@ -386,6 +386,16 @@ public final class TckFixture {
                     + "(1, 'Paris', 2.50, 'C')");
             statement.executeUpdate("INSERT INTO tagged_card_ordered_spots (card_id, pos, city, lat, state) VALUES "
                     + "(1, 2, 'Paris', 2.50, 'C'), (1, 1, NULL, NULL, NULL), (1, 0, 'Rome', 1.25, 'P')");
+            statement.executeUpdate("INSERT INTO tagged_card_labels (card_id, label_key, label_val) VALUES "
+                    + "(1, 'env', 'prod'), (1, 'tier', 'gold'), (2, 'role', 'admin')");
+            statement.executeUpdate("INSERT INTO tagged_card_counts (card_id, status_key, count_val) VALUES "
+                    + "(1, 'PAID', 10), (1, 'NEW', 5), (2, 'SHIPPED', 3)");
+            statement.executeUpdate("INSERT INTO tagged_card_spots_map (card_id, spot_key, city, lat, state) VALUES "
+                    + "(1, 'primary', 'Rome', 1.25, 'P'), (1, 'secondary', 'Paris', 2.50, 'C')");
+            statement.executeUpdate("INSERT INTO tagged_card_case_labels (card_id, label_key, label_val) VALUES "
+                    + "(1, 'FOO', 'v1'), (1, 'foo', 'v2')");
+            statement.executeUpdate("INSERT INTO tagged_card_held_map (holder_id, card_id, role_key) VALUES "
+                    + "(1, 3, 'assistant')");
         }
     }
 

@@ -6,6 +6,7 @@ import com.rey.modelquery.core.JoinPlan;
 import com.rey.modelquery.core.KeyGroups;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryException;
+import com.rey.modelquery.core.MapLoad;
 import com.rey.modelquery.core.ValueLoad;
 import com.rey.modelquery.jpa.ChunkTransactions;
 import com.rey.modelquery.jpa.ModelQueryConfig;
@@ -169,6 +170,20 @@ public final class DryRun {
         }
         // A value child has no plan of its own, so its line is the last of its path (R-FCH-19).
         for (ValueLoad<?, ?> load : plan.valueLoads()) {
+            String at = path.isEmpty() ? load.field().name() : path + "." + load.field().name();
+            Class<?> type = Placeholders.boxed(load.field().key().attributeType());
+            Optional<List<Object>> keys = Placeholders.of(type);
+            if (keys.isEmpty()) {
+                results.add(new CallResult(call.label(), target, Outcome.HARNESS_ERROR, false, "the checker can't "
+                        + "build a placeholder key of " + type.getName() + " for " + load + ", so its statement is "
+                        + "not checked; with real keys it runs").withChild(at));
+                continue;
+            }
+            results.add(child(emf, target, config, call, null, keys.get(),
+                    executor -> ChildStatements.run(executor, load, keys.get())).withChild(at));
+        }
+        // A map child has no plan of its own, so its line is the last of its path (R-FCH-20).
+        for (MapLoad<?, ?, ?> load : plan.mapLoads()) {
             String at = path.isEmpty() ? load.field().name() : path + "." + load.field().name();
             Class<?> type = Placeholders.boxed(load.field().key().attributeType());
             Optional<List<Object>> keys = Placeholders.of(type);

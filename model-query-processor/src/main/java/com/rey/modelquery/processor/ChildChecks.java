@@ -13,6 +13,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.type.DeclaredType;
+import javax.lang.model.type.TypeMirror;
 import javax.lang.model.util.Types;
 
 /**
@@ -65,7 +66,8 @@ final class ChildChecks {
         }
         ChildKey.Through elements = ChildKey.elementsOf(metamodel, model, field);
         if (elements != null && (child == null || child.elementModel()
-                || elements.elements().elements().embeddable())) {
+                || elements.elements().elements().embeddable()
+                || field.child().map())) {
             checkValueChild(model, field, child, elements, where, diagnostics);
             return;
         }
@@ -77,6 +79,27 @@ final class ChildChecks {
         if (child == null && !field.child().through().isEmpty() && model.readsSource()) {
             // No entity root to find an element collection on, so the field can't be told a value child (R-FCH-19).
             sourceRooted(model, field, where, diagnostics);
+            return;
+        }
+        if (field.child().map()) {
+            if (!field.child().through().isEmpty()) {
+                EntityMetamodel.Walk walk = metamodel.walk(model.root(), field.child().through());
+                if (!walk.steps().isEmpty()) {
+                    EntityAttribute last = walk.steps().get(walk.steps().size() - 1).attribute();
+                    if (isMap(last.type())) {
+                        String targetModel = child != null ? child.name()
+                                : field.child().model() != null ? ModelValidator.display(field.child().model()) : "Row";
+                        diagnostics.error(field.element(), DiagnosticCode.MQ3408, where + "through '"
+                                + field.child().through() + "' ends at the Map association '" + last.name()
+                                + "'; use @Child(through = \"" + field.child().through() + "\") List<"
+                                + targetModel + "> instead");
+                        return;
+                    }
+                }
+            }
+            diagnostics.error(field.element(), DiagnosticCode.MQ3401, where + "@Child needs a List or Optional of a "
+                    + "model annotated @QueryModel or bound by @BindQueryModel in this compilation, found "
+                    + ModelValidator.display(field.type()));
             return;
         }
         if (child != null && field.child().set()) {
@@ -177,9 +200,9 @@ final class ChildChecks {
 
     /**
      * The checks of a value child, whose {@code through} path ends or fails at an element collection (R-FCH-19):
-     * {@code MQ3401} with {@code foreignKey}, {@code MQ3406} for the path, a composite {@code @Id}, a key that is not
-     * it, or a {@code Map}, {@code MQ3407} for a field that is not a {@code List} or {@code Set} or elements that are
-     * not basic, and {@code MQ3002} for an element type the field doesn't hold (INV-3). It needs no
+     * {@code MQ3401} with {@code foreignKey}, {@code MQ3406} for the path, a composite {@code @Id}, or a key that
+     * is not it (R-FCH-19, R-FCH-20), {@code MQ3407} for a field that is not a {@code List} or {@code Set} or
+     * elements that are not basic, and {@code MQ3002} for an element type the field doesn't hold (INV-3). It needs no
      * {@code @PrimaryKey}: its rows are a bag, and an empty {@code key} defaults to the root's single {@code @Id}.
      */
     private void checkValueChild(ModelDefinition model, ModelField field, ModelDefinition child,
@@ -199,32 +222,74 @@ final class ChildChecks {
         EntityAttribute.Elements elements = through.elements().elements();
         String collection = "the element collection '" + through.elements().name() + "'";
         if (elements.map()) {
-            diagnostics.error(field.element(), DiagnosticCode.MQ3406, where + path + "ends at " + collection
-                    + ", a Map, which a List or Set value child can't hold");
-            return;
-        }
-        if (!definition.toMany() || definition.model() == null) {
-            diagnostics.error(field.element(), DiagnosticCode.MQ3407, where + path + "ends at " + collection
-                    + ", and a value child is a List or Set of its element type, found "
-                    + ModelValidator.display(field.type()));
-            return;
-        }
-        if (elements.embeddable()) {
-            if (definition.set() || child == null || !child.elementModel()
-                    || !types.isSameType(child.root().asType(), elements.element())) {
-                diagnostics.error(field.element(), DiagnosticCode.MQ3407, where + path + "ends at " + collection
-                        + " of @Embeddable " + ModelValidator.display(elements.element())
-                        + "; use a List of an @ElementModel of that embeddable");
+            if (elements.keyEntity() || elements.keyEmbeddable()) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3408, where + path + "ends at " + collection
+                        + ", whose key is " + ModelValidator.display(elements.key())
+                        + (elements.keyEntity() ? ", an entity" : ", an @Embeddable")
+                        + "; a map child key must be basic");
                 return;
             }
-        } else if (child != null && child.elementModel()) {
-            diagnostics.error(field.element(), DiagnosticCode.MQ3407, where
-                    + "an @ElementModel is only valid as an embeddable element collection value child");
-            return;
-        } else if (elements.element() != null && !types.isSameType(definition.model(), elements.element())) {
-            diagnostics.error(field.element(), DiagnosticCode.MQ3002, where + ModelValidator.display(field.type())
-                    + " holds " + ModelValidator.display(definition.model()) + ", and " + collection + " holds "
-                    + ModelValidator.display(elements.element()));
+            if (!definition.map()) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3407, where + path + "ends at " + collection
+                        + ", a Map, which a List or Set value child can't hold");
+                return;
+            }
+            if (elements.key() != null && !types.isSameType(ProcessorTypes.boxed(types, definition.keyType()),
+                    elements.key())) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3002, where
+                        + ModelValidator.display(field.type()) + " has key "
+                        + ModelValidator.display(definition.keyType()) + ", and " + collection + " has key "
+                        + ModelValidator.display(elements.key()));
+            }
+            if (elements.embeddable()) {
+                if (child == null || !child.elementModel()
+                        || !types.isSameType(child.root().asType(), elements.element())) {
+                    diagnostics.error(field.element(), DiagnosticCode.MQ3407, where + path + "ends at " + collection
+                            + " of @Embeddable " + ModelValidator.display(elements.element())
+                            + "; use an @ElementModel of that embeddable as the map value");
+                    return;
+                }
+            } else if (child != null && child.elementModel()) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3407, where
+                        + "an @ElementModel is only valid as an embeddable element collection value child");
+                return;
+            } else if (elements.element() != null && !types.isSameType(
+                    ProcessorTypes.boxed(types, definition.model()), elements.element())) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3002, where
+                        + ModelValidator.display(field.type()) + " holds "
+                        + ModelValidator.display(definition.model()) + ", and " + collection + " holds "
+                        + ModelValidator.display(elements.element()));
+            }
+        } else {
+            if (definition.map()) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3407, where + path + "ends at " + collection
+                        + ", and a value child is a List or Set of its element type, found "
+                        + ModelValidator.display(field.type()));
+                return;
+            }
+            if (!definition.toMany() || definition.model() == null) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3407, where + path + "ends at " + collection
+                        + ", and a value child is a List or Set of its element type, found "
+                        + ModelValidator.display(field.type()));
+                return;
+            }
+            if (elements.embeddable()) {
+                if (definition.set() || child == null || !child.elementModel()
+                        || !types.isSameType(child.root().asType(), elements.element())) {
+                    diagnostics.error(field.element(), DiagnosticCode.MQ3407, where + path + "ends at " + collection
+                            + " of @Embeddable " + ModelValidator.display(elements.element())
+                            + "; use a List of an @ElementModel of that embeddable");
+                    return;
+                }
+            } else if (child != null && child.elementModel()) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3407, where
+                        + "an @ElementModel is only valid as an embeddable element collection value child");
+                return;
+            } else if (elements.element() != null && !types.isSameType(definition.model(), elements.element())) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3002, where + ModelValidator.display(field.type())
+                        + " holds " + ModelValidator.display(definition.model()) + ", and " + collection + " holds "
+                        + ModelValidator.display(elements.element()));
+            }
         }
         EntityMetamodel.Id id = metamodel.id(model.root());
         Set<String> ids = id.attributes();
@@ -308,5 +373,10 @@ final class ChildChecks {
             }
         }
         return false;
+    }
+
+    private static boolean isMap(TypeMirror type) {
+        return type instanceof DeclaredType dt
+                && ((TypeElement) dt.asElement()).getQualifiedName().contentEquals("java.util.Map");
     }
 }

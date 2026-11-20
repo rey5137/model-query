@@ -558,6 +558,12 @@ public enum MqCode {
     MQ2608("A key's row was found only by the verifyMissing re-read, outside its key's group"),
 
     /**
+     * Two entries with one Java key for one parent in a map element collection (R-FCH-20, D-248).
+     */
+    @Incubating
+    MQ2609("A parent has duplicate map entries for one Java key"),
+
+    /**
      * A recursive source's tree is deeper than its {@code maxDepth}, which the statement it was read from found with a
      * level past the limit; the message names the first offending key (R-SRC-07).
      */

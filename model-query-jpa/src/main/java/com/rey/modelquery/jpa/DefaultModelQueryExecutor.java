@@ -55,6 +55,7 @@ import com.rey.modelquery.core.SelectField;
 import com.rey.modelquery.core.ModelUpdate;
 import com.rey.modelquery.core.SetOperation;
 import com.rey.modelquery.core.Slice;
+import com.rey.modelquery.core.MapLoad;
 import com.rey.modelquery.core.ValueLoad;
 import com.rey.modelquery.core.ValueOperands;
 import com.rey.modelquery.core.ValuesInsert;
@@ -3352,6 +3353,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
         for (ValueLoad<M, ?> load : plan.valueLoads()) {
             checkValueBuild(load);
         }
+        for (MapLoad<M, ?, ?> load : plan.mapLoads()) {
+            checkMapBuild(load);
+        }
         for (JoinPlan<M, ?> join : plan.joinPlans()) {
             checkBuilds(join.plan());
         }
@@ -3369,6 +3373,22 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
 
     /** A value statement's own binds, before any key is added, as {@link #childOwnBinds} counts a child's. */
     private int valueOwnBinds(ValueLoad<?, ?> load, ValueLoad.Statement statement) {
+        return em.createQuery(statement.query()).getParameters().size() + statement.joins().repeatedExpressionBinds()
+                + (load.maxPerParent() > 0 ? 1 : 0);
+    }
+
+    /**
+     * Builds {@code load}'s statement as {@link #mapsOf} does, which throws {@code MQ1713} for a second collection
+     * join, and checks it binds one key within the limit (R-FCH-20, D-248).
+     */
+    private void checkMapBuild(MapLoad<?, ?, ?> load) {
+        MapLoad.Statement statement = load.build(em.getCriteriaBuilder(), renderOptions);
+        load.requireBindableKeys(statement);
+        withinBindLimit(load, mapOwnBinds(load, statement) + 1, 0);
+    }
+
+    /** A map statement's own binds, before any key is added, as {@link #childOwnBinds} counts a child's. */
+    private int mapOwnBinds(MapLoad<?, ?, ?> load, MapLoad.Statement statement) {
         return em.createQuery(statement.query()).getParameters().size() + statement.joins().repeatedExpressionBinds()
                 + (load.maxPerParent() > 0 ? 1 : 0);
     }
@@ -4077,6 +4097,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
         for (ValueLoad<M, ?> load : plan.valueLoads()) {
             loadValues(load, rows, models);
         }
+        for (MapLoad<M, ?, ?> load : plan.mapLoads()) {
+            loadMaps(load, rows, models);
+        }
         for (JoinPlan<M, ?> join : plan.joinPlans()) {
             runJoin(join, owner, rows, models);
         }
@@ -4276,6 +4299,162 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
         }
         checkValueBuild(load);
         valuesOf(load, keys);
+    }
+
+    /**
+     * Loads {@code load}'s entries for the distinct non-null keys of {@code rows}, and sets them on the parent at the
+     * same position of {@code models}; a parent whose key is null, or that has no entry, keeps the empty map it was
+     * mapped with (R-FCH-20). Element model values pass through the select-audit hand-off; basic values have no
+     * getter, so nothing is handed off (RFC 0027 Part B).
+     */
+    private <M, K, V> void loadMaps(MapLoad<M, K, V> load, List<Loaded<M>> rows, List<M> models) {
+        ColumnField<M, ?, ?> key = load.field().key();
+        if (!rows.isEmpty() && !rows.get(0).row().isSelected(key)) {
+            throw new IllegalStateException(load + ": the parent key " + key + " is not selected, so no entry can be "
+                    + "matched to a parent");
+        }
+        Object[] keys = new Object[rows.size()];
+        var distinct = new LinkedHashSet<Object>();
+        for (int i = 0; i < keys.length; i++) {
+            keys[i] = rows.get(i).row().raw(key);
+            if (keys[i] != null) {
+                distinct.add(keys[i]);
+            }
+        }
+        if (distinct.isEmpty()) {
+            LOG.log(DEBUG, () -> "map child " + load + ": no key on the page, so no map query");
+            return;
+        }
+        Map<Object, Map<K, V>> entries = mapsOf(load, List.copyOf(distinct));
+        for (int i = 0; i < keys.length; i++) {
+            Map<K, V> found = keys[i] == null ? null : entries.get(keys[i]);
+            if (found != null) {
+                models.set(i, load.field().with(models.get(i), found));
+            }
+        }
+    }
+
+    /**
+     * The entries of {@code keys}, by key in unspecified row order (D-248). The keys go in rounds of at most the
+     * largest power of two within the profile's limits, as a child's do; with {@code maxPerParent}, a round reads at
+     * most keys × n + 1 rows, and a key over the bound is {@code MQ2603} (R-FCH-05, R-FCH-11, R-FCH-20).
+     */
+    @SuppressWarnings("unchecked")
+    private <K, V> Map<Object, Map<K, V>> mapsOf(MapLoad<?, K, V> load, List<Object> keys) {
+        CriteriaBuilder cb = em.getCriteriaBuilder();
+        int size = keyLimits.clamp(mapOwnBinds(load, load.build(cb, renderOptions)), 1, OptionalInt.empty());
+        LOG.log(DEBUG, () -> "map child " + load + ": " + keys.size() + (keys.size() == 1 ? " key" : " keys")
+                + " in " + chunks(keys.size(), size) + " round(s)");
+        Map<Object, Map<K, V>> maps = new HashMap<>();
+        List<V> elementModels = load.field().isElementModel() ? new ArrayList<>() : null;
+        List<Loaded<V>> elementLoaded = load.field().isElementModel() ? new ArrayList<>() : null;
+        ModelQuery<?, ?, V> elementQuery = null;
+        for (int from = 0; from < keys.size(); from += size) {
+            List<Object> roundKeys = keys.subList(from, Math.min(keys.size(), from + size));
+            MapLoad.Statement statement = load.build(cb, renderOptions);
+            if (load.field().isElementModel() && elementQuery == null) {
+                elementQuery = (ModelQuery<?, ?, V>) statement.elementQuery();
+            }
+            statement.query().where(load.keyIn(statement, roundKeys));
+            TypedQuery<Tuple> query = create(load, em, statement.query(), null, null, statement.joins());
+            long cap = (long) roundKeys.size() * load.maxPerParent() + 1;
+            if (load.maxPerParent() > 0) {
+                query.setMaxResults((int) Math.min(cap, Integer.MAX_VALUE));
+            }
+            List<Tuple> tuples = rows(load, query);
+            Set<Object> wanted = new HashSet<>(roundKeys);
+            Map<Object, Integer> read = new HashMap<>();
+            for (Tuple tuple : tuples) {
+                Object parent = tuple.get(0);
+                if (!wanted.contains(parent)) {
+                    throw new ModelQueryExecutionException(MqCode.MQ2604, load + ": a map row's "
+                            + load.field().key() + " is " + parent + ", which equals none of the " + roundKeys.size()
+                            + " keys of the statement that matched it; the column's collation equates values Java "
+                            + "tells apart, by case or trailing spaces, so key the parent on a column with a binary "
+                            + "collation");
+                }
+                read.merge(parent, 1, Integer::sum);
+                K mapKey = (K) tuple.get(1);
+                V mapVal;
+                if (load.field().isElementModel()) {
+                    Row row = statement.rowSelection().row(tuple);
+                    mapVal = (V) statement.mapper().apply(row);
+                    elementModels.add(mapVal);
+                    elementLoaded.add(new Loaded<>(mapVal, row));
+                } else {
+                    mapVal = (V) tuple.get(2);
+                }
+                Map<K, V> parentMap = maps.computeIfAbsent(parent, k -> new LinkedHashMap<>());
+                if (parentMap.containsKey(mapKey)) {
+                    throw new ModelQueryExecutionException(MqCode.MQ2609, load + ": parent key " + parent
+                            + " has duplicate entries for map key " + mapKey
+                            + "; two entries share the same Java key");
+                }
+                parentMap.put(mapKey, mapVal);
+            }
+            if (load.maxPerParent() > 0) {
+                checkMapBound(load, roundKeys.size(), tuples.size() >= cap, read);
+            }
+        }
+        if (load.field().isElementModel() && elementModels != null && !elementModels.isEmpty()) {
+            handOff(elementQuery, null, elementModels, elementLoaded);
+        }
+        return maps;
+    }
+
+    /**
+     * {@code load}'s rows, with their count and time in the trace log (D-95). A map child's statement is rooted at
+     * an entity, never a source (MQ3406), so it has no source check to read from its first row (AC-SRC-25).
+     */
+    private List<Tuple> rows(MapLoad<?, ?, ?> load, TypedQuery<Tuple> query) {
+        Object label = load;
+        long start = System.nanoTime();
+        List<Tuple> rows;
+        try {
+            rows = query.getResultList();
+        } catch (PersistenceException e) {
+            throw timeoutCancellation(e);
+        }
+        traceTimed(label, rows.size() + (rows.size() == 1 ? " row" : " rows"), start);
+        return rows;
+    }
+
+    /**
+     * {@code MQ2603} when a key of a round read more entries than {@code maxPerParent}, or the round read its cap
+     * of keys × n + 1 rows (R-FCH-11, D-248).
+     */
+    private static void checkMapBound(MapLoad<?, ?, ?> load, int keys, boolean capped, Map<Object, Integer> read) {
+        int bound = load.maxPerParent();
+        Object most = null;
+        for (Map.Entry<Object, Integer> entry : read.entrySet()) {
+            if (most == null || entry.getValue() > read.get(most)) {
+                most = entry.getKey();
+            }
+        }
+        if (most != null && read.get(most) > bound) {
+            throw new ModelQueryExecutionException(MqCode.MQ2603, load + ": key " + most + " has " + read.get(most)
+                    + " entries, more than maxPerParent(" + bound + "); raise the bound");
+        }
+        if (capped) {
+            throw new ModelQueryExecutionException(MqCode.MQ2603, load + ": a round of " + keys + " keys read its "
+                    + "cap of " + keys + " x maxPerParent(" + bound + ") + 1 rows; raise the bound");
+        }
+    }
+
+    /**
+     * {@code load}'s statement of {@code keys} in one run, for the portability dry run, as {@link #runChildLoad} runs
+     * a child's: the statement's own check, then its rounds; the entries read are dropped (RFC 0025 Part C, D-224).
+     *
+     * @throws IllegalArgumentException when {@code keys} is empty, holds a null or holds a key twice
+     */
+    @Override
+    public void runMapLoad(MapLoad<?, ?, ?> load, List<Object> keys) {
+        if (keys.isEmpty() || keys.stream().anyMatch(Objects::isNull) || new HashSet<>(keys).size() != keys.size()) {
+            throw new IllegalArgumentException(load + ": a map run takes one or more distinct keys, none null, not "
+                    + keys);
+        }
+        checkMapBuild(load);
+        mapsOf(load, keys);
     }
 
     /**

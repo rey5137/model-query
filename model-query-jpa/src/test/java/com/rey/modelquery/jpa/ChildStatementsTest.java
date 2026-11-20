@@ -11,6 +11,8 @@ import com.rey.modelquery.core.Expr;
 import com.rey.modelquery.core.FetchPlan;
 import com.rey.modelquery.core.KeyGroups;
 import com.rey.modelquery.core.Limit;
+import com.rey.modelquery.core.MapChildField;
+import com.rey.modelquery.core.MapLoad;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.ModelQueryExecutionException;
@@ -273,6 +275,32 @@ class ChildStatementsTest {
         assertThat(SQL).isEmpty();
     }
 
+    @Test
+    void ac_fch_40_a_map_run_refuses_another_executor_no_or_repeated_keys_and_a_second_collection() {
+        MapLoad<Tagged, String, String> load = mapLoad(TAGGED_ROOT);
+        @SuppressWarnings("unchecked")
+        ModelQueryExecutor<Object> other = (ModelQueryExecutor<Object>) Proxy.newProxyInstance(
+                getClass().getClassLoader(), new Class<?>[] {ModelQueryExecutor.class}, (proxy, method, args) -> null);
+        assertThatThrownBy(() -> ChildStatements.run(other, load, List.of(1L)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("ModelQueryExecutor.create");
+        withTaggedExecutor(executor -> {
+            assertThatThrownBy(() -> ChildStatements.run(executor, load, List.of()))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("distinct keys");
+            assertThatThrownBy(() -> ChildStatements.run(executor, load, List.of(1L, 1L)))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("distinct keys");
+            ChildStatements.Runner runner = (ChildStatements.Runner) executor;
+            assertThatThrownBy(() -> runner.runMapLoad(load, Arrays.asList(1L, null)))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("none null");
+            // The run makes the plan build's check: a path across the collection of children, then their labels.
+            MapLoad<Tagged, String, String> twice = mapLoad(
+                    TableField.<TaggedRowEntity, TaggedRowEntity>join(TAGGED_ROOT, "children", JoinType.INNER));
+            assertThatThrownBy(() -> ChildStatements.run(executor, twice, List.of(1L)))
+                    .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ1713));
+        });
+        assertThat(SQL).isEmpty();
+    }
+
     /**
      * The one child load of a plan over {@link Parent}: the rows whose id is the parent's, filtered to
      * {@code bFrom} or more when {@code ranged}: a to-many child's group param is a lower bound only.
@@ -366,6 +394,38 @@ class ChildStatementsTest {
             }
         };
         return (ValueLoad<Tagged, String>) FetchPlan.of(SelectSet.of(TAGGED_ID)).values(tags).valueLoads().get(0);
+    }
+
+    /** The one map load of a plan over {@link Tagged}: the labels of {@code owner}. */
+    @SuppressWarnings("unchecked")
+    private static MapLoad<Tagged, String, String> mapLoad(TableField<?, ?> owner) {
+        MapChildField<Tagged, String, String> labels = new MapChildField<>() {
+            @Override
+            public String name() {
+                return "labels";
+            }
+
+            @Override
+            public ColumnField<Tagged, ?, ?> key() {
+                return TAGGED_ID;
+            }
+
+            @Override
+            public TableField<?, ?> owner() {
+                return owner;
+            }
+
+            @Override
+            public String attribute() {
+                return "labels";
+            }
+
+            @Override
+            public Tagged with(Tagged parent, java.util.Map<String, String> entries) {
+                return parent;
+            }
+        };
+        return (MapLoad<Tagged, String, String>) FetchPlan.of(SelectSet.of(TAGGED_ID)).map(labels).mapLoads().get(0);
     }
 
     private static void withTaggedExecutor(Consumer<ModelQueryExecutor<TaggedRowEntity>> work) {

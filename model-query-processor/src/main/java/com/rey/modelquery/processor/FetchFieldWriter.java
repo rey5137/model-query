@@ -12,8 +12,10 @@ import com.squareup.javapoet.TypeSpec;
 import com.squareup.javapoet.WildcardTypeName;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.util.Types;
@@ -30,6 +32,7 @@ final class FetchFieldWriter {
     private static final String CORE = "com.rey.modelquery.core";
     private static final ClassName CHILD_FIELD = ClassName.get(CORE, "ChildField");
     private static final ClassName VALUE_CHILD_FIELD = ClassName.get(CORE, "ValueChildField");
+    private static final ClassName MAP_CHILD_FIELD = ClassName.get(CORE, "MapChildField");
     private static final ClassName JOIN_FIELD = ClassName.get(CORE, "JoinField");
     private static final ClassName COLUMN_FIELD = ClassName.get(CORE, "ColumnField");
     private static final ClassName TABLE_FIELD = ClassName.get(CORE, "TableField");
@@ -38,6 +41,7 @@ final class FetchFieldWriter {
     private static final ClassName JOIN_TYPE = ClassName.get("jakarta.persistence.criteria", "JoinType");
     private static final ClassName OPTIONAL = ClassName.get(Optional.class);
     private static final ClassName LIST = ClassName.get(List.class);
+    private static final ClassName MAP = ClassName.get(Map.class);
     private static final WildcardTypeName ANY = WildcardTypeName.subtypeOf(Object.class);
     private static final Modifier[] CONSTANT = {Modifier.PUBLIC, Modifier.STATIC, Modifier.FINAL};
 
@@ -219,6 +223,65 @@ final class FetchFieldWriter {
         return FieldSpec.builder(type, field.constant(), CONSTANT)
                 .addAnnotation(INCUBATING)
                 .initializer("$L", body)
+                .build();
+    }
+
+    /**
+     * The {@code MapChildField} of the map child {@code field}, whose {@code through} path ends at an element
+     * collection: its owner is the path's to-one joins from the parent's {@code ROOT}, each {@code INNER}, and
+     * {@code with} copies the entries into an unmodifiable {@code LinkedHashMap} in row order (R-FCH-20, D-248).
+     */
+    FieldSpec mapChildField(ModelDefinition model, ModelField field) {
+        ChildDefinition definition = field.child();
+        ChildKey.Through through = ChildKey.elementsOf(metamodel, model, field);
+        ClassName modelName = ClassName.get(model.type());
+        TypeName keyType = TypeName.get(definition.keyType());
+        TypeName valueType = TypeName.get(definition.model());
+        TypeName type = ParameterizedTypeName.get(MAP_CHILD_FIELD, modelName, keyType, valueType);
+        ChildKey key = ChildKey.of(metamodel, types, model, ChildKey.valueKey(metamodel, model, definition));
+        MethodSpec.Builder with = method("with", modelName)
+                .addParameter(modelName, "parent")
+                .addParameter(ParameterizedTypeName.get(MAP, keyType, valueType), "entries");
+        copy(model, field, CodeBlock.of("$T.unmodifiableMap(new $T<>(entries))",
+                Collections.class, LinkedHashMap.class), with);
+        TypeName table = ParameterizedTypeName.get(TABLE_FIELD, ANY, ANY);
+        TypeSpec.Builder body = TypeSpec.anonymousClassBuilder("")
+                .addSuperinterface(type)
+                .addField(FieldSpec.builder(ParameterizedTypeName.get(COLUMN_FIELD, modelName, ANY, ANY), "key",
+                                Modifier.PRIVATE, Modifier.FINAL)
+                        .initializer(keyColumn(model, key))
+                        .build())
+                .addField(FieldSpec.builder(table, "owner", Modifier.PRIVATE, Modifier.FINAL)
+                        .initializer(path(through))
+                        .build())
+                .addMethod(method("name", ClassName.get(String.class))
+                        .addStatement("return $S", field.name())
+                        .build())
+                .addMethod(method("key", ParameterizedTypeName.get(COLUMN_FIELD, modelName, ANY, ANY))
+                        .addStatement("return key")
+                        .build())
+                .addMethod(method("owner", table)
+                        .addStatement("return owner")
+                        .build())
+                .addMethod(method("attribute", ClassName.get(String.class))
+                        .addStatement("return $S", through.elements().name())
+                        .build())
+                .addMethod(nullness.unmarked(with).build());
+        ModelDefinition child = nestedModels.child(field);
+        if (child != null && child.elementModel()) {
+            ClassName childGenerated = QModelWriter.generatedName(child);
+            body.addMethod(method("isElementModel", TypeName.BOOLEAN)
+                            .addStatement("return true").build())
+                    .addMethod(method("elementQuery", ParameterizedTypeName.get(MODEL_QUERY.nestedClass("Builder"),
+                                    ANY, ANY, valueType))
+                            .addStatement("return $T.builder($T.root($T.class), $T.MAPPER).select($T.ALL)",
+                                    MODEL_QUERY, TABLE_FIELD, ClassName.get(child.root()),
+                                    childGenerated, childGenerated)
+                            .build());
+        }
+        return FieldSpec.builder(type, field.constant(), CONSTANT)
+                .addAnnotation(INCUBATING)
+                .initializer("$L", body.build())
                 .build();
     }
 
