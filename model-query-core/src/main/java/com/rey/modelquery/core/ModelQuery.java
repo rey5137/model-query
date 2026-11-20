@@ -9,6 +9,7 @@ import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.From;
 import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.JoinType;
+import jakarta.persistence.criteria.ListJoin;
 import jakarta.persistence.criteria.Order;
 import jakarta.persistence.criteria.ParameterExpression;
 import jakarta.persistence.criteria.Path;
@@ -657,19 +658,40 @@ public final class ModelQuery<E, K, M> {
      *     or dropped a source check column
      */
     BuiltQuery<M> buildThroughQuery(CriteriaBuilder cb, RenderOptions options, TableField<?, ?> through,
-            ColumnField<?, ?, ?> parentKey, Map<QueryParam<?>, Object> perRound) {
+            ColumnField<?, ?, ?> parentKey, Map<QueryParam<?>, Object> perRound, boolean element, boolean ordered) {
         CriteriaQuery<Tuple> query = cb.createTupleQuery();
         Root<?> from = query.from(through.pathRoot());
         JoinContext parent = JoinContext.readOf(from, cb, query, bound(options, perRound));
-        From<?, ?> join = through.resolve(parent);
+        From<?, ?> join = element ? (ordered
+                ? through.parent().resolve(parent).joinList(through.key().attribute(), JoinType.INNER)
+                : through.parent().resolve(parent).join(through.key().attribute(), JoinType.INNER))
+                : through.resolve(parent);
         Expression<?> key = parentKey.path(parent);
         JoinContext child = parent.rootedAt(join, root.rootEntity());
         Walk walk = joinSources(query, child, join, from);
         BuiltQuery<M> built = assemble(query, child, Phase.MODEL, key, List.of(), walk);
+        if (element) {
+            List<String> extra = new ArrayList<>();
+            ValueLoad.pluralJoins(from, (Join<?, ?>) join, extra);
+            if (!extra.isEmpty()) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1713, "element child's statement joins "
+                        + "additional collections: " + String.join(", ", extra));
+            }
+            if (ordered) {
+                List<Order> order = new ArrayList<>();
+                order.add(cb.asc(((ListJoin<?, ?>) join).index()));
+                order.addAll(query.getOrderList());
+                query.orderBy(order);
+            }
+        }
         if (customizer != null) {
             customize(built, cb, Phase.MODEL);
         }
         return built;
+    }
+
+    boolean hasCustomizer() {
+        return customizer != null;
     }
 
     /** Selection, predicate, grouping and ordering of {@code phase}, before any customizer runs. */

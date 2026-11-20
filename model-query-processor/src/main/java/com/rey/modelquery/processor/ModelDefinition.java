@@ -56,7 +56,12 @@ record ModelDefinition(
      * and no mapper and no write member (R-PROC-35, R-GEN-37).
      */
     boolean readModel() {
-        return kind == Kind.QUERY || kind == Kind.SOURCE;
+        return kind == Kind.QUERY || kind == Kind.SOURCE || kind == Kind.ELEMENT;
+    }
+
+    /** Whether the type models an embeddable collection element. */
+    boolean elementModel() {
+        return kind == Kind.ELEMENT;
     }
 
     /** Whether the type is a {@code @SourceModel}: a query an outer model reads by field name (R-PROC-35). */
@@ -271,6 +276,8 @@ record ModelDefinition(
         /** {@code @SourceModel}: a query an outer model reads by field name; generates {@code source()}
          * (R-PROC-35). */
         SOURCE,
+        /** {@code @ElementModel}: the columns of an embeddable collection element. */
+        ELEMENT,
         /** {@code @UpdateModel}: the columns a bulk update writes, through a change set. */
         UPDATE,
         /** {@code @InsertModel}: the columns an insert writes, read from each row (R-PROC-23). */

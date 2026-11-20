@@ -26,6 +26,10 @@ public class AuditOrderEntity {
     @CollectionTable(name = "audit_order_tag")
     private List<String> tags = new ArrayList<>();
 
+    @ElementCollection
+    @CollectionTable(name = "audit_order_spot")
+    private List<AuditSpot> spots = new ArrayList<>();
+
     public AuditOrderEntity() {}
 
     public AuditOrderEntity(Long id, Long total, String notes, AuditCustomerEntity customer) {
@@ -53,5 +57,9 @@ public class AuditOrderEntity {
 
     public List<String> getTags() {
         return tags;
+    }
+
+    public List<AuditSpot> getSpots() {
+        return spots;
     }
 }

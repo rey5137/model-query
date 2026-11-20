@@ -87,7 +87,7 @@ public final class ValueLoad<M, E> {
     }
 
     /** Adds the attribute of every plural join under {@code from} other than {@code values} to {@code found}. */
-    private static void pluralJoins(From<?, ?> from, Join<?, ?> values, List<String> found) {
+    static void pluralJoins(From<?, ?> from, Join<?, ?> values, List<String> found) {
         for (Join<?, ?> join : from.getJoins()) {
             if (join != values && join instanceof PluralJoin<?, ?, ?>) {
                 found.add("'" + join.getAttribute().getName() + "'");

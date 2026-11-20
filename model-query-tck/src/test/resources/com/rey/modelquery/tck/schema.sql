@@ -261,3 +261,19 @@ CREATE TABLE tagged_card_scores (
     PRIMARY KEY (card_id, pos),
     CONSTRAINT fk_tagged_card_scores_card FOREIGN KEY (card_id) REFERENCES tagged_cards (id)
 );
+CREATE TABLE tagged_card_spots (
+    card_id BIGINT NOT NULL,
+    city VARCHAR(40) @COLLATE@ NULL,
+    lat DECIMAL(10,2) NULL,
+    state VARCHAR(1) @COLLATE@ NULL,
+    CONSTRAINT fk_tagged_card_spots_card FOREIGN KEY (card_id) REFERENCES tagged_cards (id)
+);
+CREATE TABLE tagged_card_ordered_spots (
+    card_id BIGINT NOT NULL,
+    pos INTEGER NOT NULL,
+    city VARCHAR(40) @COLLATE@ NULL,
+    lat DECIMAL(10,2) NULL,
+    state VARCHAR(1) @COLLATE@ NULL,
+    PRIMARY KEY (card_id, pos),
+    CONSTRAINT fk_tagged_card_ordered_spots_card FOREIGN KEY (card_id) REFERENCES tagged_cards (id)
+);

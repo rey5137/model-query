@@ -439,6 +439,20 @@ class FetchFieldTest {
                 @jakarta.persistence.Embeddable
                 public class Spot {
                     String city;
+                    @jakarta.persistence.Embedded Geo geo;
+                    Long code;
+                }
+                """),
+        source("models.Geo", """
+                package models;
+                @jakarta.persistence.Embeddable
+                public class Geo { java.math.BigDecimal lat; }
+                """),
+        source("models.CodeConverter", """
+                package models;
+                public class CodeConverter implements com.rey.modelquery.core.ColumnConverter<String, Long> {
+                    public String toModel(Long value) { return value == null ? null : value.toString(); }
+                    public Long toAttribute(String value) { return value == null ? null : Long.valueOf(value); }
                 }
                 """),
         source("models.TagBox", """
@@ -479,6 +493,129 @@ class FetchFieldTest {
             sources.add(source("models." + name.group(1), THROUGH_IMPORTS + "import java.util.Set;\n\n" + model));
         }
         return compile(sources.toArray(JavaFileObject[]::new));
+    }
+
+    @Test
+    void ac_proc_62_element_model_generates_columns_and_a_child_field() throws Exception {
+        Compilation compilation = compileTagged("""
+                @com.rey.modelquery.annotations.ElementModel(Spot.class)
+                public record SpotRow(String city,
+                        @com.rey.modelquery.annotations.Column(attribute = "geo.lat") java.math.BigDecimal lat,
+                        @com.rey.modelquery.annotations.Column(converter = CodeConverter.class) String code) {}
+                """, """
+                @QueryModel(root = TaggedEntity.class)
+                public record TaggedCard(@PrimaryKey Long id, @Child(through = "spots") List<SpotRow> spots) {}
+                """);
+
+        assertThat(compilation).succeededWithoutWarnings();
+        String element = generated(compilation, "models.QSpotRow");
+        assertThat(element).contains("private static final TableField<Spot, Spot> ROOT",
+                "ColumnField<SpotRow, Spot, String> CITY", "SelectSet<SpotRow> ALL", "RowMapper<SpotRow> MAPPER");
+        assertThat(element).contains("geo.lat", "CodeConverter");
+        assertThat(element).doesNotContain(" query(");
+        assertThat(element).isEqualTo(resource("golden/QSpotRow.java"));
+        assertThat(generated(compilation, "models.QTaggedCard")).contains(
+                "ChildField<TaggedCard, SpotRow> SPOTS", "TableField.join(ROOT, \"spots\", JoinType.INNER)",
+                "ModelQuery.builder(TableField.root(Spot.class), QSpotRow.MAPPER)");
+        var field = (ChildField<?, ?>) classes(compilation).loadClass("models.QTaggedCard").getField("SPOTS").get(null);
+        assertThat(field.through()).isPresent();
+        assertThat(field.query()).isNotNull();
+    }
+
+    @Test
+    void ac_proc_63_element_model_rejects_wrong_fields_and_uses() {
+        Compilation compilation = compileTagged("""
+                @com.rey.modelquery.annotations.ElementModel(Spot.class)
+                public record SpotRow(@PrimaryKey String city) {}
+                """, """
+                @com.rey.modelquery.annotations.ElementModel(TaggedEntity.class)
+                public record WrongRoot(String name) {}
+                """, """
+                @QueryModel(root = TaggedEntity.class)
+                public record TaggedCard(@PrimaryKey Long id,
+                        @Child(through = "spots") Set<SpotRow> set,
+                        @Child(through = "spots") Optional<SpotRow> optional,
+                        @Child(through = "tags") List<SpotRow> basic,
+                        @Child(foreignKey = "id") List<SpotRow> modelChild) {}
+                """);
+
+        assertThat(compilation).failed();
+        assertThat(errors(compilation)).anySatisfy(error -> assertThat(error).startsWith("MQ3038: WrongRoot:"))
+                .anySatisfy(error -> assertThat(error).startsWith("MQ3407: SpotRow.city:"))
+                .anySatisfy(error -> assertThat(error).startsWith("MQ3407: TaggedCard.set:"))
+                .anySatisfy(error -> assertThat(error).startsWith("MQ3407: TaggedCard.optional:"))
+                .anySatisfy(error -> assertThat(error).startsWith("MQ3407: TaggedCard.basic:"))
+                .anySatisfy(error -> assertThat(error).startsWith("MQ3407: TaggedCard.modelChild:"));
+    }
+
+    @Test
+    void ac_proc_64_element_models_refuse_incompatible_roots_and_nested_uses() {
+        Compilation compilation = compileTagged("""
+                @com.rey.modelquery.annotations.ElementModel(Spot.class)
+                public record SpotRow(String city) {}
+                """, """
+                @com.rey.modelquery.annotations.ElementModel(Geo.class)
+                public record GeoRow(java.math.BigDecimal lat) {}
+                """, """
+                @QueryModel(root = Spot.class)
+                public record BadRoot(String city) {}
+                """, """
+                @QueryModel(root = SpotRow.class)
+                public record BadModelRoot(String city) {}
+                """, """
+                @QueryModel(root = TaggedEntity.class)
+                public record BadField(@PrimaryKey Long id, SpotRow row) {}
+                """, """
+                @QueryModel(root = TaggedEntity.class)
+                public record TaggedCard(@PrimaryKey Long id,
+                        @Child(through = "spots") List<GeoRow> wrong,
+                        @com.rey.modelquery.annotations.Join Optional<SpotRow> joined) {}
+                """);
+
+        assertThat(compilation).failed();
+        assertThat(errors(compilation)).anySatisfy(error -> assertThat(error).startsWith("MQ3038: BadRoot:"))
+                .anySatisfy(error -> assertThat(error).startsWith("MQ3407: BadModelRoot:"))
+                .anySatisfy(error -> assertThat(error).startsWith("MQ3407: BadField.row:"))
+                .anySatisfy(error -> assertThat(error).startsWith("MQ3407: TaggedCard.wrong:"))
+                .anySatisfy(error -> assertThat(error).startsWith("MQ3407: TaggedCard.joined:"));
+    }
+
+    @Test
+    void ac_proc_65_element_model_rejects_forbidden_members_and_wrong_column_types() {
+        Compilation compilation = compileTagged("""
+                @com.rey.modelquery.annotations.ElementModel(Spot.class)
+                @com.rey.modelquery.annotations.FilterColumn(name = "FILTER", path = "city")
+                public record Forbidden(
+                        @Child(through = "spots") List<String> children,
+                        @com.rey.modelquery.annotations.Join Optional<Forbidden> joined) {}
+                """, """
+                @com.rey.modelquery.annotations.ElementModel(Spot.class)
+                public record WrongType(@com.rey.modelquery.annotations.Column(attribute = "geo.lat") String lat) {}
+                """, """
+                @com.rey.modelquery.annotations.ElementModel(Spot.class)
+                public record Grouped(@GroupBy String city, @Aggregate(fn = AggregateFunction.COUNT) Long n) {}
+                """, """
+                @com.rey.modelquery.annotations.ElementModel(Spot.class)
+                @com.rey.modelquery.annotations.JoinSource(name = "source", source = TaggedEntity.class, on = {})
+                public record SourceJoin(String city) {}
+                """, """
+                @com.rey.modelquery.annotations.ElementModel(Spot.class)
+                @com.rey.modelquery.annotations.JoinEntity(name = "entity", entity = TaggedEntity.class, on = {})
+                public record EntityJoin(String city) {}
+                """, """
+                @QueryModel(root = TaggedEntity.class)
+                public record GroupedParent(@PrimaryKey Long id, @Child(through = "spots") List<Grouped> spots) {}
+                """);
+
+        assertThat(compilation).failed();
+        assertThat(errors(compilation)).anySatisfy(error -> assertThat(error).startsWith("MQ3407: Forbidden:"))
+                .anySatisfy(error -> assertThat(error).startsWith("MQ3407: Forbidden.children:"))
+                .anySatisfy(error -> assertThat(error).startsWith("MQ3407: Forbidden.joined:"))
+                .anySatisfy(error -> assertThat(error).startsWith("MQ3407: Grouped.city:"))
+                .anySatisfy(error -> assertThat(error).startsWith("MQ3407: Grouped.n:"))
+                .anySatisfy(error -> assertThat(error).startsWith("MQ3407: SourceJoin:"))
+                .anySatisfy(error -> assertThat(error).startsWith("MQ3407: EntityJoin:"))
+                .anySatisfy(error -> assertThat(error).startsWith("MQ3002: WrongType.lat:"));
     }
 
     @Test
@@ -611,7 +748,7 @@ class FetchFieldTest {
                 "MQ3407: TaggedCard.collection: through 'tags' ends at the element collection 'tags', and a value "
                         + "child is a List or Set of its element type, found Collection<String>",
                 "MQ3407: TaggedCard.spots: through 'spots' ends at the element collection 'spots' of @Embeddable "
-                        + "Spot, and a value child reads basic elements only",
+                        + "Spot; use a List of an @ElementModel of that embeddable",
                 "MQ3002: TaggedCard.mistyped: List<Integer> holds Integer, and the element collection 'tags' holds "
                         + "String",
                 "MQ3401: TaggedCard.both: @Child takes foreignKey or through, not both; through matches the child "

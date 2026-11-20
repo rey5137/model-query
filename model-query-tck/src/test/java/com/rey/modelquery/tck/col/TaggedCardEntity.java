@@ -51,4 +51,13 @@ public class TaggedCardEntity {
     @OrderColumn(name = "pos")
     @Column(name = "score")
     List<Integer> scores;
+
+    @ElementCollection
+    @CollectionTable(name = "tagged_card_spots", joinColumns = @JoinColumn(name = "card_id"))
+    List<SpotValue> spots;
+
+    @ElementCollection
+    @CollectionTable(name = "tagged_card_ordered_spots", joinColumns = @JoinColumn(name = "card_id"))
+    @OrderColumn(name = "pos")
+    List<SpotValue> orderedSpots;
 }

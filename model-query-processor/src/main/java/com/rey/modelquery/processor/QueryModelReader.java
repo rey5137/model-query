@@ -6,6 +6,7 @@ import com.rey.modelquery.annotations.Column;
 import com.rey.modelquery.annotations.Computed;
 import com.rey.modelquery.annotations.Depth;
 import com.rey.modelquery.annotations.Discriminator;
+import com.rey.modelquery.annotations.ElementModel;
 import com.rey.modelquery.annotations.ExcludeFromDefaults;
 import com.rey.modelquery.annotations.FilterColumn;
 import com.rey.modelquery.annotations.FilterColumns;
@@ -124,7 +125,8 @@ final class QueryModelReader {
     private ModelDefinition read(TypeElement type, Kind kind, AnnotationMirror annotation, Element origin,
             Set<TypeElement> roots) {
         roots.add(type);
-        if (!(explicit(annotation, ROOT) instanceof DeclaredType rootType) || rootType.getKind() != TypeKind.DECLARED) {
+        if (!(explicit(annotation, kind == Kind.ELEMENT ? "value" : ROOT) instanceof DeclaredType rootType)
+                || rootType.getKind() != TypeKind.DECLARED) {
             return null;
         }
         // A name set on the annotation wins over the compilation-wide option, which wins over the default (D-44).
@@ -135,7 +137,7 @@ final class QueryModelReader {
                 ? set : options.getOrDefault(SUFFIX_OPTION, "");
         // A source carries every field of its model, so it declares ALL and DEFAULT as a query model does
         // (R-GEN-37). @SourceModel has no generateSelectSets, so the option never turns them off.
-        boolean selectSets = (kind == Kind.QUERY || kind == Kind.SOURCE)
+        boolean selectSets = (kind == Kind.QUERY || kind == Kind.SOURCE || kind == Kind.ELEMENT)
                 && !Boolean.FALSE.equals(explicit(annotation, GENERATE_SELECT_SETS));
         boolean singleGroup = Boolean.TRUE.equals(explicit(annotation, SINGLE_GROUP));
         boolean generateChanges = Boolean.TRUE.equals(explicit(annotation, GENERATE_CHANGES));
@@ -354,6 +356,7 @@ final class QueryModelReader {
         return switch (kind) {
             case QUERY -> QueryModel.class;
             case SOURCE -> SourceModel.class;
+            case ELEMENT -> ElementModel.class;
             case UPDATE -> UpdateModel.class;
             case INSERT -> InsertModel.class;
         };

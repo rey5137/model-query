@@ -129,7 +129,7 @@ final class ModelBindings {
             case UPDATE -> BindUpdateModel.class;
             case INSERT -> BindInsertModel.class;
             // A source model is named as another model's root, never bound on its own (R-PROC-35).
-            case SOURCE -> throw new IllegalStateException("a source model is not bindable");
+            case SOURCE, ELEMENT -> throw new IllegalStateException("this model kind is not bindable");
         };
     }
 
@@ -139,7 +139,7 @@ final class ModelBindings {
             case QUERY -> BindQueryModels.class;
             case UPDATE -> BindUpdateModels.class;
             case INSERT -> BindInsertModels.class;
-            case SOURCE -> throw new IllegalStateException("a source model is not bindable");
+            case SOURCE, ELEMENT -> throw new IllegalStateException("this model kind is not bindable");
         };
     }
 

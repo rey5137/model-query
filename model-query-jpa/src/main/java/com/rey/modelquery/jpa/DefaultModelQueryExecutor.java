@@ -3375,7 +3375,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
 
     /** Builds {@code load}'s statement as {@link #childrenOf} does and checks it binds one key within the limit. */
     private <M, C> void checkChildBuild(ChildLoad<M, C> load) {
-        checkFirstRun(load.query()); // the child's own phases and plan, its nested children included
+        if (!load.field().isElement()) {
+            checkFirstRun(load.query()); // the child's own phases and plan, its nested children included
+        }
         BuiltQuery<C> built = load.build(em.getCriteriaBuilder(), renderOptions);
         load.requireBindableKeys(built); // the keys bind after the parent statement ran (R-FLT-08)
         withinBindLimit(load, childOwnBinds(load, built) + 1, 0);
@@ -4292,7 +4294,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
      */
     private <E2, C> Map<Object, List<C>> childrenOf(ChildLoad<?, C> load, ModelQuery<E2, ?, C> q,
             List<Object> keys) {
-        checkFirstRun(q);
+        if (!load.field().isElement()) {
+            checkFirstRun(q);
+        }
         KeyGroups<?, ?> groups = load.keyGroups().orElse(null);
         List<KeyRun> byGroup = groups == null ? List.of(new KeyRun(keys, Map.of()))
                 : keyRuns(load, groups, keys, UnaryOperator.identity());
@@ -4348,7 +4352,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
             throw new IllegalArgumentException(load + ": a child run takes one or more distinct keys, none null, not "
                     + keys);
         }
-        checkFirstRun(q);
+        if (!load.field().isElement()) {
+            checkFirstRun(q);
+        }
         KeyGroups<?, ?> groups = load.keyGroups().orElse(null);
         Map<QueryParam<?>, Object> values = groups == null ? Map.of() : groups.catchAll().orElseGet(() -> groups
                 .values(groups.groupOf(keys.get(0), load), load + ", the group of key " + keys.get(0)));

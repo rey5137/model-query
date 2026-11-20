@@ -3462,7 +3462,8 @@ for basic values (filters and order typed over nothing). → `rfc/0027` Part A, 
 
 **D-246 — Embeddable elements use `@ElementModel` (RFC 0027 Part A, 2026-11-20, user decision).** `@ElementModel(X.class)`
 names an `@Embeddable` and generates columns on an engine-internal element table, with no public `ROOT`, no `query()`,
-no `@PrimaryKey`, `@Child` or `@Join` and no customizer; it is valid only as a value child's type (`MQ3407`). A
+no `@PrimaryKey`, `@Child`, `@Join`, `@FilterColumn`, `@GroupBy`, `@Aggregate`, `@JoinSource` or `@JoinEntity`
+and no customizer; it is valid only as a value child's type (`MQ3407`). A
 `@QueryModel` rooted at an embeddable stays `MQ3038`. Rejected: `@QueryModel(root = Embeddable)` (compiles then fails
 at run time, R-GEN-18 and `MQ3405`), and a plain record mapped by component name (loses `@Column` paths, converters,
 INV-3 checks and the `Q*` field list). → `rfc/0027` Part A, `api/15` R-FCH-21, `processor/30` R-PROC-39.
@@ -3500,7 +3501,9 @@ children rather than waiting for `@ElementModel`. A `through` ending at an `@Ele
 a `List` or `Set` (`Optional` and `Collection` included), or over `@Embeddable` elements, is `MQ3407`, so a field
 never compiles to a load that can't fill it. M39.2 extends the code to element models (D-246). Rejected: `MQ3401`
 (it means a field that is no child at all) and deferring the check to M39.2 (an `Optional` value child would compile
-and then hold nothing). → `api/15` R-FCH-19, AC-FCH-27, `processor/32` MQ3407.
+and then hold nothing). M39.2 accepts a `List<C>` when `C` is an `@ElementModel` of the collection's embeddable;
+other shapes, a different embeddable or a non-element model remain `MQ3407`. → `api/15` R-FCH-19, R-FCH-21,
+AC-FCH-27, `processor/32` MQ3407.
 
 **D-252 — A value child's element type mismatch is `MQ3002` (M39.1, 2026-11-20, user decision).** The type argument of
 a value child's `List` or `Set` must be the element collection's element type, as a column's model type must be its
@@ -3514,6 +3517,20 @@ loads `List` and `Set` value children only; a `through` ending at an `@ElementCo
 message saying a `List` or `Set` value child can't hold a map. M39.3 replaces it with `MapChildField` and
 `FetchPlan#map` (D-248). Rejected: loading a map's values into a `List` (drops its keys) and `MQ3407` (the field
 isn't at fault until a map field type exists). → `api/15` R-FCH-14, R-FCH-19, AC-FCH-27, `processor/32` MQ3406.
+
+**D-254 — The generated element table reuses a private root definition (M39.2, 2026-11-20).** The element model's
+generated class uses a private `TableField.root(Embeddable.class)` for its column definitions. Its generated parent
+child field builds a query with another root definition for the same embeddable and the element mapper; table keys
+match by root type. This definition is resolved against the element-collection join during child loading, never used
+to issue a standalone query rooted at an embeddable. This construction introduces no new table factory.
+→ `api/15` R-FCH-21.
+
+**D-255 — Element child metadata and selection (M39.2, 2026-11-20).** Generated element-child fields expose
+engine-facing `isElement()` and `isOrderedElement()` metadata; ordinary child fields default both to false. This
+lets the executor root the statement at the parent and use `joinList` only for an order-column collection, without
+adding query state to immutable table definitions. The child plan is `FetchPlan.of` an element-model select set;
+unselected element fields retain their mapped defaults, as for any child. A hand-written element child with a
+customizer is refused at plan build with `MQ1704`. → `api/15` R-FCH-21, AC-FCH-36.
 
 ## 2. Open questions
 

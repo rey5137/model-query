@@ -70,9 +70,13 @@ public final class ChildLoad<M, C> {
                     + "one(q, key), so set ChildQuery#keyGroups for the child load", e);
         }
         if (through != null && query.isGrouped()) {
-            // The processor refuses it (MQ3406): the parent's key would need a GROUP BY of its own.
+            // The parent's key would need a GROUP BY of its own (MQ3406, MQ3407).
             throw new ModelQueryDefinitionException(MqCode.MQ1704, this + ": a child loaded through an association "
                     + "path can't be grouped, since its rows would have to be grouped by the parent's key too");
+        }
+        if (field.isElement() && query.hasCustomizer()) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1704,
+                    this + ": an element child cannot have a query customizer");
         }
         this.maxPerParent = load.bound();
     }
@@ -146,7 +150,8 @@ public final class ChildLoad<M, C> {
         Objects.requireNonNull(values, "values");
         return through == null
                 ? query.buildQuery(cb, Phase.MODEL, options, values)
-                : query.buildThroughQuery(cb, options, through, field.key(), values);
+                : query.buildThroughQuery(cb, options, through, field.key(), values, field.isElement(),
+                        field.isOrderedElement());
     }
 
     /**
