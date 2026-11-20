@@ -174,3 +174,9 @@ Model Query trades that reach for a smaller surface:
 - You read only through managed entities and edit them in place: plain JPA is enough.
 - You need a stable API today: Model Query is 0.x and every public type is `@Incubating` until 1.0 (see
   [API stability](stability.md)).
+
+## Further reading
+
+- [Paging DTO projections in Spring Data JPA: three approaches compared](https://foojay.io/today/paging-dto-projections-spring-data-jpa/)
+  (foojay.io) builds one paged, filtered order list three ways: a JPQL constructor expression, Spring Data interface
+  projections and a Model Query model.
