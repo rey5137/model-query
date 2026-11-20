@@ -5,6 +5,7 @@ import com.rey.modelquery.audit.test.AuditCustomerView;
 import com.rey.modelquery.audit.test.AuditLineEntity;
 import com.rey.modelquery.audit.test.AuditLineView;
 import com.rey.modelquery.audit.test.AuditOrderEntity;
+import com.rey.modelquery.audit.test.AuditSpot;
 import com.rey.modelquery.audit.test.AuditOrderView;
 import com.rey.modelquery.audit.test.AuditTestProvider;
 import com.rey.modelquery.audit.test.QAuditLineView;
@@ -50,6 +51,7 @@ public abstract class AuditTestBase {
 
             var first = new AuditOrderEntity(1L, 100L, "First order", c1);
             first.getTags().addAll(List.of("rush", "gift"));
+            first.getSpots().add(new AuditSpot("Rome"));
             em.persist(first);
             em.persist(new AuditOrderEntity(2L, 200L, "Second order", c2));
             em.persist(new AuditOrderEntity(3L, 300L, "Third order", null));

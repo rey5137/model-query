@@ -27,6 +27,8 @@ import com.rey.modelquery.portability.internal.OfflineUnit;
 import com.rey.modelquery.portability.internal.Outcome;
 import com.rey.modelquery.tck.col.TaggedCardEntity;
 import com.rey.modelquery.tck.fch.QCardValues;
+import com.rey.modelquery.tck.fch.QCardSpots;
+import com.rey.modelquery.tck.fch.QSpotRow;
 import com.rey.modelquery.tck.portability.child.ChildEntities;
 import com.rey.modelquery.tck.portability.child.KeyChildRow;
 import com.rey.modelquery.tck.portability.child.KeyParentRow;
@@ -118,6 +120,22 @@ class ChildStatementPortabilityTest {
                 assertThat(lines.get(2).detail()).contains("tagged_card_scores").contains("pos");
                 assertThat(lines.get(3).detail()).contains("holder_id").contains("tagged_card_tags");
             }
+        }
+    }
+
+    @Test
+    void ac_fch_37_element_children_render_in_dry_runs() {
+        var plan = FetchPlan.of(QCardSpots.ALL).child(QCardSpots.SPOTS, FetchPlan.of(QSpotRow.ALL))
+                .child(QCardSpots.ORDERED_SPOTS, FetchPlan.of(QSpotRow.ALL));
+        var q = QCardSpots.query().fetch(plan).build();
+        var unit = OfflineUnit.ofClasses(List.of(TaggedCardEntity.class), List.of(), Map.of());
+        List<CallResult> results = run(unit, list("SPOTS", TaggedCardEntity.class, q));
+        for (Target target : TARGETS) {
+            List<CallResult> lines = on(results, target);
+            assertThat(lines).extracting(CallResult::child).containsExactly("", "spots", "orderedSpots");
+            assertThat(lines).allSatisfy(line -> assertThat(line.outcome()).isEqualTo(Outcome.REACHED));
+            assertThat(lines.get(1).detail()).contains("tagged_card_spots").contains("in (?,?)");
+            assertThat(lines.get(2).detail()).contains("tagged_card_ordered_spots").contains("pos");
         }
     }
 

@@ -117,6 +117,18 @@ class KeyGroupsChildTest {
     }
 
     @Test
+    void ac_fch_36_element_child_refuses_verify_missing_and_a_customizer() {
+        var path = TableField.<OrderEntity, LineEntity>join(ROOT, "lines", INNER);
+        var element = child(null, path, true, () -> ModelQuery.builder(LINE_ROOT, row -> new LineView()), true);
+        assertCode(() -> plan(element, q -> q.where(f -> f.compare(CREATED, Op.GTE, Expr.param(FROM)))
+                .keyGroups(VERIFIED)), MqCode.MQ1708).hasMessageContaining("as a List through");
+        var customized = child(null, path, true, () -> ModelQuery.builder(LINE_ROOT, row -> new LineView())
+                .customize((spec, joins, criteria, cb, phase) -> { }), true);
+        assertCode(() -> plan(customized, UnaryOperator.identity()), MqCode.MQ1704)
+                .hasMessageContaining("cannot have a query customizer");
+    }
+
+    @Test
     void ac_fch_21_on_a_to_one_child_verify_missing_restricts_a_group_param_read_as_group_when_does() {
         List<UnaryOperator<Filters<LineView>>> refused = List.of(
                 f -> f.compare(CREATED, Op.EQ, Expr.param(FROM)),
@@ -219,7 +231,8 @@ class KeyGroupsChildTest {
         ChildField<OrderView, LineView> ownGroups = child(LINE_ORDER, null, true,
                 () -> lineQuery().keyGroups(LOWER));
         assertCode(() -> plan(ownGroups, q -> q.where(f -> f.compare(CREATED, Op.GTE, Expr.param(FROM)))),
-                MqCode.MQ1512).hasMessageContaining("createdFrom: Instant").hasMessageContaining("ChildQuery#keyGroups");
+                MqCode.MQ1512).hasMessageContaining("createdFrom: Instant")
+                .hasMessageContaining("ChildQuery#keyGroups");
         // The hint is for a child model that has key groups: without them the message stays as it was.
         assertCode(() -> plan(LINES, q -> q.where(f -> f.compare(CREATED, Op.GTE, Expr.param(FROM)))),
                 MqCode.MQ1512).hasMessageNotContaining("ChildQuery#keyGroups");
@@ -241,6 +254,12 @@ class KeyGroupsChildTest {
 
     private static ChildField<OrderView, LineView> child(ColumnField<LineView, ?, ?> foreignKey,
             TableField<?, ?> through, boolean toMany, Supplier<ModelQuery.Builder<?, ?, LineView>> query) {
+        return child(foreignKey, through, toMany, query, false);
+    }
+
+    private static ChildField<OrderView, LineView> child(ColumnField<LineView, ?, ?> foreignKey,
+            TableField<?, ?> through, boolean toMany, Supplier<ModelQuery.Builder<?, ?, LineView>> query,
+            boolean element) {
         return new ChildField<>() {
             @Override
             public String name() {
@@ -265,6 +284,11 @@ class KeyGroupsChildTest {
             @Override
             public boolean isToMany() {
                 return toMany;
+            }
+
+            @Override
+            public boolean isElement() {
+                return element;
             }
 
             @Override

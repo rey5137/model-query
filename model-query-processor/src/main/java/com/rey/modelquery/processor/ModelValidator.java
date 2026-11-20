@@ -123,6 +123,25 @@ final class ModelValidator {
     }
 
     void validate(ModelDefinition model, Diagnostics diagnostics) {
+        if (model.elementModel() && !elementModelOk(model, diagnostics)) {
+            return;
+        }
+        if (QueryModelReader.mirror(model.root(), com.rey.modelquery.annotations.ElementModel.class) != null) {
+            diagnostics.error(model.type(), DiagnosticCode.MQ3407, model.name()
+                    + ": an @ElementModel is only valid as an element collection value child");
+            return;
+        }
+        boolean elementField = false;
+        for (ModelField field : model.fields()) {
+            if (field.child() == null && field.join() == null && referencesElementModel(field.type())) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3407, model.name() + "." + field.name()
+                        + ": an @ElementModel is only valid as an element collection value child");
+                elementField = true;
+            }
+        }
+        if (elementField) {
+            return;
+        }
         if (!entityJoinChecks.check(model, diagnostics)) {
             return;
         }
@@ -145,7 +164,7 @@ final class ModelValidator {
         }
         // A model with a @Selected field generates one more constant, which no field's may take (R-GEN-29).
         Set<String> reserved = switch (model.kind()) {
-            case QUERY, SOURCE -> model.hasSelected() ? RESERVED_BY_SELECTED : RESERVED;
+            case QUERY, SOURCE, ELEMENT -> model.hasSelected() ? RESERVED_BY_SELECTED : RESERVED;
             case UPDATE -> RESERVED_BY_UPDATE;
             case INSERT -> RESERVED_BY_INSERT;
         };
@@ -370,7 +389,51 @@ final class ModelValidator {
      * kind of read. One that is neither, or both,
      * is {@code MQ3038} and decides no read (R-PROC-39).
      */
+    private static boolean referencesElementModel(TypeMirror type) {
+        if (!(type instanceof DeclaredType declared)) {
+            return false;
+        }
+        return QueryModelReader.mirror(declared.asElement(), com.rey.modelquery.annotations.ElementModel.class) != null
+                || declared.getTypeArguments().stream().anyMatch(ModelValidator::referencesElementModel);
+    }
+
+    private static boolean elementModelOk(ModelDefinition model, Diagnostics diagnostics) {
+        boolean valid = true;
+        for (ModelField field : model.fields()) {
+            if (field.primaryKey() || field.join() != null || field.child() != null) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3407, model.name() + "." + field.name()
+                        + ": an @ElementModel cannot declare @PrimaryKey, @Join or @Child");
+                valid = false;
+            }
+            if (field.groupBy() || field.aggregate() != null) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3407, model.name() + "." + field.name()
+                        + ": an @ElementModel cannot declare @GroupBy or @Aggregate");
+                valid = false;
+            }
+        }
+        if (!model.joinSources().isEmpty() || !model.entityJoins().isEmpty()) {
+            diagnostics.error(model.type(), DiagnosticCode.MQ3407, model.name()
+                    + ": an @ElementModel cannot declare @JoinSource or @JoinEntity");
+            valid = false;
+        }
+        if (!model.filterColumns().isEmpty()) {
+            diagnostics.error(model.type(), DiagnosticCode.MQ3407, model.name()
+                    + ": an @ElementModel cannot declare @FilterColumn");
+            valid = false;
+        }
+        return valid;
+    }
+
     private static boolean rootKindOk(ModelDefinition model, Diagnostics diagnostics) {
+        if (model.elementModel()) {
+            boolean embeddable = model.root().getAnnotationMirrors().stream().anyMatch(annotation ->
+                    annotation.getAnnotationType().toString().equals("jakarta.persistence.Embeddable"));
+            if (!embeddable) {
+                diagnostics.error(model.type(), DiagnosticCode.MQ3038, model.name() + ": "
+                        + model.root().getSimpleName() + " is not an @Embeddable");
+            }
+            return embeddable;
+        }
         boolean entity = QueryModelReader.isEntity(model.root());
         boolean source = QueryModelReader.isSourceModel(model.root());
         String name = model.name() + ": root " + model.root().getSimpleName();
@@ -1390,6 +1453,11 @@ final class ModelValidator {
     private ModelDefinition checkJoin(ModelDefinition model, ModelField field, String where, Diagnostics diagnostics) {
         JoinDefinition join = field.join();
         ModelDefinition nested = nestedModels.of(field);
+        if (nested != null && nested.elementModel()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3407, where
+                    + "an @ElementModel is only valid as an element collection value child");
+            return null;
+        }
         if (join.nested() == null) {
             boolean isModel = field.type().getKind() == TypeKind.DECLARED
                     && nestedModels.isModel((TypeElement) ((DeclaredType) field.type()).asElement());

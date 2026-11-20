@@ -218,12 +218,30 @@ none of them compiles. A value child named twice, or beside a child of its name,
   `@OrderBy` on the mapping is not read.
 - **Bound.** `maxPerParent(n)` counts rows, before a `Set` field collapses equal values: a parent with more than `n`
   is `MQ2603`, and a round reads at most keys × n + 1 rows (R-FCH-11).
-- **Field checks**, at compile time: a field that is not a `List` or `Set` (an `Optional` included), or a collection
-  of `@Embeddable` elements, is `MQ3407` (D-251); an element type the field doesn't hold, a converted type compared as
+- **Field checks**, at compile time: a basic value child that is not a `List` or `Set` (an `Optional` included) is
+  `MQ3407` (D-251); an element type the field doesn't hold, a converted type compared as
   its attribute type, is `MQ3002` (D-252, INV-3); `foreignKey` beside `through` stays `MQ3401`.
 - **Seams.** `ChildStatements.run` renders a value load on chosen keys as a page's value stage does, and the
   portability dry run renders each value load of a plan on placeholder keys (R-INS-17). Basic values have no getter, so
   the select audit counts a loaded value child's field as selected and its elements as no read (RFC 0026).
+
+**R-FCH-21** *(D-246, D-247, D-251)* **Embeddable value children.** A `through` ending at an element collection of
+embeddables fills a `List<C>` where `C` is an `@ElementModel` of that embeddable; the processor generates a
+`ChildField<M, C>`. Other field shapes, a different element model or a non-element model are `MQ3407`. The element
+model has columns over its embeddable, `ALL` and `MAPPER`, but no public `ROOT`, `query()`, `@PrimaryKey`, `@Child`,
+`@Join`, `@FilterColumn`, `@GroupBy`, `@Aggregate`, `@JoinSource`, `@JoinEntity` or `QueryCustomizer`.
+The child plan uses `FetchPlan.of` with the element model's select set; unselected fields keep their ordinary mapped
+defaults (D-255).
+
+- **Statement and bags.** The statement joins `INNER` from the parent's root over the to-one path, joins the element
+  collection, and selects the parent key and the element columns. Every row is kept: duplicates and an all-null
+  element, mapped to a model with null fields, included. A second plural join is `MQ1713` before the parent statement.
+- **Order and filters.** `@OrderColumn` uses `joinList` and orders by `index()` before the child query's `orderBy`;
+  otherwise order is unspecified. Child query filters and ordering may read element columns.
+- **Bound and keys.** R-FCH-05's rounds and R-FCH-11's bound apply; the bound counts rows. `verifyMissing` on child
+  key groups is `MQ1708` (D-209).
+- **Seams.** `ChildStatements.run`, portability dry runs, treat checks and model-property walks include the load.
+  Its models pass through the select-audit hand-off as other child models do, counting getter reads.
 
 ## 3. Joins
 
@@ -352,9 +370,15 @@ so.
 | AC-FCH-24 | A to-one `through` child with `verifyMissing` loads a child whose range column lies outside its key's group through the re-read and logs `MQ2608` once per definition; when every key finds a row, no re-read runs (statement count) (R-FCH-18, D-206). |
 | AC-FCH-25 | With `groupWhen`: a child load whose rule returns `false` runs R-FCH-05's chunks with `all`'s values bound and no re-read, and one whose rule returns `true` runs per group (statement count; children equal for rows inside their group); under `assumeInRange()` a row outside its group is found on the `false` branch only; the rule isn't called for one group, for keys whose ungrouped chunks equal the grouped rounds, or for no keys; a `null` value of any group is `MQ1502` on either branch and the rule's exception propagates unwrapped, both before the child's first round; `MQ1708` at the plan build for a group param read with `EQ` (R-FCH-18, D-208). |
 | AC-FCH-26 | The processor generates a `ValueChildField` for a `List` and a `Set` field through an element collection on the parent's root, an `@OrderColumn` one included, and after a to-one association, matching its golden file; a parent whose `@PrimaryKey` is not its `@Id` keys on the root's `@Id`; the record copy keeps `null`s and repeats in a `List` and the first of equal values in a `Set` (R-FCH-03, R-FCH-19). |
-| AC-FCH-27 | Compile failures: `MQ3406` for a value child's path crossing a collection, through an embedded value, past the collection or at a `Map`, a `key` not the parent's `@Id`, a composite parent `@Id`, and a parent rooted at a `@SourceModel`; `MQ3407` for an `Optional` or `Collection` field and for `@Embeddable` elements; `MQ3002` for a mistyped element; `MQ3401` with `foreignKey` and for a `Set` of a model; `MQ3406` for a model child whose `through` ends at an element collection (R-FCH-14, R-FCH-19, D-251, D-252, D-253). |
+| AC-FCH-27 | Compile failures: `MQ3406` for a value child's path crossing a collection, through an embedded value, past the collection or at a `Map`, a `key` not the parent's `@Id`, a composite parent `@Id`, and a parent rooted at a `@SourceModel`; `MQ3407` for an `Optional` or `Collection` field and for embeddable elements without a matching `List` element model; `MQ3002` for a mistyped basic element; `MQ3401` with `foreignKey` and for a `Set` of a model; `MQ3406` for a model child whose `through` ends at a basic element collection (R-FCH-14, R-FCH-19, D-251, D-252, D-253). |
 | AC-FCH-28 | `FetchPlan#values` returns a copy, leaves the original selection-only, selects the parent's key, and carries `maxPerParent` as the load's bound (R-FCH-02, R-FCH-19). |
 | AC-FCH-29 | `MQ1703` for a value child named twice or beside a child of its name, `MQ2001` for `maxPerParent` below 1, and `MQ1704` for a value child on a grouped query (R-FCH-10, R-FCH-19). |
 | AC-FCH-30 | On Tier 1 and both lines, value children load as bags: a repeated element twice and a `NULL` element kept in a `List`, a `Set` keeping one of each, a converted element read back converted, the `@OrderColumn` order with its `NULL` at its index, values otherwise ordered by value with `NULL` where the vendor puts it, and a parent with no element empty (R-FCH-19, D-247). |
 | AC-FCH-31 | A holder's values load through a to-one association, a parent with no holder getting none; keys over the vendor's limit load in rounds with the same values (R-FCH-05, R-FCH-19). |
 | AC-FCH-32 | `maxPerParent(3)` over four rows of three distinct values is `MQ2603` for a `List` and a `Set` field, and `maxPerParent(4)` holds; a value statement joining another collection is `MQ1713`, and a one-key round over the bind limit `MQ1307`, both before any statement on an empty page; `ChildStatements.run` on a value load prepares the statement a page of those parents prepares, and refuses another executor and no, repeated or `null` keys; the portability dry run renders each value child of a plan on two placeholder keys, bound and inline (R-FCH-19, `api/16` R-INS-17, D-138, D-247). |
+| AC-FCH-33 | Element children keep duplicate and all-null rows, nested and converted attributes, order-column order and empty parents; a to-one path reaches its holder's elements (R-FCH-21). |
+| AC-FCH-34 | Element child filters, ordering and partial selection apply to element columns, with unselected fields at their defaults (R-FCH-21, D-255). |
+| AC-FCH-35 | The element child's bound counts duplicates and all-null rows and throws `MQ2603` when exceeded (R-FCH-21). |
+| AC-FCH-36 | An additional collection join is `MQ1713` before the parent statement; element-child `verifyMissing` is `MQ1708`, and an element-child customizer is `MQ1704` (R-FCH-21, D-255). |
+| AC-FCH-37 | Element child loads split over the vendor key limit; `ChildStatements.run` and portability dry runs render their statements (R-FCH-21). |
+| AC-FCH-38 | Element child models pass through select-audit, which counts their getter reads (R-FCH-21, R-INS-18). |

@@ -41,6 +41,20 @@ public interface ChildField<M, C> {
     /** Whether the field is a {@code List} of children rather than an {@code Optional} one. */
     boolean isToMany();
 
+    /** Whether this child maps an embeddable element collection. */
+    @EngineFacing
+    @Incubating
+    default boolean isElement() {
+        return false;
+    }
+
+    /** Whether the element collection has an order column. */
+    @EngineFacing
+    @Incubating
+    default boolean isOrderedElement() {
+        return false;
+    }
+
     /** A builder of the child's own query, which a child load selects and filters through. */
     ModelQuery.Builder<?, ?, C> query();
 

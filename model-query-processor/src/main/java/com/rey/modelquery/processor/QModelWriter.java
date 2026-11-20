@@ -129,7 +129,9 @@ final class QModelWriter {
                         .addMember("value", "$S", ModelQueryProcessor.class.getCanonicalName())
                         .build())
                 .addModifiers(Modifier.PUBLIC, Modifier.FINAL)
-                .addField(FieldSpec.builder(ParameterizedTypeName.get(TABLE_FIELD, entity, entity), "ROOT", CONSTANT)
+                .addField(FieldSpec.builder(ParameterizedTypeName.get(TABLE_FIELD, entity, entity), "ROOT",
+                        model.elementModel() ? new Modifier[] {Modifier.PRIVATE, Modifier.STATIC, Modifier.FINAL}
+                                : CONSTANT)
                         .initializer(model.readsSource() ? "$T.source($T.class)" : "$T.root($T.class)", TABLE_FIELD,
                                 entity)
                         .build());
@@ -311,7 +313,10 @@ final class QModelWriter {
                 .initializer("$T::map", generated)
                 .build());
         type.addMethod(MethodSpec.constructorBuilder().addModifiers(Modifier.PRIVATE).build());
-        type.addMethod(query(model, modelName, entity, keyed, keyType, grouped, NestedJoins.all(joined, nestedModels)));
+        if (!model.elementModel()) {
+            type.addMethod(query(model, modelName, entity, keyed, keyType, grouped,
+                    NestedJoins.all(joined, nestedModels)));
+        }
         MethodSpec.Builder map = MethodSpec.methodBuilder("map")
                 .addModifiers(Modifier.PRIVATE, Modifier.STATIC)
                 .returns(modelName)
@@ -337,6 +342,15 @@ final class QModelWriter {
         }
         if (model.inserts()) {
             inserts(model, modelName, entity, type);
+        }
+        if (model.elementModel()) {
+            type.addAnnotation(INCUBATING);
+            type.fieldSpecs.replaceAll(field -> field.hasModifier(Modifier.PUBLIC)
+                    && field.annotations.stream().noneMatch(annotation -> annotation.type.equals(INCUBATING))
+                    ? field.toBuilder().addAnnotation(INCUBATING).build() : field);
+            type.methodSpecs.replaceAll(method -> method.hasModifier(Modifier.PUBLIC)
+                    && method.annotations.stream().noneMatch(annotation -> annotation.type.equals(INCUBATING))
+                    ? method.toBuilder().addAnnotation(INCUBATING).build() : method);
         }
         return file(generated, type);
     }

@@ -63,9 +63,15 @@ final class ChildChecks {
                     + child.source().name() + ", a @SourceModel; a fetch plan has no source to pass it");
             return;
         }
-        ChildKey.Through elements = child == null ? ChildKey.elementsOf(metamodel, model, field) : null;
-        if (elements != null) {
-            checkValueChild(model, field, elements, where, diagnostics);
+        ChildKey.Through elements = ChildKey.elementsOf(metamodel, model, field);
+        if (elements != null && (child == null || child.elementModel()
+                || elements.elements().elements().embeddable())) {
+            checkValueChild(model, field, child, elements, where, diagnostics);
+            return;
+        }
+        if (child != null && child.elementModel()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3407, where
+                    + "an @ElementModel is only valid as an element collection value child");
             return;
         }
         if (child == null && !field.child().through().isEmpty() && model.readsSource()) {
@@ -176,7 +182,8 @@ final class ChildChecks {
      * not basic, and {@code MQ3002} for an element type the field doesn't hold (INV-3). It needs no
      * {@code @PrimaryKey}: its rows are a bag, and an empty {@code key} defaults to the root's single {@code @Id}.
      */
-    private void checkValueChild(ModelDefinition model, ModelField field, ChildKey.Through through, String where,
+    private void checkValueChild(ModelDefinition model, ModelField field, ModelDefinition child,
+            ChildKey.Through through, String where,
             Diagnostics diagnostics) {
         ChildDefinition definition = field.child();
         String path = "through '" + definition.through() + "' ";
@@ -203,12 +210,18 @@ final class ChildChecks {
             return;
         }
         if (elements.embeddable()) {
-            diagnostics.error(field.element(), DiagnosticCode.MQ3407, where + path + "ends at " + collection
-                    + " of @Embeddable " + ModelValidator.display(elements.element())
-                    + ", and a value child reads basic elements only");
+            if (definition.set() || child == null || !child.elementModel()
+                    || !types.isSameType(child.root().asType(), elements.element())) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3407, where + path + "ends at " + collection
+                        + " of @Embeddable " + ModelValidator.display(elements.element())
+                        + "; use a List of an @ElementModel of that embeddable");
+                return;
+            }
+        } else if (child != null && child.elementModel()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3407, where
+                    + "an @ElementModel is only valid as an embeddable element collection value child");
             return;
-        }
-        if (elements.element() != null && !types.isSameType(definition.model(), elements.element())) {
+        } else if (elements.element() != null && !types.isSameType(definition.model(), elements.element())) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3002, where + ModelValidator.display(field.type())
                     + " holds " + ModelValidator.display(definition.model()) + ", and " + collection + " holds "
                     + ModelValidator.display(elements.element()));

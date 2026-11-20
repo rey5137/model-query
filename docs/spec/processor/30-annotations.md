@@ -230,7 +230,8 @@ model's root to the child's root entity for a many-to-many mapped on the parent'
 (both is `MQ3401`); `key` is then matched on the parent's single `@Id` along that path, and a path or key that
 cannot be is `MQ3406` (`api/15` R-FCH-14). A `through` path may also end at an `@ElementCollection` of basic
 elements, on the root or after to-one associations only: the field is then a value child, a `List<E>` or `Set<E>` of
-the element type, and names no model (`api/15` R-FCH-19; `MQ3406` for the path, `MQ3407` for the field). The child
+the element type, and names no model (`api/15` R-FCH-19). For an embeddable element it is a `List` of an
+`@ElementModel` of that embeddable (`api/15` R-FCH-21); `MQ3406` checks the path and `MQ3407` the field. The child
 model may be a source of the compilation or a
 class on its classpath, as a nested model may (D-45).
 
@@ -581,9 +582,15 @@ A recursive model is neither a branch nor a shape, and `@Depth` on either is `MQ
 ordinary source model over its own root and the first branch of its own operations, so its `source()` builds the same
 `SourceQuery<S>` a branch's does (`processor/31` R-GEN-37).
 
-**R-PROC-39** *(D-143)* **The root kind.** `@QueryModel(root = X.class)` reads `X`'s kind from the annotation on `X`:
+**R-PROC-39** *(D-143, D-246)* **The root kind.** `@QueryModel(root = X.class)` reads `X`'s kind from its annotation:
 an entity root when `X` is `@Entity`, a source root when `X` is `@SourceModel`. A root that is neither, or both, is
 `MQ3038`. A cyclic source-root chain is also `MQ3038`, naming the root through which the chain cycles.
+`@ElementModel(X.class)` is a separate model kind: `X` must be `@Embeddable`, else `MQ3038`. Its columns are
+checked against the embeddable, including nested `@Column` paths, converters and INV-3 types. It declares no
+`@PrimaryKey`, `@Child`, `@Join`, `@FilterColumn`, `@GroupBy`, `@Aggregate`, `@JoinSource` or `@JoinEntity`
+(`MQ3407`); it is valid only as the model of a matching
+embeddable element-collection value child (`MQ3407` otherwise). `@QueryModel` rooted at an embeddable remains
+`MQ3038`.
 On a model rooted at a source the processor checks every field against the source model's fields by name and
 then by type (INV-3), a `@Column` path being a single segment and taking the converter of the source's field, so an
 outer `@Column(converter = ...)` is `MQ3014` and an outer `@FilterColumn` is `MQ3011`; a `@Join` is `MQ3035`, a

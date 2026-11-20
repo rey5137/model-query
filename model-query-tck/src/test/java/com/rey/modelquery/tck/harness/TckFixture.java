@@ -381,6 +381,11 @@ public final class TckFixture {
                     + "(1, 'P'), (1, 'C'), (1, 'P'), (2, 'F'), (2, NULL)");
             statement.executeUpdate("INSERT INTO tagged_card_scores (card_id, pos, score) VALUES "
                     + "(1, 3, 30), (1, 2, 10), (1, 1, NULL), (1, 0, 30), (4, 0, 5)");
+            statement.executeUpdate("INSERT INTO tagged_card_spots (card_id, city, lat, state) VALUES "
+                    + "(1, 'Rome', 1.25, 'P'), (1, 'Rome', 1.25, 'P'), (1, NULL, NULL, NULL), "
+                    + "(1, 'Paris', 2.50, 'C')");
+            statement.executeUpdate("INSERT INTO tagged_card_ordered_spots (card_id, pos, city, lat, state) VALUES "
+                    + "(1, 2, 'Paris', 2.50, 'C'), (1, 1, NULL, NULL, NULL), (1, 0, 'Rome', 1.25, 'P')");
         }
     }
 

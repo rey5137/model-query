@@ -1,5 +1,6 @@
 package com.rey.modelquery.processor;
 
+import com.rey.modelquery.annotations.ElementModel;
 import com.rey.modelquery.annotations.QueryModel;
 import com.rey.modelquery.processor.JoinedTable.JoinedColumn;
 import com.rey.modelquery.processor.ModelBindings.Binding;
@@ -58,7 +59,8 @@ final class NestedModels {
 
     /** Whether {@code type} is annotated {@code @QueryModel} or bound by a {@code @BindQueryModel} (R-PROC-31). */
     boolean isModel(TypeElement type) {
-        return type.getAnnotation(QueryModel.class) != null || bound.containsKey(type.getQualifiedName().toString());
+        return type.getAnnotation(QueryModel.class) != null || type.getAnnotation(ElementModel.class) != null
+                || bound.containsKey(type.getQualifiedName().toString());
     }
 
     /**
@@ -68,6 +70,9 @@ final class NestedModels {
     private ModelDefinition model(TypeElement type) {
         if (type.getAnnotation(QueryModel.class) != null) {
             return read.computeIfAbsent(type, reader::read);
+        }
+        if (type.getAnnotation(ElementModel.class) != null) {
+            return read.computeIfAbsent(type, each -> reader.read(each, Kind.ELEMENT));
         }
         Binding binding = bound.get(type.getQualifiedName().toString());
         return binding == null ? null : read.computeIfAbsent(type,

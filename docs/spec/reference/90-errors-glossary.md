@@ -198,7 +198,7 @@ aggregates, `MQ3046` includes an unknown join and a nonempty `entityJoin` combin
 expression, for any function (R-PROC-47, D-202). The remaining families are
 `MQ3201`–`MQ3208` for aggregate models,
 `MQ3301`–`MQ3307` for update models,
-`MQ3401`–`MQ3407` for `@Child` (`api/15`; `MQ3407` for value children, D-251), `MQ3501`–`MQ3506` for insert
+`MQ3401`–`MQ3407` for `@Child` (`api/15`; `MQ3407` for value children and element-model misuse, D-251), `MQ3501`–`MQ3506` for insert
 models and `generateInserts` (D-116, D-117, D-123). Codes are not repeated here to keep one owner.
 
 ## 5. `MQ4xxx` — configuration

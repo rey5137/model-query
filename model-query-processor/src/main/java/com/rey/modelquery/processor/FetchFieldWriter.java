@@ -101,13 +101,16 @@ final class FetchFieldWriter {
         ClassName modelName = ClassName.get(model.type());
         ClassName childName = ClassName.get(child.type());
         TypeName type = ParameterizedTypeName.get(CHILD_FIELD, modelName, childName);
-        ChildKey key = ChildKey.of(metamodel, types, model, definition.key());
+        ChildKey key = ChildKey.of(metamodel, types, model, child.elementModel()
+                ? ChildKey.valueKey(metamodel, model, definition) : definition.key());
         boolean through = !definition.through().isEmpty();
         TypeName foreignKeyType = ParameterizedTypeName.get(COLUMN_FIELD, childName, ANY, ANY);
         TypeName throughType = ParameterizedTypeName.get(TABLE_FIELD, ANY, ANY);
         FieldSpec matched = through
                 ? FieldSpec.builder(throughType, "through", Modifier.PRIVATE, Modifier.FINAL)
-                        .initializer(path(ChildKey.through(metamodel, model.root(), definition.through())))
+                        .initializer(child.elementModel()
+                                ? elementPath(ChildKey.through(metamodel, model.root(), definition.through()))
+                                : path(ChildKey.through(metamodel, model.root(), definition.through())))
                         .build()
                 : FieldSpec.builder(foreignKeyType, "foreignKey", Modifier.PRIVATE, Modifier.FINAL)
                         .initializer(column(childName, ChildKey.of(metamodel, types, child, definition.foreignKey()),
@@ -119,7 +122,7 @@ final class FetchFieldWriter {
                 .addParameter(children, "children");
         copy(model, field, definition.toMany() ? CodeBlock.of("$T.copyOf(children)", LIST)
                 : CodeBlock.of("children.isEmpty() ? $T.empty() : $T.of(children.get(0))", OPTIONAL, OPTIONAL), with);
-        TypeSpec body = TypeSpec.anonymousClassBuilder("")
+        TypeSpec.Builder body = TypeSpec.anonymousClassBuilder("")
                 .addSuperinterface(type)
                 .addField(FieldSpec.builder(ParameterizedTypeName.get(COLUMN_FIELD, modelName, ANY, ANY), "key",
                                 Modifier.PRIVATE, Modifier.FINAL)
@@ -143,13 +146,23 @@ final class FetchFieldWriter {
                         .build())
                 .addMethod(method("query", ParameterizedTypeName.get(MODEL_QUERY.nestedClass("Builder"), ANY, ANY,
                                 childName))
-                        .addStatement("return $T.query()", QModelWriter.generatedName(child))
+                        .addStatement(child.elementModel() ? "return $T.builder($T.root($T.class), $T.MAPPER)"
+                                        : "return $T.query()",
+                                child.elementModel() ? new Object[] {MODEL_QUERY, TABLE_FIELD,
+                                        ClassName.get(child.root()), QModelWriter.generatedName(child)}
+                                        : new Object[] {QModelWriter.generatedName(child)})
                         .build())
-                .addMethod(nullness.unmarked(with).build())
-                .build();
+                .addMethod(nullness.unmarked(with).build());
+        if (child.elementModel()) {
+            boolean ordered = ChildKey.through(metamodel, model.root(), definition.through()).elements()
+                    .elements().ordered();
+            body.addMethod(method("isElement", TypeName.BOOLEAN).addStatement("return true").build())
+                    .addMethod(method("isOrderedElement", TypeName.BOOLEAN)
+                            .addStatement("return $L", ordered).build());
+        }
         return FieldSpec.builder(type, field.constant(), CONSTANT)
                 .addAnnotation(INCUBATING)
-                .initializer("$L", body)
+                .initializer("$L", body.build())
                 .build();
     }
 
@@ -237,6 +250,11 @@ final class FetchFieldWriter {
     /** The {@code through} path {@code through}: its joins from the parent's {@code ROOT}, each {@code INNER}. */
     private static CodeBlock path(ChildKey.Through through) {
         return joinChain(CodeBlock.of("ROOT"), through.joins(), "$Z", "INNER");
+    }
+
+    private static CodeBlock elementPath(ChildKey.Through through) {
+        return CodeBlock.of("$T.join($L, $S, $T.INNER)", TABLE_FIELD, path(through),
+                through.elements().name(), JOIN_TYPE);
     }
 
     /** {@code table} with {@code joins}' chain appended, each joining with the {@code prefix} and {@code joinType}. */
