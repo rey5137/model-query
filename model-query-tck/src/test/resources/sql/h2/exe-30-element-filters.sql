@@ -1,0 +1,8 @@
+select tce1_0.id,tce1_0.name from tagged_cards tce1_0 where exists(select 1 from tagged_cards tce2_0 left join tagged_card_tags t1_0 on tce2_0.id=t1_0.card_id where tce2_0.id=tce1_0.id and t1_0.tag=?) order by 1
+select count(*) from tagged_cards tce1_0 where exists(select 1 from tagged_cards tce2_0 left join tagged_card_tags t1_0 on tce2_0.id=t1_0.card_id where tce2_0.id=tce1_0.id and t1_0.tag=?)
+select tce1_0.id,tce1_0.name from tagged_cards tce1_0 where exists(select 1 from tagged_cards tce2_0 left join tagged_card_tags t1_0 on tce2_0.id=t1_0.card_id where tce2_0.id=tce1_0.id and t1_0.tag in (?,?)) order by 1
+select tce1_0.id,tce1_0.name from tagged_cards tce1_0 where exists(select 1 from tagged_cards tce2_0 left join tagged_card_states s1_0 on tce2_0.id=s1_0.card_id where tce2_0.id=tce1_0.id and s1_0.state=?) order by 1
+select tce1_0.id,tce1_0.name from tagged_cards tce1_0 where exists(select 1 from tagged_cards tce2_0 left join tagged_card_spots s1_0 on tce2_0.id=s1_0.card_id where tce2_0.id=tce1_0.id and s1_0.city=?) order by 1
+select tce1_0.id,tce1_0.name from tagged_cards tce1_0 where exists(select 1 from tagged_cards tce2_0 left join tagged_card_labels l1_0 on tce2_0.id=l1_0.card_id where tce2_0.id=tce1_0.id and l1_0.label_val=?) order by 1
+select tce1_0.id,tce1_0.name from tagged_cards tce1_0 where exists(select 1 from tagged_cards tce2_0 left join tagged_card_spots_map sm1_0 on tce2_0.id=sm1_0.card_id where tce2_0.id=tce1_0.id and sm1_0.city=?) order by 1
+select tce1_0.id,tce1_0.name from tagged_cards tce1_0 where exists(select 1 from tagged_cards tce2_0 left join tagged_card_tags t1_0 on tce2_0.id=t1_0.card_id where tce2_0.id=tce1_0.id and (t1_0.tag=? or tce2_0.name=?)) order by 1

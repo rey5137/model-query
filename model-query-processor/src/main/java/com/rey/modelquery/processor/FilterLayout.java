@@ -8,6 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import javax.lang.model.element.TypeElement;
+import javax.lang.model.type.DeclaredType;
 
 /**
  * What a model's {@code @FilterColumn}s and its root's collections generate: the joins they need beyond the model's
@@ -96,10 +97,15 @@ record FilterLayout(
         // Keyed by what makes a join its own: alias and association path, and the @Join it hangs below (R-PROC-12).
         var tables = new LinkedHashMap<List<String>, Table>();
         for (EntityAttribute collection : metamodel.collections(model.root())) {
+            TypeElement target = joined(collection);
+            // An element collection gets its constant only once a filter column goes through it, so no existing
+            // model gains a member that could take a field's name (D-249).
+            if (target == null || !collection.joinable() && !filtersThrough(model, collection)) {
+                continue;
+            }
             tables.put(List.of("", collection.name(), ROOT), new Table(
-                    QueryModelReader.constantName(collection.name()) + "_TABLE", ROOT, model.root(),
-                    (TypeElement) collection.target().asElement(), collection.name(), LEFT, "",
-                    "the collection '" + collection.name() + "'", null));
+                    QueryModelReader.constantName(collection.name()) + "_TABLE", ROOT, model.root(), target,
+                    collection.name(), LEFT, "", "the collection '" + collection.name() + "'", null));
         }
         var columns = new ArrayList<Column>();
         var problems = new ArrayList<Problem>();
@@ -113,7 +119,7 @@ record FilterLayout(
         for (FilterColumnDefinition definition : definitions) {
             Walk walk = metamodel.walk(
                     EntityMetamodel.treatedRoot(model.entityRoot(definition.entityJoin()), definition.treat()),
-                    definition.path());
+                    definition.path(), definition.entityJoin().isEmpty());
             if (walk.problem() != null && definition.synthetic()) {
                 continue;
             }
@@ -159,6 +165,35 @@ record FilterLayout(
             }
         }
         return new FilterLayout(new ArrayList<>(tables.values()), columns, aggregateColumns, problems);
+    }
+
+    /**
+     * The type a join along {@code collection} reaches: an association's entity, or the element of an element
+     * collection, a map's value; {@code null} when the declared type names none.
+     */
+    private static TypeElement joined(EntityAttribute collection) {
+        if (collection.joinable()) {
+            return (TypeElement) collection.target().asElement();
+        }
+        return collection.elements() != null && collection.elements().element() instanceof DeclaredType element
+                ? (TypeElement) element.asElement() : null;
+    }
+
+    /** Whether a filter column of {@code model}'s own root goes through its element collection {@code collection}. */
+    private static boolean filtersThrough(ModelDefinition model, EntityAttribute collection) {
+        return model.filterColumns().stream().anyMatch(definition -> definition.entityJoin().isEmpty()
+                && definition.treat() == null
+                && definition.path().split("\\.", -1)[0].equals(collection.name()));
+    }
+
+    /**
+     * The value of an element collection of basic elements, as the column on its join reads it: the element type
+     * where the collection's own type is, its other mapping kept (D-249).
+     */
+    private static EntityAttribute elementValue(EntityAttribute collection) {
+        return new EntityAttribute(collection.name(), collection.elements().element(), EntityAttribute.Kind.BASIC,
+                null, false, collection.updatable(), collection.insertable(), null, false, null, false, true,
+                collection.enumType(), collection.temporal(), null);
     }
 
     /** Source filter columns alias a single CTE column; an outer query declares none (R-SRC-16). */
@@ -207,22 +242,29 @@ record FilterLayout(
         TypeElement entity = EntityMetamodel.treatedRoot(model.entityRoot(definition.entityJoin()), definition.treat());
         var embedded = new ArrayList<String>();
         Step last = walk.steps().get(walk.steps().size() - 1);
-        for (Step step : walk.steps().subList(0, walk.steps().size() - 1)) {
+        // A path ending at an element collection of basic values reads the value on the collection's join (D-249).
+        boolean value = definition.entityJoin().isEmpty() && last.attribute().elements() != null
+                && !last.attribute().elements().embeddable() && joined(last.attribute()) != null;
+        // The element collection the path has gone into, whose elements a generated join can't leave, and its owner.
+        String elements = null;
+        String elementsOwner = null;
+        for (Step step : walk.steps().subList(0, walk.steps().size() - (value ? 0 : 1))) {
             EntityAttribute attribute = step.attribute();
             if (attribute.kind() == EntityAttribute.Kind.EMBEDDED) {
                 embedded.add(attribute.name());
                 continue;
             }
-            if (!embedded.isEmpty()) {
+            if (!embedded.isEmpty() || elements != null) {
                 // A join takes one attribute of its parent, never a path into an embedded value.
                 problems.add(new Problem(DiagnosticCode.MQ3011, where + "association '" + attribute.name()
-                        + "' sits inside the embedded value '" + String.join(".", embedded) + "' of "
-                        + entity.getSimpleName()
+                        + "' sits inside " + (embedded.isEmpty() ? "the elements of '" + elements + "'"
+                                : "the embedded value '" + String.join(".", embedded) + "'")
+                        + " of " + (embedded.isEmpty() ? elementsOwner : entity.getSimpleName())
                         + ", which a generated join can't reach; declare its TableField by hand"));
                 return null;
             }
             crossed = crossed.isEmpty() ? attribute.name() : crossed + "." + attribute.name();
-            var target = (TypeElement) attribute.target().asElement();
+            var target = joined(attribute);
             JoinedTable declared = generated || !definition.entityJoin().isEmpty() ? null
                     : declared(joined, under, crossed, alias, root);
             if (declared != null) {
@@ -270,11 +312,21 @@ record FilterLayout(
                 return null;
             }
             table = prefix + "_TABLE";
+            if (attribute.elements() != null) {
+                elements = attribute.name();
+                elementsOwner = entity.getSimpleName().toString();
+            }
             entity = target;
+        }
+        if (value) {
+            return new Column(definition, table, entity, "", elementValue(last.attribute()));
         }
         if (last.attribute().kind() == EntityAttribute.Kind.COLLECTION) {
             problems.add(new Problem(DiagnosticCode.MQ3011, where + "'" + last.attribute().name() + "' on "
-                    + last.owner() + " is a collection, which a column can't read; filter on it with Filters.exists"));
+                    + last.owner() + (last.attribute().elements() != null && last.attribute().elements().embeddable()
+                            ? " holds embeddable values, which a column can't read whole; end the path at one of "
+                                    + "their attributes"
+                            : " is a collection, which a column can't read; filter on it with Filters.exists")));
             return null;
         }
         embedded.add(last.attribute().name());

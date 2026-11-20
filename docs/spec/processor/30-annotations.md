@@ -278,7 +278,13 @@ because they are lambdas: declare that `TableField` by hand, or use `Filters.exi
 **R-PROC-13** Every collection association on the root also gets a generated `TableField` constant (`ITEMS_TABLE`), so
 `Filters.exists(QOrderView.ITEMS_TABLE, …)` works with no hand-written join. The constant is always `LEFT`: a filter
 path through the collection with no `alias` reuses it when its `joinType` is `LEFT`, and with `INNER` gets a table of
-its own, `ITEMS_INNER_TABLE` under the alias `itemsInner` (D-46).
+its own, `ITEMS_INNER_TABLE` under the alias `itemsInner` (D-46). An element collection of the root gets the same
+constant (`TAGS_TABLE`, joining the element type) only when a `@FilterColumn` goes through it, so a model with no such
+filter gains no member (D-249). A filter path may end at an element collection of basic values, or a map's basic
+values, and reads the value on that join with `ColumnField.element(...)`; it may go on into an embeddable element's
+attributes (`"stops.city"`), and needs a written `joinType` as any collection does (`MQ3011`). A path ending at
+embeddable elements, or reaching an association inside them, is `MQ3011` (D-258). `@Join` (`MQ3003`) and `@JoinSource`
+(`MQ3044`) still refuse an element collection.
 
 **R-PROC-14** A filter-only column may be used in `orderBy`. With keyset paging the engine selects it automatically
 (`engine/21` R-PAG-04).
@@ -649,3 +655,4 @@ respectively.
 | AC-PROC-27 | `-Amodelquery.jspecify=true` adds the annotations of R-GEN-36 and is declared in `@SupportedOptions`; unset or `false` leaves the output unchanged; on with no JSpecify on the classpath is one `MQ3027` and no annotation generated (R-PROC-32, D-135). |
 | AC-PROC-28 | A query model column `@Column(attribute = "referrer") Long referrerId` over a to-one of a `Long` id, and one with a converter from `Long`, compiles; another type is `MQ3002` naming the target's id type, and a converter that does not convert the id `MQ3014`; each of the inverse side, a `referencedColumnName`, `@JoinColumns`, `@JoinFormula`, `@JoinColumnOrFormula`, `@NotFound`, `@JoinTable`, a `@JoinColumn(table)`, a `@MapsId` target, an `@IdClass` target, an `@EmbeddedId` target and a to-one inside an embedded value is `MQ3002` with its own reason; a target with `@SQLRestriction` or `@Where` is `MQ3029`, and `MQ3016` does not suggest the id form for it; `referrer.id` is `MQ3001`; `MQ3016` names the id form and `@GroupBy` on a whole-entity to-one is `MQ3028` (R-PROC-33, D-136). |
 | AC-PROC-29 | The processor is registered with Gradle as `dynamic`; its supported options name `org.gradle.annotation.processing.isolating` by default, before `init` and when `modelquery.aggregating` is absent or not `true`, and `org.gradle.annotation.processing.aggregating` when it is `true` in any case. A model bound again for the same kind by a binding in a later round, in another package, is `MQ3023` on the later binding, and only the earlier QModel is generated (R-PROC-28, R-PROC-34, D-140). |
+| AC-PROC-68 | A `@FilterColumn` path ending at a basic element collection, a converted one or a map's values reads `ColumnField.element(...)` on a generated `<ATTR>_TABLE`; one through an embeddable element reads its attribute, and an `INNER` one gets `<ATTR>_INNER_TABLE`; an element collection no filter goes through has no constant, so a field named like it compiles, and one a filter goes through takes the name (`MQ3015`); `MQ3011` without `joinType`, at whole embeddable elements and at an association inside them; a `@Join` onto it stays `MQ3003` (R-PROC-13, D-249, D-258). Tested by `FilterColumnTest.ac_proc_68_*`. |

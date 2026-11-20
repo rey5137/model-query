@@ -44,6 +44,7 @@ class FilterColumnTest {
             import jakarta.persistence.ManyToOne;
             import jakarta.persistence.OneToMany;
             import java.util.List;
+            import java.util.Map;
             import java.util.Set;
 
             @Entity
@@ -61,6 +62,26 @@ class FilterColumnTest {
                 Set<LineEntity> extras;
                 @ElementCollection
                 List<String> tags;
+                @ElementCollection
+                List<Stop> stops;
+                @ElementCollection
+                Map<String, String> labels;
+            }
+            """);
+
+    /** The embeddable element of {@code BasketEntity.stops}, with a to-one no generated join can reach. */
+    private static final JavaFileObject STOP = source("shop.Stop", """
+            package shop;
+
+            import jakarta.persistence.Embeddable;
+            import jakarta.persistence.ManyToOne;
+
+            @Embeddable
+            public class Stop {
+                String city;
+                Address address;
+                @ManyToOne
+                CountryEntity country;
             }
             """);
 
@@ -81,7 +102,7 @@ class FilterColumnTest {
     private static JavaFileObject[] basketSources(String declaration) {
         return new JavaFileObject[] {ShopSources.ADDRESS, ShopSources.COUNTRY_ENTITY, ShopSources.CUSTOMER_ENTITY,
                 ShopSources.COUNTRY_VIEW, ShopSources.CUSTOMER_VIEW, ShopSources.INVOICE_STATUS, LINE_ENTITY,
-                BASKET_ENTITY, source("shop.BasketView", IMPORTS + declaration)};
+                STOP, BASKET_ENTITY, source("shop.BasketView", IMPORTS + declaration)};
     }
 
     private static Compilation compileBasket(String declaration) {
@@ -292,6 +313,114 @@ class FilterColumnTest {
                 // A collection of values is no association, and a to-one is joined only when asked for.
                 .doesNotContain("TAGS_TABLE")
                 .doesNotContain("CUSTOMER_TABLE");
+    }
+
+    @Test
+    void ac_proc_68_a_filter_path_ending_at_an_element_collection_reads_its_value_on_a_generated_join() {
+        Compilation compilation = compileBasket("""
+                @QueryModel(root = BasketEntity.class)
+                @FilterColumn(name = "TAG", path = "tags", joinType = JoinKind.LEFT)
+                @FilterColumn(name = "TAG_STATUS", path = "tags", joinType = JoinKind.LEFT,
+                        converter = InvoiceStatus.Converter.class)
+                @FilterColumn(name = "STOP_CITY", path = "stops.city", joinType = JoinKind.INNER)
+                @FilterColumn(name = "STOP_ADDRESS_CITY", path = "stops.address.city", joinType = JoinKind.INNER)
+                @FilterColumn(name = "LABEL", path = "labels", joinType = JoinKind.LEFT)
+                public record BasketView(@PrimaryKey Long id) {}
+                """);
+
+        assertThat(compilation).succeeded();
+        // Two filter columns on one path share its key, as on any other path.
+        assertThat(compilation).hadWarningCount(1);
+        assertThat(compilation).hadWarningContaining("MQ3022: BasketView @FilterColumn(TAG_STATUS): its key 'tags'");
+        assertThat(basket(compilation))
+                // The constant every collection of the root has (R-PROC-13), once a filter column goes through it.
+                .contains("public static final TableField<BasketEntity, String> TAGS_TABLE = "
+                        + "TableField.<BasketEntity, String>join(ROOT, \"tags\", JoinType.LEFT);")
+                .contains("public static final TableField<BasketEntity, Stop> STOPS_TABLE = "
+                        + "TableField.<BasketEntity, Stop>join(ROOT, \"stops\", JoinType.LEFT);")
+                .contains("public static final TableField<BasketEntity, String> LABELS_TABLE = "
+                        + "TableField.<BasketEntity, String>join(ROOT, \"labels\", JoinType.LEFT);")
+                // A basic element is the join's own value; a map's is its value (D-249).
+                .contains("public static final OrderedColumnField<BasketView, String, String> TAG = "
+                        + "ColumnField.element(BasketView.class, TAGS_TABLE, String.class);")
+                .contains("public static final OrderedColumnField<BasketView, String, String> LABEL = "
+                        + "ColumnField.element(BasketView.class, LABELS_TABLE, String.class);")
+                .contains("TAG_STATUS = ColumnField.element(BasketView.class, TAGS_TABLE, InvoiceStatus.class, "
+                        + "String.class, ")
+                // An INNER path keeps the LEFT constant and gets a join of its own, as an association's does.
+                .contains("STOPS_INNER_TABLE = TableField.<BasketEntity, Stop>join(ROOT, \"stops\", "
+                        + "JoinType.INNER).as(\"stopsInner\");")
+                .contains("STOP_CITY = ColumnField.of(BasketView.class, STOPS_INNER_TABLE, \"city\", String.class);")
+                .contains("STOP_ADDRESS_CITY = "
+                        + "ColumnField.of(BasketView.class, STOPS_INNER_TABLE, \"address.city\", String.class);");
+    }
+
+    @Test
+    void ac_proc_68_an_element_collection_no_filter_goes_through_has_no_table_constant() {
+        Compilation compilation = compileBasket("""
+                @QueryModel(root = BasketEntity.class)
+                @FilterColumn(name = "TAG", path = "tags", joinType = JoinKind.LEFT)
+                public record BasketView(
+                        @PrimaryKey Long id,
+                        @Column(attribute = "status") String stopsTable,
+                        @Column(attribute = "status") String labelsTable) {}
+                """);
+
+        // Existing models gain no member, so a field named like the constant still compiles (D-46 amended, D-249).
+        assertThat(compilation).succeeded();
+        assertThat(basket(compilation)).contains("TableField<BasketEntity, String> TAGS_TABLE = ")
+                .contains("OrderedColumnField<BasketView, BasketEntity, String> STOPS_TABLE = ")
+                .doesNotContain("TableField<BasketEntity, Stop> STOPS_TABLE")
+                .doesNotContain("TableField<BasketEntity, String> LABELS_TABLE");
+        // Once a filter column goes through the collection, its constant takes the name like any other (MQ3015).
+        assertThat(errors(compileBasket("""
+                @QueryModel(root = BasketEntity.class)
+                @FilterColumn(name = "TAG", path = "tags", joinType = JoinKind.LEFT)
+                public record BasketView(@PrimaryKey Long id, @Column(attribute = "status") String tagsTable) {}
+                """))).containsExactly(message(DiagnosticCode.MQ3015, "BasketView.tagsTable: constant TAGS_TABLE is "
+                        + "also generated for the collection 'tags'; rename the field"));
+    }
+
+    @Test
+    void ac_proc_68_mq3011_an_element_collection_path_without_join_type_whole_embeddable_or_association_inside() {
+        Compilation compilation = compileBasket("""
+                @QueryModel(root = BasketEntity.class)
+                @FilterColumn(name = "TAG", path = "tags")
+                @FilterColumn(name = "STOP_CITY", path = "stops.city")
+                @FilterColumn(name = "STOP", path = "stops", joinType = JoinKind.LEFT)
+                @FilterColumn(name = "STOP_COUNTRY", path = "stops.country.name", joinType = JoinKind.LEFT)
+                @FilterColumn(name = "LABEL_SIZE", path = "labels.size", joinType = JoinKind.LEFT)
+                public record BasketView(@PrimaryKey Long id) {}
+                """);
+
+        assertThat(errors(compilation)).containsExactly(
+                message(DiagnosticCode.MQ3011, "BasketView @FilterColumn(TAG): 'tags' on BasketEntity is a "
+                        + "collection, which multiplies rows when joined; set joinType, or filter on it with "
+                        + "Filters.exists"),
+                message(DiagnosticCode.MQ3011, "BasketView @FilterColumn(STOP_CITY): 'stops' on BasketEntity is a "
+                        + "collection, which multiplies rows when joined; set joinType, or filter on it with "
+                        + "Filters.exists"),
+                message(DiagnosticCode.MQ3011, "BasketView @FilterColumn(STOP): 'stops' on BasketEntity holds "
+                        + "embeddable values, which a column can't read whole; end the path at one of their "
+                        + "attributes"),
+                message(DiagnosticCode.MQ3011, "BasketView @FilterColumn(STOP_COUNTRY): association 'country' sits "
+                        + "inside the elements of 'stops' of BasketEntity, which a generated join can't reach; "
+                        + "declare its TableField by hand"),
+                message(DiagnosticCode.MQ3011, "BasketView @FilterColumn(LABEL_SIZE): 'labels' on BasketEntity has "
+                        + "no entity to join, so 'labels.size' can't go through it"));
+    }
+
+    @Test
+    void ac_proc_68_a_join_still_refuses_an_element_collection_a_filter_column_goes_through() {
+        Compilation compilation = compileBasket("""
+                @QueryModel(root = BasketEntity.class)
+                @FilterColumn(name = "STOP_CITY", path = "stops.city", joinType = JoinKind.LEFT)
+                public record BasketView(@PrimaryKey Long id, @Join(attribute = "stops") Optional<CountryView> stop) {}
+                """);
+
+        // A filter column through the collection opens no @Join onto it (D-249; @JoinSource: MQ3044, unchanged).
+        assertThat(errors(compilation)).containsExactly(message(DiagnosticCode.MQ3003, "BasketView.stop: 'stops' on "
+                + "BasketEntity is a collection, which a @Join can't select; filter on it with Filters.exists"));
     }
 
     @Test

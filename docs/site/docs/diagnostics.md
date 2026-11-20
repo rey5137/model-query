@@ -93,6 +93,7 @@ throws when it affects no rows (see [Bulk writes](bulk-writes.md)).
 | `MQ1704` | A fetch plan with a child, at any join depth, on a grouped query. |
 | `MQ1705` | A join plan selects an aggregate, which cannot be re-rooted under the join. |
 | `MQ1708` | A key-group definition that does not fit its child or query, at the plan build for a child and at `build()` for a query, before any statement: a key type unequal to the key's attribute type, a group param nothing reads or that the model also binds, `verifyMissing` with no `bind` or on a to-many child, or a group param read in a way the child or query does not allow. See [Child loads over partitioned tables](fetch-plans.md#child-loads-over-partitioned-tables) and [Key groups](reading-keys.md#key-groups-on-a-partitioned-table). |
+| `MQ1713` | A value or map child's statement joins a collection besides its element collection, which would repeat its values; at the plan build, before the parent's statement. |
 | `MQ1601` | Bulk write: no predicate left after skipping rows, or a conflict arbiter's `where(...)` whose filters were all skipped. |
 | `MQ1602` | Bulk write: column is assigned twice. |
 | `MQ1603` | Bulk write: `set(column, null)` called; NULL must be written with `setNull`. |
@@ -207,6 +208,7 @@ See [Running queries](queries.md), [Filters](filters.md), [Grouped queries](grou
 | `MQ2605` | `stream` with a fetch plan that loads children, join plans or enrichers; use `export`. |
 | `MQ2607` | A key-group function returned `null`; the message names the key. After the parent's statement and before the child's first round; for `byKeys` and `one(q, key)`, before any statement. |
 | `MQ2608` | A key's row was found only by the `verifyMissing` re-read of a child load, `byKeys` or `one(q, key)`; logged at `WARNING` once per definition, naming it and a sample key, never a bound value, never thrown. |
+| `MQ2609` | Two entries with the same Java key for one parent in a map child, which a lossy key converter can cause; names the field, the parent key and the map key. |
 | `MQ2701` | A recursive source's tree is deeper than its `maxDepth`. The message names the model, the limit and the key of the first row past it. |
 | `MQ2702` | A recursive source's graph closed a cycle. The message names the model and the first key the cycle clause marked. |
 | `MQ2703` | A [tree](source-models.md#trees) reached a key twice; narrow the seeds or use `recursive(...)`. The message names the model and the first column of the smallest duplicated key. |
@@ -229,7 +231,7 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | `MQ3008` | Class model has no no-arg constructor visible from its package. |
 | `MQ3009` | Record component is primitive and not `@PrimaryKey`. |
 | `MQ3010` | Record has only a non-canonical constructor, or is generic. |
-| `MQ3011` | `@FilterColumn` path does not resolve, or crosses a collection with no explicit `joinType`. |
+| `MQ3011` | `@FilterColumn` path does not resolve, crosses a collection with no explicit `joinType`, ends at an element collection's embeddable elements, or reaches an association inside them. |
 | `MQ3012` | Two `@FilterColumn`s with the same `alias` and path prefix but different `joinType`. |
 | `MQ3013` | `@FilterColumn` name clashes with a generated constant, is reserved, or is not a legal Java name. |
 | `MQ3014` | `converter` is not a `ColumnConverter` between the field type and the attribute type. |
@@ -284,6 +286,8 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | `MQ3404` | `@Child` key of several attributes, an embedded value or an array: it takes one attribute each side. |
 | `MQ3405` | A `List` `@Child` without `foreignKey` (unless it has `through`), or whose model has no `@PrimaryKey`; or an `Optional` `@Child` whose `through` crosses a collection, on a model with no `@PrimaryKey`. |
 | `MQ3406` | `@Child(through)` whose path is blank, crosses something other than an association, or ends at another type than the child model's root; whose `key` is not the parent root's single `@Id`; whose child model is grouped; or whose parent is rooted at a source, which has no entity to join along. Use `foreignKey`. |
+| `MQ3407` | A value child that is not a `List` or `Set` of the element type (an `Optional` or a `Collection` included), a `Map` field over a collection that is not a map or the other way round, or a field over embeddable elements that is not a `List` of their `@ElementModel`. |
+| `MQ3408` | `@Child` on a `Map` element collection whose key is an entity or an embeddable, or on a `Map<K, Entity>` association; read the association as `@Child(through = "...") List<...>`. |
 | `MQ3501` | Insert model: names a generated id, or does not name all of an id that has no generator with `@PrimaryKey`. On a `generateInserts` query model, an assigned id that no written column covers, including one an `@ExcludeFromInserts` field is. |
 | `MQ3502` | Insert model: `@Join`, `@FilterColumn`, `@Aggregate`, `@GroupBy`, `@Computed`, `@Child`, `@Selected` or `@Transient` field. |
 | `MQ3503` | A type carries more than one of `@QueryModel`, `@UpdateModel` and `@InsertModel`. To read and create one row shape with one model, use [`@QueryModel(generateInserts = true)`](models.md#one-model-for-reading-and-creating). |

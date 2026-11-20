@@ -603,10 +603,235 @@ Grouping pays when many keys share a group, and costs when they do not. Measured
 A grouped `ModelQuery` (see [Reading many keys](reading-keys.md#key-groups-on-a-partitioned-table)) is a different
 thing from a child's `keyGroups`: it is read only by `byKeys` and `one(q, key)`.
 
+## Values and maps
+
+An `@ElementCollection` holds values rather than entities: tags, phone numbers, the stops of a route, translations by
+locale. A `@Child(through = "...")` whose path ends at one reads it into the model, and a `@FilterColumn` may filter
+through it. All of it is incubating, new in 0.16.0. The examples read this entity:
+
+```java
+@Entity
+@Table(name = "orders")
+public class OrderEntity {
+    @Id Long id;
+    String number;
+
+    @ElementCollection
+    @CollectionTable(name = "order_tags", joinColumns = @JoinColumn(name = "order_id"))
+    @Column(name = "tag")
+    List<String> tags;
+
+    @ElementCollection
+    @CollectionTable(name = "order_stops", joinColumns = @JoinColumn(name = "order_id"))
+    List<Stop> stops;                       // Stop is an @Embeddable with a city and a lat
+
+    @ElementCollection
+    @CollectionTable(name = "order_labels", joinColumns = @JoinColumn(name = "order_id"))
+    @MapKeyColumn(name = "label_key")
+    @Column(name = "label_val")
+    Map<String, String> labels;
+}
+```
+
+### Value children
+
+A `List` or `Set` of the element type is a value child. The processor generates a `ValueChildField`, and
+`FetchPlan#values` loads it:
+
+```java
+@QueryModel(root = OrderEntity.class)
+public record OrderTags(
+        @PrimaryKey Long id,
+        String number,
+        @Child(through = "tags") List<String> tags,
+        @Child(through = "tags") Set<String> tagSet) {}
+```
+
+```java
+var tags = QOrderTags.query()
+        .fetch(FetchPlan.of(QOrderTags.ALL)
+                .values(QOrderTags.TAGS)
+                .values(QOrderTags.TAG_SET, v -> v.maxPerParent(50)))
+        .orderBy(QOrderTags.NUMBER.asc())
+        .build();
+```
+
+=== "Plain JPA"
+
+    ```java
+    List<OrderTags> list = executor.list(tags, Limit.of(100));
+    ```
+
+=== "Spring repository"
+
+    ```java
+    List<OrderTags> list = orderRepository.findAll(tags, Limit.of(100));
+    ```
+
+- **A bag.** One statement per round selects the parent's key and the value, and keeps every row: two equal tags are
+  two entries of the `List`, and a `NULL` element is kept. A `Set` keeps the first of equal values.
+- **Order.** The `@OrderColumn`'s position first, if the mapping has one, then the value itself, unless it is a LOB.
+  `NULL` sorts where the database puts it: first on H2 and MySQL, last on PostgreSQL.
+- **The key.** Values match on the root's single `@Id`, so the value child needs no `@PrimaryKey` of its own. The
+  `through` path may cross to-one associations first (`"customer.tags"`), never a collection (`MQ3406`).
+- **The bound.** `maxPerParent(n)` counts rows, before a `Set` collapses equal values; a parent with more is `MQ2603`.
+  A value has no column to filter or order by, so `values(field, v -> ...)` takes nothing else.
+- **The field.** A field that is not a `List` or `Set` of the element type is `MQ3407`, and an element type the
+  collection doesn't hold is `MQ3002`. A converted element is compared as the type its converter produces.
+
+### Embeddable elements: `@ElementModel`
+
+Elements that are embeddables are read into an `@ElementModel`: a model of the embeddable, with columns, `ALL` and
+`MAPPER` but no `query()` of its own. A `List` of it is a child, loaded with `child(field, plan)`, whose query may
+filter and order by the element's columns:
+
+```java
+@ElementModel(Stop.class)
+public record StopRow(String city, BigDecimal lat) {}
+
+@QueryModel(root = OrderEntity.class)
+public record OrderStops(@PrimaryKey Long id, @Child(through = "stops") List<StopRow> stops) {}
+```
+
+```java
+var stops = QOrderStops.query()
+        .fetch(FetchPlan.of(QOrderStops.ALL)
+                .child(QOrderStops.STOPS, FetchPlan.of(QStopRow.ALL), c -> c.orderBy(QStopRow.CITY.asc())))
+        .build();
+```
+
+=== "Plain JPA"
+
+    ```java
+    List<OrderStops> list = executor.list(stops, Limit.of(100));
+    ```
+
+=== "Spring repository"
+
+    ```java
+    List<OrderStops> list = orderRepository.findAll(stops, Limit.of(100));
+    ```
+
+Element rows are bags too: a repeated stop is two rows, and an element whose columns are all `NULL` maps to a model
+with `null` fields. An `@ElementModel` takes no `@PrimaryKey`, `@Child`, `@Join` or `@FilterColumn` (`MQ3407` and the
+model codes), and a model that is not the element model of the collection's embeddable is `MQ3407`.
+
+### Maps
+
+A `Map<K, V>` field over a map element collection is a map child, loaded with `FetchPlan#map`. The key is a basic
+value; the value is a basic value or an `@ElementModel` of an embeddable:
+
+```java
+@QueryModel(root = OrderEntity.class)
+public record OrderLabels(@PrimaryKey Long id, @Child(through = "labels") Map<String, String> labels) {}
+```
+
+```java
+var labels = QOrderLabels.query()
+        .fetch(FetchPlan.of(QOrderLabels.ALL).map(QOrderLabels.LABELS))
+        .build();
+```
+
+=== "Plain JPA"
+
+    ```java
+    List<OrderLabels> list = executor.list(labels, Limit.of(100));
+    ```
+
+=== "Spring repository"
+
+    ```java
+    List<OrderLabels> list = orderRepository.findAll(labels, Limit.of(100));
+    ```
+
+- **No order.** The map is a `LinkedHashMap` in the order the rows come; the statement never orders by the key, which
+  EclipseLink can't render for an embeddable value.
+- **Duplicate keys.** Two entries with the same Java key for one parent are `MQ2609`. Only a lossy key converter can
+  make them, and a key converter (`@Convert(attributeName = "key")`) works on Hibernate only: EclipseLink refuses the
+  mapping at startup.
+- **Refused shapes.** An entity or embeddable key, and a `Map<K, Entity>` association, are `MQ3408`; read the latter as
+  `@Child(through = "...") List<...>` of the entity's model.
+
+### Filters through an element collection
+
+A `@FilterColumn` path may end at an element collection of basic values, or a map's values, or go on into an
+embeddable element's attributes. It needs a `joinType`, as any path through a collection does (`MQ3011`):
+
+```java
+@QueryModel(root = OrderEntity.class)
+@FilterColumn(name = "TAG", path = "tags", joinType = JoinKind.LEFT)
+@FilterColumn(name = "STOP_CITY", path = "stops.city", joinType = JoinKind.LEFT)
+@FilterColumn(name = "LABEL", path = "labels", joinType = JoinKind.LEFT)
+public record OrderSearch(@PrimaryKey Long id, String number) {}
+```
+
+The collection gets its table constant, `TAGS_TABLE`, only when a filter column goes through it, so a model with no
+such filter gains no member that could clash with a field's name. A filter on the element, and `exists` over the
+constant, bare or with a group:
+
+```java
+var rush = QOrderSearch.query().select(QOrderSearch.ALL)
+        .where(f -> f.eq(QOrderSearch.TAG, "rush"))
+        .build();
+var tagged = QOrderSearch.query().select(QOrderSearch.ALL)
+        .where(f -> f.exists(QOrderSearch.TAGS_TABLE))
+        .build();
+var inRome = QOrderSearch.query().select(QOrderSearch.ALL)
+        .where(f -> f.exists(QOrderSearch.STOPS_TABLE, s -> s.eq(QOrderSearch.STOP_CITY, "Rome")))
+        .build();
+```
+
+=== "Plain JPA"
+
+    ```java
+    List<OrderSearch> list = executor.list(rush, Limit.of(100));
+    long count = executor.count(rush);
+    ```
+
+=== "Spring repository"
+
+    ```java
+    List<OrderSearch> list = orderRepository.findAll(rush, Limit.of(100));
+    long count = orderRepository.count(rush);
+    ```
+
+An order tagged `rush` twice comes once, and `count` counts it once: a filter whose join nothing else in the statement
+keeps renders as a [semi-join](filters.md#what-the-rules-mean-for-you), like any filter through a to-many join:
+
+```sql
+select o.id, o.number from orders o
+ where exists (select 1 from orders o2 left join order_tags t on o2.id = t.order_id
+                where o2.id = o.id and t.tag = ?)
+```
+
+A statement that also selects or orders by the element keeps the join, one row per element. By hand, the value of a
+basic element is a column with no attribute, on the collection's join, which a query may select:
+
+```java
+record OrderTag(Long id, String tag) {}
+
+static final TableField<OrderEntity, OrderEntity> ORDERS = TableField.root(OrderEntity.class);
+static final TableField<OrderEntity, String> TAGS = TableField.join(ORDERS, "tags", JoinType.INNER);
+static final ColumnField<OrderTag, OrderEntity, Long> ID = ColumnField.of(OrderTag.class, ORDERS, "id", Long.class);
+static final ColumnField<OrderTag, String, String> TAG = ColumnField.element(OrderTag.class, TAGS, String.class);
+
+var orderTags = ModelQuery.builder(ORDERS, row -> new OrderTag(row.get(ID), row.get(TAG)))
+        .select(SelectSet.of(ID, TAG))
+        .where(f -> f.in(TAG, List.of("rush", "gift")))
+        .build();               // one row per matching tag, and count counts the rows
+```
+
+`ColumnField.element` on anything but a join of basic values is `MQ1002`: an embeddable element's attributes are
+columns of their own (`ColumnField.of(OrderTag.class, STOPS, "city", String.class)`). A `@Join` or a `@JoinSource`
+column can't go through an element collection (`MQ3003`, `MQ3044`): a value repeated per parent row belongs in a
+value child.
+
 ## Diagnostics
 
 The fetch-plan codes are `MQ1701` to `MQ1705` (checked when the query is built or first run), `MQ2601` to `MQ2605`
-(at execution) and `MQ3401` to `MQ3406` (at compile time); see [Diagnostics](diagnostics.md). Key groups add
+(at execution) and `MQ3401` to `MQ3408` (at compile time); see [Diagnostics](diagnostics.md). Value and map children
+add `MQ1713` (a value statement that joins another collection, at the plan build) and `MQ2609` (a map key twice for
+one parent). Key groups add
 `MQ1708` (a definition that does not match its child, or a group param read in a way the child does not allow, at the
 plan build, before any statement), `MQ2607` (a group function returned `null`, after the parent's statement and before
 the first child round) and the logged `MQ2608` (a row found only by the `verifyMissing` re-read). A param the child

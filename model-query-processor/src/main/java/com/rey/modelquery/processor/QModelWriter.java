@@ -536,14 +536,16 @@ final class QModelWriter {
                     .addMember("value", "$S", "unchecked")
                     .build());
         }
+        // No attribute: the value of the element collection the table joins, read on the join itself (D-249).
+        CodeBlock read = attribute.isEmpty() ? CodeBlock.of("$T.element($T.class,$W$L", COLUMN_FIELD, modelName, table)
+                : CodeBlock.of("$T.of($T.class,$W$L,$W$S", COLUMN_FIELD, modelName, table, attribute);
         if (converter == null) {
-            return field.initializer("$T.of($T.class,$W$L,$W$S,$W$L)$L",
-                    COLUMN_FIELD, modelName, table, attribute, classOf(column), named).build();
+            return field.initializer("$L,$W$L)$L", read, classOf(column), named).build();
         }
         // The column carries its converter, so Row.get and a filter both convert (R-PROC-07, D-37).
         ClassName converterName = ClassName.get(converter.type());
-        return field.initializer("$T.of($T.class,$W$L,$W$S,$W$L,$W$L,$W$L)$L", COLUMN_FIELD, modelName, table,
-                attribute, classOf(column), classOf(column(converter.attribute())),
+        return field.initializer("$L,$W$L,$W$L,$W$L)$L", read, classOf(column),
+                classOf(column(converter.attribute())),
                 converter.hasInstance()
                         ? CodeBlock.of("$T.INSTANCE", converterName) : CodeBlock.of("new $T()", converterName),
                 named)

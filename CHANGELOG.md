@@ -4,6 +4,45 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html); the public API may change in any `0.x`
 release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
+## [0.16.0] - Unreleased
+
+0.16.0 covers milestone M39 (RFC 0027, D-245 to D-258): `@ElementCollection`s read as value children, element models
+and map children through `@Child(through)`, and filters through an element collection. Every API addition below is
+`@Incubating`.
+
+### Added (incubating)
+
+- Value children (R-FCH-19, D-247, D-251 to D-253): a `@Child(through = "...")` `List<E>` or `Set<E>` whose path ends
+  at an element collection of basic values, after to-one associations only, generates a `ValueChildField<M, E>`;
+  `FetchPlan#values(field)` loads it, and `values(field, q -> q.maxPerParent(n))` bounds it (`ValueChildQuery`). Each
+  round's statement is rooted at the parent's entity and selects its `@Id` and the value. The values are a bag: repeats
+  and `NULL` elements are kept, and a `Set` keeps the first of equal values. They are ordered by `index()` under
+  `@OrderColumn`, then by the value unless it is a LOB. A converted element reads back converted.
+- Element models (R-FCH-21, D-246, D-254, D-255): `@ElementModel(Embeddable.class)` generates columns, `ALL` and
+  `MAPPER` over an embeddable, with no public `ROOT` or `query()`. A `List<C>` of it through an element collection of
+  that embeddable is a `ChildField` whose query may filter, order and bound by the element's columns.
+- Map children (R-FCH-20, D-248, D-256): a `Map<K, V>` field through an element collection `Map` generates a
+  `MapChildField<M, K, V>`, loaded by `FetchPlan#map`, with a basic key and a basic or `@ElementModel` value. It reads
+  `key()` and `value()`, never `entry()`, into a `LinkedHashMap` with no key order. Key and value converters are
+  modelled for INV-3; a key converter works on Hibernate only, since EclipseLink refuses the mapping at startup.
+- Filters through an element collection (RFC 0027 Part C, R-PROC-13, R-EXE-16, D-249, D-258): a `@FilterColumn` path
+  may end at an element collection of basic values or a map's values (`path = "tags"`), or go into an embeddable
+  element's attributes (`"stops.city"`), with a written `joinType`. The collection gets its `TAGS_TABLE` constant only
+  when a filter column goes through it, so existing models gain no member. `exists(TAGS_TABLE, ...)` and a bare
+  `exists(TAGS_TABLE)` use it, and a filter-only element join renders as R-EXE-16's semi-join, each root once.
+- `ColumnField.element(model, table, type)` and its two converted overloads (R-COL-08, D-258): the value of a join
+  along an element collection of basic values, the column a basic element filter reads; on anything but such a join
+  it is `MQ1002`.
+- `QueryAssert#values(ValueChildField)` and `QueryAssert#map(MapChildField)`, returning `ValueChildAssert` with
+  `hasMaxPerParent` and `hasNoMaxPerParent` (R-INS-06, D-257): assert that a fetch plan loads a value or map child. A
+  failure lists the children, values and maps the plan does load.
+- Diagnostics: `MQ3407` (a value-child or element-model field the load can't fill), `MQ3408` (an entity or embeddable
+  map key, or a `Map<K, Entity>` association), `MQ1713` (a value or map statement joining another collection, at the
+  plan build) and `MQ2609` (one map key twice for one parent). `MQ3011` covers a filter path ending at embeddable
+  elements or reaching an association inside them.
+- User guide: [Values and maps](docs/site/docs/fetch-plans.md#values-and-maps) in the fetch-plans page, with JPA and
+  Spring tabs, and the value and map assertions in [Testing](docs/site/docs/testing.md).
+
 ## [0.15.0] - 2026-11-18
 
 0.15.0 covers milestone M38 (RFC 0026, D-228 to D-244): a test-scope Java agent (`model-query-select-audit`) that fails

@@ -4,9 +4,11 @@ import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.ChildField;
 import com.rey.modelquery.core.Condition;
 import com.rey.modelquery.core.FetchPlan;
+import com.rey.modelquery.core.MapChildField;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.OrderField;
 import com.rey.modelquery.core.SelectField;
+import com.rey.modelquery.core.ValueChildField;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -15,8 +17,9 @@ import org.assertj.core.api.AbstractAssert;
 
 /**
  * Assertions on a built {@link ModelQuery}, from its public view: {@code conditions()}, {@code orderBy()},
- * {@code select()} and the fetch plan's {@code select()}, plus the plan's child queries through {@link #child}
- * (R-INS-06, D-104). Needs no {@code EntityManager}, metamodel or database.
+ * {@code select()} and the fetch plan's {@code select()}, plus the plan's child queries through {@link #child} and
+ * its value and map loads through {@link #values} and {@link #map} (R-INS-06, D-104, D-257). Needs no
+ * {@code EntityManager}, metamodel or database.
  *
  * @implSpec api/16 R-INS-06, R-INS-07
  */
@@ -133,7 +136,62 @@ public final class QueryAssert<M> extends AbstractAssert<QueryAssert<M>, ModelQu
             }
         }
         throw failure("Expecting %s to load the child %s, but its fetch plan loads%n  %s",
-                describe(), name, render(plan.childLoads()));
+                describe(), name, render(loads(plan)));
+    }
+
+    /**
+     * The load the fetch plan runs to fill the value child {@code field}, the {@code List} or {@code Set} of an element
+     * collection's values: its {@code maxPerParent} (D-257). Fails, naming what the plan loads, when the plan doesn't
+     * load {@code field} or the query has no plan.
+     *
+     * @param <E> the element type
+     */
+    @Incubating
+    public <E> ValueChildAssert values(ValueChildField<M, E> field) {
+        Objects.requireNonNull(field, "field");
+        String name = query() + "." + field.name();
+        FetchPlan<M> plan = query().fetch().orElseThrow(() -> failure(
+                "Expecting %s to load the values %s, but it has no fetch plan", describe(), name));
+        for (var load : plan.valueLoads()) {
+            if (load.field().name().equals(field.name())) {
+                return withStateOf(this, new ValueChildAssert(field, "the values of " + load, "values",
+                        load.maxPerParent()));
+            }
+        }
+        throw failure("Expecting %s to load the values %s, but its fetch plan loads%n  %s",
+                describe(), name, render(loads(plan)));
+    }
+
+    /**
+     * The load the fetch plan runs to fill the map child {@code field}, the {@code Map} of an element collection: its
+     * {@code maxPerParent} (D-257). Fails, naming what the plan loads, when the plan doesn't load {@code field} or the
+     * query has no plan.
+     *
+     * @param <K> the map key type
+     * @param <V> the map value type
+     */
+    @Incubating
+    public <K, V> ValueChildAssert map(MapChildField<M, K, V> field) {
+        Objects.requireNonNull(field, "field");
+        String name = query() + "." + field.name();
+        FetchPlan<M> plan = query().fetch().orElseThrow(() -> failure(
+                "Expecting %s to load the map %s, but it has no fetch plan", describe(), name));
+        for (var load : plan.mapLoads()) {
+            if (load.field().name().equals(field.name())) {
+                return withStateOf(this, new ValueChildAssert(field, "the map of " + load, "entries",
+                        load.maxPerParent()));
+            }
+        }
+        throw failure("Expecting %s to load the map %s, but its fetch plan loads%n  %s",
+                describe(), name, render(loads(plan)));
+    }
+
+    /** What {@code plan} loads besides its own selection: its children, value children and maps, as each names it. */
+    private static List<Object> loads(FetchPlan<?> plan) {
+        var loads = new ArrayList<Object>(plan.childLoads());
+        loads.addAll(plan.valueLoads());
+        loads.addAll(plan.mapLoads());
+        return loads;
     }
 
     /** {@code target}, which fails with the description, overriding message and representation of {@code source}. */
