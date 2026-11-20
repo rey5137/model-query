@@ -199,6 +199,7 @@ public final class JoinTestSupport {
                 .addAnnotatedClass(SubselectCustomerEntity.class)
                 .addAnnotatedClass(FolderNodeEntity.class)
                 .addAnnotatedClass(CompositeNodeEntity.class)
+                .addAnnotatedClass(TaggedCardEntity.class)
                 .buildSessionFactory(registry);
     }
 }

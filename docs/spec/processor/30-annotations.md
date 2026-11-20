@@ -228,7 +228,10 @@ embedded values, but not an association inside an embedded value. The field carr
 an update model has none (`processor/32` `MQ3401`–`MQ3406`). `through`, a path of associations from the
 model's root to the child's root entity for a many-to-many mapped on the parent's side only, replaces `foreignKey`
 (both is `MQ3401`); `key` is then matched on the parent's single `@Id` along that path, and a path or key that
-cannot be is `MQ3406` (`api/15` R-FCH-14). The child model may be a source of the compilation or a
+cannot be is `MQ3406` (`api/15` R-FCH-14). A `through` path may also end at an `@ElementCollection` of basic
+elements, on the root or after to-one associations only: the field is then a value child, a `List<E>` or `Set<E>` of
+the element type, and names no model (`api/15` R-FCH-19; `MQ3406` for the path, `MQ3407` for the field). The child
+model may be a source of the compilation or a
 class on its classpath, as a nested model may (D-45).
 
 **R-PROC-48** *(D-213, D-218, `@Incubating`)* `@Join(entityJoin = "name")` nests a `@QueryModel` over an entity join

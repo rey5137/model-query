@@ -25,6 +25,8 @@ import com.rey.modelquery.portability.internal.DryCall;
 import com.rey.modelquery.portability.internal.DryRun;
 import com.rey.modelquery.portability.internal.OfflineUnit;
 import com.rey.modelquery.portability.internal.Outcome;
+import com.rey.modelquery.tck.col.TaggedCardEntity;
+import com.rey.modelquery.tck.fch.QCardValues;
 import com.rey.modelquery.tck.portability.child.ChildEntities;
 import com.rey.modelquery.tck.portability.child.KeyChildRow;
 import com.rey.modelquery.tck.portability.child.KeyParentRow;
@@ -95,6 +97,27 @@ class ChildStatementPortabilityTest {
             // Under value_handling_mode=inline every key stays a parameter: the same text as bound (D-177).
             assertThat(on(inline, target)).extracting(CallResult::line)
                     .containsExactlyElementsOf(lines.stream().map(CallResult::line).toList());
+        }
+    }
+
+    @Test
+    void ac_fch_32_each_value_child_renders_its_statement_on_two_placeholder_keys() {
+        var plan = FetchPlan.of(QCardValues.ALL).values(QCardValues.TAGS)
+                .values(QCardValues.SCORES, v -> v.maxPerParent(4)).values(QCardValues.HOLDER_TAGS);
+        var q = QCardValues.query().fetch(plan).build();
+        for (OfflineUnit unit : List.of(OfflineUnit.ofClasses(List.of(TaggedCardEntity.class), List.of(), Map.of()),
+                OfflineUnit.ofClasses(List.of(TaggedCardEntity.class), List.of(),
+                        Map.of("hibernate.criteria.value_handling_mode", "inline")))) {
+            List<CallResult> results = run(unit, list("CARDS", TaggedCardEntity.class, q));
+            for (Target target : TARGETS) {
+                List<CallResult> lines = on(results, target);
+                assertThat(lines).extracting(CallResult::child).containsExactly("", "tags", "scores", "holderTags");
+                assertThat(lines).allSatisfy(line -> assertThat(line.outcome()).isEqualTo(Outcome.REACHED));
+                assertThat(lines.subList(1, 4)).allSatisfy(line -> assertThat(line.detail()).contains("in (?,?)"));
+                assertThat(lines.get(1).detail()).contains("tagged_card_tags");
+                assertThat(lines.get(2).detail()).contains("tagged_card_scores").contains("pos");
+                assertThat(lines.get(3).detail()).contains("holder_id").contains("tagged_card_tags");
+            }
         }
     }
 

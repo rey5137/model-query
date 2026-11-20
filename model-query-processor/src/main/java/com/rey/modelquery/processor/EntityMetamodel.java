@@ -349,27 +349,32 @@ final class EntityMetamodel {
             return new EntityAttribute(
                     name, type, EntityAttribute.Kind.TO_ONE, entity(type), version, updatable, insertable, mappedBy,
                     false, idFormRefusal(member, mappedBy),
-                    hasAny(member, List.of(JPA + "MapsId")), nullable, enumType, temporal);
+                    hasAny(member, List.of(JPA + "MapsId")), nullable, enumType, temporal, null);
         }
+        // The element of a Collection<E>, the value of a Map<K, E>.
+        List<? extends TypeMirror> arguments = type.getKind() == TypeKind.DECLARED
+                ? ((DeclaredType) type).getTypeArguments() : List.of();
+        TypeMirror element = arguments.isEmpty() ? null : arguments.get(arguments.size() - 1);
         if (hasAny(member, TO_MANY)) {
-            // The element of a Collection<E>, the value of a Map<K, E>.
-            List<? extends TypeMirror> arguments = type.getKind() == TypeKind.DECLARED
-                    ? ((DeclaredType) type).getTypeArguments() : List.of();
-            DeclaredType target = arguments.isEmpty() ? null : entity(arguments.get(arguments.size() - 1));
+            DeclaredType target = element == null ? null : entity(element);
             return new EntityAttribute(
                     name, type, EntityAttribute.Kind.COLLECTION, target, version, updatable, insertable, null, false,
-                    null, false, true, enumType, temporal);
+                    null, false, true, enumType, temporal, null);
         }
         if (hasAny(member, List.of(ELEMENT_COLLECTION))) {
+            var elements = new EntityAttribute.Elements(element == null ? null : ProcessorTypes.boxed(types, element),
+                    arguments.size() == 2, element instanceof DeclaredType declared
+                            && hasAny(declared.asElement(), List.of(EMBEDDABLE)),
+                    hasAny(member, List.of(JPA + "OrderColumn")), hasAny(member, List.of(JPA + "Lob")));
             return new EntityAttribute(
                     name, type, EntityAttribute.Kind.COLLECTION, null, version, updatable, insertable, null, false,
-                    null, false, true, enumType, temporal);
+                    null, false, true, enumType, temporal, elements);
         }
         boolean embedded = type.getKind() == TypeKind.DECLARED && (hasAny(member, EMBEDDED)
                 || hasAny(((DeclaredType) type).asElement(), List.of(EMBEDDABLE)));
         return new EntityAttribute(name, type, embedded ? EntityAttribute.Kind.EMBEDDED : EntityAttribute.Kind.BASIC,
                 null, version, updatable, insertable, null, filledByDatabase(member), null, false, nullable, enumType,
-                temporal);
+                temporal, null);
     }
 
     /**

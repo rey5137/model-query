@@ -236,6 +236,24 @@ class DiagnosticMatrixTest {
             }
             """);
 
+    /** An entity with an element collection of basic values, which a value child reads (R-FCH-19). */
+    private static final JavaFileObject TAGGED_ENTITY = source("models.TaggedEntity", """
+            package models;
+
+            import jakarta.persistence.ElementCollection;
+            import jakarta.persistence.Entity;
+            import jakarta.persistence.Id;
+            import java.util.List;
+
+            @Entity
+            public class TaggedEntity {
+                @Id
+                Long id;
+                @ElementCollection
+                List<String> tags;
+            }
+            """);
+
     /** An entity whose id only {@code orm.xml} declares, so the processor sees none. */
     private static final JavaFileObject LEGACY_ENTITY = source("models.LegacyEntity", """
             package models;
@@ -581,6 +599,11 @@ class DiagnosticMatrixTest {
                             "@Child(through = \"customer\") List<ItemView> items")),
                     "MQ3406: OrderView.items: through 'customer' ends at CustomerEntity, not at ItemEntity, the root "
                             + "of ItemView")),
+            of("MQ3407", c -> fails(
+                    with(TAGGED_ENTITY, c.model("TaggedView", "@QueryModel(root = TaggedEntity.class)", ID,
+                            "@Child(through = \"tags\") Optional<String> tags")),
+                    "MQ3407: TaggedView.tags: through 'tags' ends at the element collection 'tags', and a value "
+                            + "child is a List or Set of its element type, found Optional<String>")),
             of("MQ3501", c -> fails(
                     with(TICKET_ENTITY, NOTE_ENTITY,
                             c.model("TicketRow", INSERT_TICKET, "@PrimaryKey String code",

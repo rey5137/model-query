@@ -10,6 +10,9 @@ import com.squareup.javapoet.ParameterizedTypeName;
 import com.squareup.javapoet.TypeName;
 import com.squareup.javapoet.TypeSpec;
 import com.squareup.javapoet.WildcardTypeName;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import javax.lang.model.element.Modifier;
@@ -26,6 +29,7 @@ final class FetchFieldWriter {
 
     private static final String CORE = "com.rey.modelquery.core";
     private static final ClassName CHILD_FIELD = ClassName.get(CORE, "ChildField");
+    private static final ClassName VALUE_CHILD_FIELD = ClassName.get(CORE, "ValueChildField");
     private static final ClassName JOIN_FIELD = ClassName.get(CORE, "JoinField");
     private static final ClassName COLUMN_FIELD = ClassName.get(CORE, "ColumnField");
     private static final ClassName TABLE_FIELD = ClassName.get(CORE, "TableField");
@@ -140,6 +144,62 @@ final class FetchFieldWriter {
                 .addMethod(method("query", ParameterizedTypeName.get(MODEL_QUERY.nestedClass("Builder"), ANY, ANY,
                                 childName))
                         .addStatement("return $T.query()", QModelWriter.generatedName(child))
+                        .build())
+                .addMethod(nullness.unmarked(with).build())
+                .build();
+        return FieldSpec.builder(type, field.constant(), CONSTANT)
+                .addAnnotation(INCUBATING)
+                .initializer("$L", body)
+                .build();
+    }
+
+    /**
+     * The {@code ValueChildField} of the value child {@code field}, whose {@code through} path ends at an element
+     * collection: its owner is the path's to-one joins from the parent's {@code ROOT}, each {@code INNER}, and
+     * {@code with} copies the values into an unmodifiable {@code List}, or {@code LinkedHashSet} for a {@code Set},
+     * that keeps {@code null}s (R-FCH-19, D-247).
+     */
+    FieldSpec valueChildField(ModelDefinition model, ModelField field) {
+        ChildDefinition definition = field.child();
+        ChildKey.Through through = ChildKey.elementsOf(metamodel, model, field);
+        EntityAttribute.Elements elements = through.elements().elements();
+        ClassName modelName = ClassName.get(model.type());
+        TypeName element = TypeName.get(definition.model());
+        TypeName type = ParameterizedTypeName.get(VALUE_CHILD_FIELD, modelName, element);
+        ChildKey key = ChildKey.of(metamodel, types, model, ChildKey.valueKey(metamodel, model, definition));
+        MethodSpec.Builder with = method("with", modelName)
+                .addParameter(modelName, "parent")
+                .addParameter(ParameterizedTypeName.get(LIST, element), "values");
+        copy(model, field, definition.set()
+                ? CodeBlock.of("$T.unmodifiableSet(new $T<>(values))", Collections.class, LinkedHashSet.class)
+                : CodeBlock.of("$T.unmodifiableList(new $T<>(values))", Collections.class, ArrayList.class), with);
+        TypeName table = ParameterizedTypeName.get(TABLE_FIELD, ANY, ANY);
+        TypeSpec body = TypeSpec.anonymousClassBuilder("")
+                .addSuperinterface(type)
+                .addField(FieldSpec.builder(ParameterizedTypeName.get(COLUMN_FIELD, modelName, ANY, ANY), "key",
+                                Modifier.PRIVATE, Modifier.FINAL)
+                        .initializer(keyColumn(model, key))
+                        .build())
+                .addField(FieldSpec.builder(table, "owner", Modifier.PRIVATE, Modifier.FINAL)
+                        .initializer(path(through))
+                        .build())
+                .addMethod(method("name", ClassName.get(String.class))
+                        .addStatement("return $S", field.name())
+                        .build())
+                .addMethod(method("key", ParameterizedTypeName.get(COLUMN_FIELD, modelName, ANY, ANY))
+                        .addStatement("return key")
+                        .build())
+                .addMethod(method("owner", table)
+                        .addStatement("return owner")
+                        .build())
+                .addMethod(method("attribute", ClassName.get(String.class))
+                        .addStatement("return $S", through.elements().name())
+                        .build())
+                .addMethod(method("isOrdered", TypeName.BOOLEAN)
+                        .addStatement("return $L", elements.ordered())
+                        .build())
+                .addMethod(method("ordersByValue", TypeName.BOOLEAN)
+                        .addStatement("return $L", !elements.lob())
                         .build())
                 .addMethod(nullness.unmarked(with).build())
                 .build();

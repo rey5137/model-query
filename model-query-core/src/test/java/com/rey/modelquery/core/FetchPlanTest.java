@@ -539,6 +539,101 @@ class FetchPlanTest {
         };
     }
 
+    /** A value child of {@code InvoiceView} named {@code name}, over the root's element collection {@code tags}. */
+    private static ValueChildField<InvoiceView, String> valueField(String name) {
+        return new ValueChildField<>() {
+            @Override
+            public String name() {
+                return name;
+            }
+
+            @Override
+            public ColumnField<InvoiceView, ?, ?> key() {
+                return ID;
+            }
+
+            @Override
+            public TableField<?, ?> owner() {
+                return ROOT;
+            }
+
+            @Override
+            public String attribute() {
+                return "tags";
+            }
+
+            @Override
+            public boolean isOrdered() {
+                return false;
+            }
+
+            @Override
+            public boolean ordersByValue() {
+                return true;
+            }
+
+            @Override
+            public InvoiceView with(InvoiceView parent, List<String> values) {
+                return parent;
+            }
+        };
+    }
+
+    @Test
+    void ac_fch_28_a_value_child_is_a_copy_whose_key_is_selected_and_bounded_in_rows() {
+        var base = FetchPlan.of(SelectSet.of(STATUS));
+        var plan = base.values(valueField("tags"), q -> q.maxPerParent(3));
+
+        assertThat(base.valueLoads()).isEmpty();
+        assertThat(base.isSelectionOnly()).isTrue();
+        assertThat(plan.isSelectionOnly()).isFalse();
+        assertThat(plan.childLoads()).isEmpty();
+        assertThat(plan.valueLoads()).singleElement().satisfies(load -> {
+            assertThat(load.field().name()).isEqualTo("tags");
+            assertThat(load.maxPerParent()).isEqualTo(3);
+            assertThat(load).hasToString("InvoiceView.tags");
+        });
+        assertThat(plan.values(valueField("labels")).valueLoads()).hasSize(2);
+        assertThat(FetchPlan.of(SelectSet.of(STATUS)).values(valueField("tags")).valueLoads().get(0).maxPerParent())
+                .isZero();
+        // The parent's key is needed though not selected (R-FCH-02).
+        assertThat(plan.needed()).containsExactly(ID);
+    }
+
+    @Test
+    void ac_fch_29_a_value_child_named_twice_or_beside_a_child_of_its_name_throws_mq1703() {
+        var withTags = FetchPlan.of(SelectSet.of(ID)).values(valueField("tags"));
+        var withLines = FetchPlan.of(SelectSet.of(ID)).child(LINES, LINE);
+
+        assertCode(() -> withTags.values(valueField("tags"), q -> q.maxPerParent(2)), MqCode.MQ1703,
+                "MQ1703: InvoiceView.tags: the fetch plan names this child twice; pass one plan for it, with "
+                        + "everything it loads");
+        assertCode(() -> withLines.values(valueField("lines")), MqCode.MQ1703,
+                "MQ1703: InvoiceView.lines: the fetch plan names this child twice; pass one plan for it, with "
+                        + "everything it loads");
+        assertCode(() -> withTags.child(childField("tags", ID, LINE_INVOICE_ID, LINES::query), LINE),
+                MqCode.MQ1703, "MQ1703: InvoiceView.tags: the fetch plan names this child twice; pass one plan for "
+                        + "it, with everything it loads");
+    }
+
+    @Test
+    void ac_fch_29_value_max_per_parent_below_one_throws_mq2001_and_a_grouped_query_mq1704() {
+        ValueChildQuery<String> query = ValueChildQuery.empty();
+
+        for (int n : new int[] {0, -1}) {
+            assertThatThrownBy(() -> query.maxPerParent(n))
+                    .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ2001))
+                    .hasMessage("MQ2001: maxPerParent(" + n + ") must be positive");
+        }
+        assertThat(query.maxPerParent(1).bound()).isEqualTo(1);
+        assertThat(query.bound()).isZero();
+        var grouped = FetchPlan.of(SelectSet.of(STATUS, Agg.count(ROOT))).values(valueField("tags"));
+        assertCode(() -> invoices().fetch(grouped).groupBy(STATUS).build(), MqCode.MQ1704,
+                "MQ1704: InvoiceView.tags: a fetch plan loads this child on a grouped query, whose rows have no "
+                        + "single key to match children on; load it from an ungrouped query");
+    }
+
     private static <M, C> ChildField<M, C> childField(String name, ColumnField<M, ?, ?> key,
             ColumnField<C, ?, ?> foreignKey, Supplier<ModelQuery.Builder<?, ?, C>> query) {
         return childField(name, key, foreignKey, null, query);

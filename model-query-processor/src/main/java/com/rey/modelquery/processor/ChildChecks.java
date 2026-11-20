@@ -63,6 +63,22 @@ final class ChildChecks {
                     + child.source().name() + ", a @SourceModel; a fetch plan has no source to pass it");
             return;
         }
+        ChildKey.Through elements = child == null ? ChildKey.elementsOf(metamodel, model, field) : null;
+        if (elements != null) {
+            checkValueChild(model, field, elements, where, diagnostics);
+            return;
+        }
+        if (child == null && !field.child().through().isEmpty() && model.readsSource()) {
+            // No entity root to find an element collection on, so the field can't be told a value child (R-FCH-19).
+            sourceRooted(model, field, where, diagnostics);
+            return;
+        }
+        if (child != null && field.child().set()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3401, where + "@Child of a model needs a List or "
+                    + "Optional, found " + ModelValidator.display(field.type()) + "; a Set holds the values of an "
+                    + "element collection");
+            return;
+        }
         if (child != null && checkChildJoins(field, child, where, new HashSet<>(), diagnostics)) {
             return;
         }
@@ -116,15 +132,17 @@ final class ChildChecks {
             String where, Diagnostics diagnostics) {
         String path = field.child().through();
         if (model.readsSource()) {
-            diagnostics.error(field.element(), DiagnosticCode.MQ3406, where + "through '" + path + "' needs an entity "
-                    + "root to join along, and " + model.name() + " is rooted at " + model.source().name()
-                    + ", a @SourceModel; use foreignKey");
+            sourceRooted(model, field, where, diagnostics);
             return;
         }
         ChildKey.Through through = ChildKey.through(metamodel, model.root(), path);
         if (through.problem() != null) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3406, where + "through '" + path + "' "
                     + through.problem());
+        } else if (through.elements() != null) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3406, where + "through '" + path + "' ends at the "
+                    + "element collection '" + through.elements().name() + "', not at " + child.root().getSimpleName()
+                    + ", the root of " + child.name() + "; a value child is a List or Set of its element type");
         } else if (!types.isSameType(through.target().asType(), child.root().asType())) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3406, where + "through '" + path + "' ends at "
                     + through.target().getSimpleName() + ", not at " + child.root().getSimpleName() + ", the root of "
@@ -141,6 +159,71 @@ final class ChildChecks {
         if (child.fields().stream().anyMatch(column -> column.groupBy() || column.aggregate() != null)) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3406, where + child.name() + " is grouped, and a "
                     + "through child can't be: its rows would have to be grouped by the parent's key too");
+        }
+    }
+
+    /** {@code MQ3406} for a {@code through} child of {@code model}, rooted at a source: no entity to join along. */
+    private static void sourceRooted(ModelDefinition model, ModelField field, String where, Diagnostics diagnostics) {
+        diagnostics.error(field.element(), DiagnosticCode.MQ3406, where + "through '" + field.child().through()
+                + "' needs an entity root to join along, and " + model.name() + " is rooted at "
+                + model.source().name() + ", a @SourceModel; use foreignKey");
+    }
+
+    /**
+     * The checks of a value child, whose {@code through} path ends or fails at an element collection (R-FCH-19):
+     * {@code MQ3401} with {@code foreignKey}, {@code MQ3406} for the path, a composite {@code @Id}, a key that is not
+     * it, or a {@code Map}, {@code MQ3407} for a field that is not a {@code List} or {@code Set} or elements that are
+     * not basic, and {@code MQ3002} for an element type the field doesn't hold (INV-3). It needs no
+     * {@code @PrimaryKey}: its rows are a bag, and an empty {@code key} defaults to the root's single {@code @Id}.
+     */
+    private void checkValueChild(ModelDefinition model, ModelField field, ChildKey.Through through, String where,
+            Diagnostics diagnostics) {
+        ChildDefinition definition = field.child();
+        String path = "through '" + definition.through() + "' ";
+        if (!definition.foreignKey().isEmpty()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3401, where + "@Child takes foreignKey or through, "
+                    + "not both; through matches the child on the parent's @Id read along the path");
+            return;
+        }
+        if (through.problem() != null) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3406, where + path + through.problem());
+            return;
+        }
+        EntityAttribute.Elements elements = through.elements().elements();
+        String collection = "the element collection '" + through.elements().name() + "'";
+        if (elements.map()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3406, where + path + "ends at " + collection
+                    + ", a Map, which a List or Set value child can't hold");
+            return;
+        }
+        if (!definition.toMany() || definition.model() == null) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3407, where + path + "ends at " + collection
+                    + ", and a value child is a List or Set of its element type, found "
+                    + ModelValidator.display(field.type()));
+            return;
+        }
+        if (elements.embeddable()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3407, where + path + "ends at " + collection
+                    + " of @Embeddable " + ModelValidator.display(elements.element())
+                    + ", and a value child reads basic elements only");
+            return;
+        }
+        if (elements.element() != null && !types.isSameType(definition.model(), elements.element())) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3002, where + ModelValidator.display(field.type())
+                    + " holds " + ModelValidator.display(definition.model()) + ", and " + collection + " holds "
+                    + ModelValidator.display(elements.element()));
+        }
+        EntityMetamodel.Id id = metamodel.id(model.root());
+        Set<String> ids = id.attributes();
+        if (ids.size() > 1 || !id.components().isEmpty()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3406, where + model.root().getSimpleName() + " has a "
+                    + "composite id, and a value child is matched on the parent's single @Id");
+            return;
+        }
+        ChildKey key = side(model, ChildKey.valueKey(metamodel, model, definition), "key", where, field, diagnostics);
+        if (key != null && (!key.joins().isEmpty() || !ids.contains(key.attribute()))) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3406, where + "key '" + key.path() + "' is not the "
+                    + "single @Id of " + model.root().getSimpleName() + ", which a through child is matched on");
         }
     }
 

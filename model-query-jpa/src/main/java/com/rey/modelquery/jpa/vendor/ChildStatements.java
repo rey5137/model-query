@@ -2,6 +2,7 @@ package com.rey.modelquery.jpa.vendor;
 
 import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.ChildLoad;
+import com.rey.modelquery.core.ValueLoad;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import java.util.List;
 import java.util.Objects;
@@ -40,6 +41,29 @@ public final class ChildStatements {
         runner.runChildLoad(load, copy);
     }
 
+    /**
+     * Renders {@code load}'s value-child statement of {@code keys} on {@code executor} in one run, as its value stage
+     * reads a page whose parents hold those keys: its own check ({@code MQ1713} included), then its rounds of the
+     * profile's size. It returns nothing (R-FCH-19).
+     *
+     * @param executor an executor {@link ModelQueryExecutor#create} returned
+     * @param load a value load of any fetch plan, at any depth
+     * @param keys distinct, non-null keys of the type of the parent's {@code @Id}
+     * @throws IllegalArgumentException when {@code executor} is not the library's, or {@code keys} is empty or holds
+     *     a key twice
+     */
+    @Incubating
+    public static void run(ModelQueryExecutor<?> executor, ValueLoad<?, ?> load, List<?> keys) {
+        Objects.requireNonNull(executor, "executor");
+        Objects.requireNonNull(load, "load");
+        List<Object> copy = List.copyOf(Objects.requireNonNull(keys, "keys"));
+        if (!(executor instanceof Runner runner)) {
+            throw new IllegalArgumentException(load + ": a value run needs an executor ModelQueryExecutor.create "
+                    + "returned, not a " + executor.getClass().getName());
+        }
+        runner.runValueLoad(load, copy);
+    }
+
     /** The executor's side of {@link #run}, implemented by the executor {@link ModelQueryExecutor#create} returns. */
     @Incubating
     public interface Runner {
@@ -47,5 +71,9 @@ public final class ChildStatements {
         /** As {@link ChildStatements#run}; checks that {@code keys} are one or more and distinct. */
         @Incubating
         <C> void runChildLoad(ChildLoad<?, C> load, List<Object> keys);
+
+        /** As {@link ChildStatements#run(ModelQueryExecutor, ValueLoad, List)}, for a value child. */
+        @Incubating
+        void runValueLoad(ValueLoad<?, ?> load, List<Object> keys);
     }
 }

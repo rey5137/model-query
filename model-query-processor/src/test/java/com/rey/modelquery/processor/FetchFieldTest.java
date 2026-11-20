@@ -388,6 +388,240 @@ class FetchFieldTest {
                         + "to be grouped by the parent's key too");
     }
 
+    /**
+     * An entity with element collections of each kind a value child meets, a to-one and a to-many back to itself and
+     * an embedded value holding one; an embeddable element; and an entity with a composite id (R-FCH-19).
+     */
+    private static final JavaFileObject[] TAGGED_SOURCES = {
+        source("models.TaggedEntity", """
+                package models;
+
+                import jakarta.persistence.ElementCollection;
+                import jakarta.persistence.Embedded;
+                import jakarta.persistence.Entity;
+                import jakarta.persistence.Id;
+                import jakarta.persistence.Lob;
+                import jakarta.persistence.ManyToMany;
+                import jakarta.persistence.ManyToOne;
+                import jakarta.persistence.OrderColumn;
+                import java.util.List;
+                import java.util.Map;
+                import java.util.Set;
+
+                @Entity
+                public class TaggedEntity {
+                    @Id
+                    Long id;
+                    String name;
+                    @ElementCollection
+                    List<String> tags;
+                    @ElementCollection
+                    @OrderColumn
+                    List<Integer> scores;
+                    @ElementCollection
+                    @Lob
+                    Set<String> notes;
+                    @ElementCollection
+                    Map<String, String> labels;
+                    @ElementCollection
+                    List<Spot> spots;
+                    @Embedded
+                    TagBox box;
+                    @ManyToOne
+                    TaggedEntity parent;
+                    @ManyToMany
+                    List<TaggedEntity> siblings;
+                }
+                """),
+        source("models.Spot", """
+                package models;
+
+                @jakarta.persistence.Embeddable
+                public class Spot {
+                    String city;
+                }
+                """),
+        source("models.TagBox", """
+                package models;
+
+                @jakarta.persistence.Embeddable
+                public class TagBox {
+                    @jakarta.persistence.ElementCollection
+                    java.util.List<String> inner;
+                }
+                """),
+        source("models.PairEntity", """
+                package models;
+
+                @jakarta.persistence.Entity
+                @jakarta.persistence.IdClass(PairId.class)
+                public class PairEntity {
+                    @jakarta.persistence.Id
+                    Long a;
+                    @jakarta.persistence.Id
+                    Long b;
+                    @jakarta.persistence.ElementCollection
+                    java.util.List<String> tags;
+                }
+                """),
+        source("models.PairId", """
+                package models;
+
+                public record PairId(Long a, Long b) implements java.io.Serializable {}
+                """)};
+
+    /** Each type of {@code models} in package {@code models}, beside {@link #TAGGED_SOURCES}. */
+    private static Compilation compileTagged(String... models) {
+        var sources = new ArrayList<JavaFileObject>(List.of(TAGGED_SOURCES));
+        for (String model : models) {
+            Matcher name = Pattern.compile("(?:record|class) (\\w+)").matcher(model);
+            assertThat(name.find()).isTrue();
+            sources.add(source("models." + name.group(1), THROUGH_IMPORTS + "import java.util.Set;\n\n" + model));
+        }
+        return compile(sources.toArray(JavaFileObject[]::new));
+    }
+
+    @Test
+    void ac_fch_26_a_value_child_matches_its_golden_file() {
+        Compilation compilation = compileTagged("""
+                @QueryModel(root = TaggedEntity.class)
+                public record TaggedCard(
+                        @PrimaryKey Long id,
+                        @Child(through = "tags") List<String> tags,
+                        @Child(through = "scores") Set<Integer> scores,
+                        @Child(through = "parent.notes") List<String> parentNotes) {}
+                """);
+
+        assertThat(compilation).succeededWithoutWarnings();
+        assertThat(generated(compilation, "models.QTaggedCard")).isEqualTo(resource("golden/QTaggedCard.java"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void ac_fch_26_a_value_child_keeps_nulls_and_repeats_and_a_set_keeps_the_first_of_equal_values()
+            throws Exception {
+        Compilation compilation = compileTagged("""
+                @QueryModel(root = TaggedEntity.class)
+                public record TaggedCard(
+                        @PrimaryKey Long id,
+                        @Child(through = "tags") List<String> tags,
+                        @Child(through = "scores") Set<Integer> scores) {}
+                """);
+        ClassLoader loader = classes(compilation);
+        Class<?> generated = loader.loadClass("models.QTaggedCard");
+        var tags = (com.rey.modelquery.core.ValueChildField<Object, String>) generated.getField("TAGS").get(null);
+        var scores = (com.rey.modelquery.core.ValueChildField<Object, Integer>) generated.getField("SCORES")
+                .get(null);
+        Object card = loader.loadClass("models.TaggedCard").getConstructors()[0]
+                .newInstance(1L, List.of(), java.util.Set.of());
+
+        Object filled = scores.with(tags.with(card, java.util.Arrays.asList("b", null, "b")),
+                java.util.Arrays.asList(3, 1, 3, null));
+
+        assertThat(filled.toString()).isEqualTo("TaggedCard[id=1, tags=[b, null, b], scores=[3, 1, null]]");
+        assertThat(card.toString()).isEqualTo("TaggedCard[id=1, tags=[], scores=[]]");
+        assertThat(tags.isOrdered()).isFalse();
+        assertThat(scores.isOrdered()).isTrue();
+        assertThat(tags.ordersByValue()).isTrue();
+        assertThat(tags.attribute()).isEqualTo("tags");
+        assertThat(tags.owner()).isEqualTo(TableField.root(loader.loadClass("models.TaggedEntity")));
+    }
+
+    @Test
+    void ac_fch_26_a_value_child_keys_on_the_root_id_whatever_the_primary_key_names() throws Exception {
+        // MQ3004 still asks the model for a @PrimaryKey; the value child reads the root's @Id instead, unselected.
+        Compilation compilation = compileTagged("""
+                @QueryModel(root = TaggedEntity.class)
+                public record TaggedNamed(@PrimaryKey String name, @Child(through = "tags") List<String> tags) {}
+                """);
+
+        assertThat(compilation).succeededWithoutWarnings();
+        var tags = (com.rey.modelquery.core.ValueChildField<?, ?>) classes(compilation)
+                .loadClass("models.QTaggedNamed").getField("TAGS").get(null);
+        assertThat(tags.key().path()).isEqualTo("id");
+    }
+
+    @Test
+    void ac_fch_27_mq3406_refuses_a_value_child_path_it_cannot_load() {
+        Compilation compilation = compileTagged("""
+                @QueryModel(root = TaggedEntity.class)
+                public record TaggedCard(
+                        @PrimaryKey Long id,
+                        @Child(through = "siblings.tags") List<String> merged,
+                        @Child(through = "box.inner") List<String> embedded,
+                        @Child(through = "tags.length") List<String> past,
+                        @Child(through = "labels") List<String> labels,
+                        @Child(key = "name", through = "tags") List<String> notId) {}
+                """, """
+                @QueryModel(root = PairEntity.class)
+                public record PairCard(
+                        @PrimaryKey Long a,
+                        @PrimaryKey Long b,
+                        @Child(through = "tags") List<String> tags) {}
+                """, """
+                @com.rey.modelquery.annotations.SourceModel(root = TaggedEntity.class)
+                public record TaggedTotals(@PrimaryKey Long id) {}
+                """, """
+                @QueryModel(root = TaggedTotals.class)
+                public record TaggedRow(@PrimaryKey Long id, @Child(through = "tags") List<String> tags) {}
+                """);
+
+        assertThat(compilation).failed();
+        assertThat(errors(compilation)).containsExactly(
+                "MQ3406: TaggedCard.merged: through 'siblings.tags' crosses the collection 'siblings' of "
+                        + "TaggedEntity before the element collection 'tags' of TaggedEntity, which would merge the "
+                        + "elements of every TaggedEntity into one list; put the child on a model of TaggedEntity "
+                        + "instead",
+                "MQ3406: TaggedCard.embedded: through 'box.inner' crosses the embedded value 'box' of TaggedEntity, "
+                        + "which a join can't reach into",
+                "MQ3406: TaggedCard.past: through 'tags.length' goes on past the element collection 'tags' of "
+                        + "TaggedEntity, whose elements a path can't step into; end it there",
+                "MQ3406: TaggedCard.labels: through 'labels' ends at the element collection 'labels', a Map, which "
+                        + "a List or Set value child can't hold",
+                "MQ3406: TaggedCard.notId: key 'name' is not the single @Id of TaggedEntity, which a through child "
+                        + "is matched on",
+                "MQ3406: PairCard.tags: PairEntity has a composite id, and a value child is matched on the parent's "
+                        + "single @Id",
+                "MQ3406: TaggedRow.tags: through 'tags' needs an entity root to join along, and TaggedRow is rooted "
+                        + "at TaggedTotals, a @SourceModel; use foreignKey");
+    }
+
+    @Test
+    void ac_fch_27_mq3407_mq3002_and_mq3401_refuse_a_value_child_field_it_cannot_fill() {
+        Compilation compilation = compileTagged("""
+                @QueryModel(root = TaggedEntity.class)
+                public record TaggedCard(
+                        @PrimaryKey Long id,
+                        @Child(through = "tags") Optional<String> optional,
+                        @Child(through = "tags") java.util.Collection<String> collection,
+                        @Child(through = "spots") List<String> spots,
+                        @Child(through = "tags") List<Integer> mistyped,
+                        @Child(foreignKey = "id", through = "tags") List<String> both,
+                        @Child(through = "siblings") Set<TaggedRef> modelSet,
+                        @Child(through = "tags") List<TaggedRef> modelThere) {}
+                """, """
+                @QueryModel(root = TaggedEntity.class)
+                public record TaggedRef(@PrimaryKey Long id) {}
+                """);
+
+        assertThat(compilation).failed();
+        assertThat(errors(compilation)).containsExactly(
+                "MQ3407: TaggedCard.optional: through 'tags' ends at the element collection 'tags', and a value "
+                        + "child is a List or Set of its element type, found Optional<String>",
+                "MQ3407: TaggedCard.collection: through 'tags' ends at the element collection 'tags', and a value "
+                        + "child is a List or Set of its element type, found Collection<String>",
+                "MQ3407: TaggedCard.spots: through 'spots' ends at the element collection 'spots' of @Embeddable "
+                        + "Spot, and a value child reads basic elements only",
+                "MQ3002: TaggedCard.mistyped: List<Integer> holds Integer, and the element collection 'tags' holds "
+                        + "String",
+                "MQ3401: TaggedCard.both: @Child takes foreignKey or through, not both; through matches the child "
+                        + "on the parent's @Id read along the path",
+                "MQ3401: TaggedCard.modelSet: @Child of a model needs a List or Optional, found Set<TaggedRef>; a "
+                        + "Set holds the values of an element collection",
+                "MQ3406: TaggedCard.modelThere: through 'tags' ends at the element collection 'tags', not at "
+                        + "TaggedEntity, the root of TaggedRef; a value child is a List or Set of its element type");
+    }
+
     @Test
     void ac_fch_10_the_generated_constants_of_children_and_joins_are_claimed() {
         assertThat(errorsOf("RefundView", """

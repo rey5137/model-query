@@ -22,20 +22,22 @@ public final class FetchPlan<M> {
 
     private final SelectSet<M> select;
     private final List<ChildLoad<M, ?>> children;
+    private final List<ValueLoad<M, ?>> values;
     private final List<JoinPlan<M, ?>> joins;
     private final List<Enricher<M>> enrichers;
 
-    private FetchPlan(SelectSet<M> select, List<ChildLoad<M, ?>> children, List<JoinPlan<M, ?>> joins,
-            List<Enricher<M>> enrichers) {
+    private FetchPlan(SelectSet<M> select, List<ChildLoad<M, ?>> children, List<ValueLoad<M, ?>> values,
+            List<JoinPlan<M, ?>> joins, List<Enricher<M>> enrichers) {
         this.select = select;
         this.children = children;
+        this.values = values;
         this.joins = joins;
         this.enrichers = enrichers;
     }
 
     /** A plan selecting {@code select}, with no child, join plan or enricher. */
     public static <M> FetchPlan<M> of(SelectSet<M> select) {
-        return new FetchPlan<>(Objects.requireNonNull(select, "select"), List.of(), List.of(), List.of());
+        return new FetchPlan<>(Objects.requireNonNull(select, "select"), List.of(), List.of(), List.of(), List.of());
     }
 
     /**
@@ -60,14 +62,44 @@ public final class FetchPlan<M> {
         Objects.requireNonNull(field, "field");
         Objects.requireNonNull(plan, "plan");
         Objects.requireNonNull(query, "query");
-        for (ChildLoad<M, ?> child : children) {
-            if (child.field().name().equals(field.name())) {
-                throw twice(field.key().model(), field.name(), "child");
-            }
-        }
+        requireNewChild(field.key().model(), field.name());
         ChildQuery<C> load = Objects.requireNonNull(query.apply(ChildQuery.empty(childRootEntity(plan))),
                 "query result");
-        return new FetchPlan<>(select, append(children, new ChildLoad<>(field, plan, load)), joins, enrichers);
+        return new FetchPlan<>(select, append(children, new ChildLoad<>(field, plan, load)), values, joins,
+                enrichers);
+    }
+
+    /**
+     * A copy that loads the value child {@code field}, the values of an element collection, unbounded (R-FCH-19).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1703} when the plan already loads {@code field}
+     */
+    @Incubating
+    public <E> FetchPlan<M> values(ValueChildField<M, E> field) {
+        return values(field, UnaryOperator.identity());
+    }
+
+    /**
+     * A copy that loads the value child {@code field}, bounded by what {@code query} makes of an empty
+     * {@link ValueChildQuery} (R-FCH-11, R-FCH-19).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1703} when the plan already loads {@code field}
+     */
+    @Incubating
+    public <E> FetchPlan<M> values(ValueChildField<M, E> field, UnaryOperator<ValueChildQuery<E>> query) {
+        Objects.requireNonNull(field, "field");
+        Objects.requireNonNull(query, "query");
+        requireNewChild(field.key().model(), field.name());
+        ValueChildQuery<E> load = Objects.requireNonNull(query.apply(ValueChildQuery.empty()), "query result");
+        return new FetchPlan<>(select, children, append(values, new ValueLoad<>(field, load)), joins, enrichers);
+    }
+
+    /** {@code MQ1703} when the plan already loads a child or value child named {@code name}. */
+    private void requireNewChild(Class<?> model, String name) {
+        if (children.stream().anyMatch(child -> child.field().name().equals(name))
+                || values.stream().anyMatch(value -> value.field().name().equals(name))) {
+            throw twice(model, name, "child");
+        }
     }
 
     /** The entity {@code plan} selects from, from its first column; {@code null} when it selects only aggregates. */
@@ -94,12 +126,12 @@ public final class FetchPlan<M> {
                 throw twice(field.model(), field.name(), "join");
             }
         }
-        return new FetchPlan<>(select, children, append(joins, new JoinPlan<>(field, plan)), enrichers);
+        return new FetchPlan<>(select, children, values, append(joins, new JoinPlan<>(field, plan)), enrichers);
     }
 
     /** A copy that runs {@code enricher} after the plan's children, join plans and earlier enrichers (R-FCH-08). */
     public FetchPlan<M> enrich(Enricher<M> enricher) {
-        return new FetchPlan<>(select, children, joins,
+        return new FetchPlan<>(select, children, values, joins,
                 append(enrichers, Objects.requireNonNull(enricher, "enricher")));
     }
 
@@ -112,6 +144,13 @@ public final class FetchPlan<M> {
     @EngineFacing
     public List<ChildLoad<M, ?>> childLoads() {
         return children;
+    }
+
+    /** The value children the plan loads, in the order added, after its children (R-FCH-19). */
+    @EngineFacing
+    @Incubating
+    public List<ValueLoad<M, ?>> valueLoads() {
+        return values;
     }
 
     /** The plans of {@code @Join}ed models, in the order added (R-FCH-07). */
@@ -132,12 +171,12 @@ public final class FetchPlan<M> {
      */
     @EngineFacing
     public boolean isSelectionOnly() {
-        return children.isEmpty() && joins.isEmpty() && enrichers.isEmpty();
+        return children.isEmpty() && values.isEmpty() && joins.isEmpty() && enrichers.isEmpty();
     }
 
     /** A copy that also selects {@code column}, as a child query selects its foreign key (R-FCH-05). */
     FetchPlan<M> selecting(ColumnField<M, ?, ?> column) {
-        return new FetchPlan<>(select.with(column), children, joins, enrichers);
+        return new FetchPlan<>(select.with(column), children, values, joins, enrichers);
     }
 
     /**
@@ -161,6 +200,7 @@ public final class FetchPlan<M> {
     List<ColumnField<M, ?, ?>> needed() {
         var result = new ArrayList<ColumnField<M, ?, ?>>();
         children.forEach(child -> result.add(child.field().key()));
+        values.forEach(value -> result.add(value.field().key()));
         enrichers.forEach(enricher -> result.addAll(enricher.columns()));
         for (JoinPlan<M, ?> join : joins) {
             result.addAll(join.needed());
@@ -172,6 +212,9 @@ public final class FetchPlan<M> {
     String firstChild() {
         if (!children.isEmpty()) {
             return children.get(0).field().name();
+        }
+        if (!values.isEmpty()) {
+            return values.get(0).field().name();
         }
         for (JoinPlan<M, ?> join : joins) {
             String inner = join.plan().firstChild();

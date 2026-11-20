@@ -673,6 +673,11 @@ public final class TreatChecks {
                 });
                 definition(child.query());
             });
+            // A value child's statement joins its owner path as a through child's does (R-FCH-19).
+            plan.valueLoads().forEach(value -> {
+                register(value.field().owner());
+                table(value.field().owner().key());
+            });
             plan.joinPlans().forEach(join -> {
                 join.plan().selection().fields().forEach(this::field);
                 fetch(join.plan());

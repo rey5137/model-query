@@ -305,6 +305,13 @@ public enum MqCode {
             + "catch-alls are unequal"),
 
     /**
+     * A value child's statement that joins a collection besides its element collection, which would repeat its values;
+     * at the plan build, before the parent's statement (R-FCH-19, D-247).
+     */
+    @Incubating
+    MQ1713("A value child's statement joins a collection besides its element collection"),
+
+    /**
      * An insert column not mapped, mapped twice or from a column with another converter, set twice or set though
      * the model has it, or not on the root; {@code lockKeys()} on insert-values; or {@code insertReturningKeys} with
      * {@code commitEachChunk()} (R-WRT-27, R-WRT-29, R-WRT-32, R-WRT-33, D-117).

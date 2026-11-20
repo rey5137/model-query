@@ -13,6 +13,7 @@ import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import jakarta.persistence.EntityManager;
+import java.util.List;
 import org.hibernate.SessionFactory;
 import org.hibernate.boot.registry.StandardServiceRegistryBuilder;
 import org.hibernate.cfg.AvailableSettings;
@@ -47,7 +48,9 @@ public abstract class AuditTestBase {
             em.persist(c1);
             em.persist(c2);
 
-            em.persist(new AuditOrderEntity(1L, 100L, "First order", c1));
+            var first = new AuditOrderEntity(1L, 100L, "First order", c1);
+            first.getTags().addAll(List.of("rush", "gift"));
+            em.persist(first);
             em.persist(new AuditOrderEntity(2L, 200L, "Second order", c2));
             em.persist(new AuditOrderEntity(3L, 300L, "Third order", null));
 

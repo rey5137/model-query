@@ -85,6 +85,7 @@ final class QueryModelReader {
     private static final String TREAT = "treat";
     private static final String OPTIONAL = "java.util.Optional";
     private static final String LIST = "java.util.List";
+    private static final String SET = "java.util.Set";
 
     private final Map<String, String> options;
 
@@ -377,16 +378,18 @@ final class QueryModelReader {
             return null;
         }
         boolean toMany = false;
+        boolean set = false;
         TypeMirror model = null;
         if (field.asType() instanceof DeclaredType container && container.getTypeArguments().size() == 1
                 && container.getTypeArguments().get(0).getKind() == TypeKind.DECLARED) {
             Name name = ((TypeElement) container.asElement()).getQualifiedName();
-            if (name.contentEquals(LIST) || name.contentEquals(OPTIONAL)) {
-                toMany = name.contentEquals(LIST);
+            if (name.contentEquals(LIST) || name.contentEquals(SET) || name.contentEquals(OPTIONAL)) {
+                set = name.contentEquals(SET);
+                toMany = !name.contentEquals(OPTIONAL);
                 model = container.getTypeArguments().get(0);
             }
         }
-        return new ChildDefinition(List.of(child.key()), List.of(child.foreignKey()), child.through(), toMany,
+        return new ChildDefinition(List.of(child.key()), List.of(child.foreignKey()), child.through(), toMany, set,
                 model);
     }
 

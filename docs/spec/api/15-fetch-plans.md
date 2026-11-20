@@ -87,18 +87,21 @@ declared `String[]` but take one path in 0.2.0 (composite keys are `MQ3404`). Th
 arrays (INV-3, R-QRY-12). `foreignKey` may cross a collection, a many-to-many seen from the child's side (one child
 row per parent it belongs to); `key` may not, since the parent would get a row per element (`MQ3402`, D-99). A
 many-to-many mapped only on the parent's side uses `through` instead (R-FCH-14). The field is `List<C>` (to-many: `foreignKey` required, and `C` has a `@PrimaryKey`) or
-`Optional<C>` (to-one). The processor generates a `ChildField<M, C>` per `@Child` that returns a copy of the parent with
+`Optional<C>` (to-one); a `through` path ending at an `@ElementCollection` makes it a value child instead, a `List<E>`
+or `Set<E>` of the element type, for which the processor generates a `ValueChildField<M, E>` (R-FCH-19). The processor
+generates a `ChildField<M, C>` per other `@Child` that returns a copy of the parent with
 the field set for a record (its canonical constructor), and the same instance with the field set for a class (its
 setter), and refers to the child's generated class lazily,
-so a `@Child` and a back-`@Join` between two models initialise in either order. A mapped row holds `List.of()` or
-`Optional.empty()` until its child is loaded.
+so a `@Child` and a back-`@Join` between two models initialise in either order. A mapped row holds `List.of()`,
+`Set.of()` or `Optional.empty()` until its child is loaded.
 
 **R-FCH-04** `child(ChildField<M, C>, FetchPlan<C>)` loads a child; one not in the plan stays empty. An optional
 `ChildQuery` adds child filters (`where`), an order (`orderBy`, closed by the child's primary key; the primary key alone
 by default) and `maxPerParent` (R-FCH-11; below 1 it throws `MQ2001`). Child rows are deduplicated on the child's
 primary key per parent key, since a child filter through a to-many join can repeat them where the statement keeps
 that join, as an order term through it does (`engine/20` R-EXE-16), while a many-to-many child
-belongs to several parents (D-99). A to-one child that finds two distinct rows
+belongs to several parents (D-99); a value child's rows are never deduplicated (R-FCH-19, D-247). A to-one child that
+finds two distinct rows
 for one key throws `MQ2601` naming the child field. A to-one child without a `@PrimaryKey` is not deduplicated, so one
 reached through a to-many path (a child filter or `foreignKey` crossing a collection) throws `MQ2601` on the repeated
 rows unless it has a `@PrimaryKey`. A child's own refusals, of its filters, order, selection or a one-key round over
@@ -128,7 +131,10 @@ child's generated columns serve unchanged, and the parent's `key`, which must be
 as the raw key (D-100). A customizer must resolve paths through its `JoinContext`; `query.getRoots()` holds the
 parent's entity. `through` excludes `foreignKey` (`MQ3401`). A `through` path that crosses a non-association or an
 embedded value, or ends at another type than the child's root, a `key` that is not the parent root's single `@Id`, or a
-grouped child model, is `MQ3406`. Grouping, dedupe, bounds and rounds are as R-FCH-04/-05/-11.
+grouped child model, is `MQ3406`. Grouping, dedupe, bounds and rounds are as R-FCH-04/-05/-11. A path ending at an
+`@ElementCollection` loads a value child (R-FCH-19, D-245), and there `MQ3406` also refuses a path that crosses a
+collection before it, an embedded step, a path that goes on past the collection, a parent root with a composite `@Id`,
+and a `Map` collection (D-253).
 
 **R-FCH-18** *(D-204, D-205, D-206, D-208, D-209, D-212, `@Incubating`)* **Key groups.** `ChildQuery#keyGroups(KeyGroups<?,
 ?>)` reads a child's keys in rounds per group, each round binding its group's values into the same filter. A `KeyGroups`
@@ -158,7 +164,9 @@ a `static final` constant (INV-9), and is compared by identity, as its functions
   can't stand for every group of an `EQ` or be the widest bound both ways. Under either restriction any other read (an upper bound on a to-many child, `NE`,
   under `NOT` or `EXISTS`, in a sub-select, `having` or join filter, inside an expression or a `@Computed` column) is
   `MQ1708`, naming the param. A to-one `through` child, with at most one row per key, takes either ending, and any read
-  only under `assumeInRange()` without `groupWhen`.
+  only under `assumeInRange()` without `groupWhen`. A value child (R-FCH-19) has no key unique per row either, so
+  `verifyMissing` is refused for every value child (D-247, extending D-209); a basic value child's `ValueChildQuery`
+  has no `keyGroups`, so neither ending can be written for it.
 - **Before the first round.** Per load (a page, a `byKeys` result, an export batch), the engine calls `group` once per
   distinct non-null key and each `value` once per distinct group, all after the parent's statement and before the
   child's first round, so a refusal follows no child statement: a `null` group is `MQ2607` naming the key, a `null` or
@@ -181,6 +189,41 @@ a `static final` constant (INV-9), and is compared by identity, as its functions
   value (D-95). When every key finds a row it adds no statement.
 - The engine routes nothing, runs no round in parallel, and derives no group itself (D-205); enricher lookups
   (R-FCH-16) are not grouped.
+
+**R-FCH-19** *(D-245, D-247, D-251, D-252, D-253, `@Incubating`)* **Value children.** A `@Child(through = "path")` whose
+path ends at an `@ElementCollection` of basic elements (a converted type included), on the parent's root or after to-one
+associations only (R-FCH-14), is a value child: a `List<E>` or `Set<E>` field of the element type, for which the
+processor generates a `ValueChildField<M, E>` whose `with` sets the field as R-FCH-03's does. Its parent key is the
+root's single `@Id`, read on the root whatever the model's `@PrimaryKey` names (an empty `key` defaults to it, any other
+`key` is `MQ3406`), and the value child itself needs no `@PrimaryKey`. A parent rooted at a `@SourceModel` has no entity
+to join along, so a `through` child there is `MQ3406` (R-FCH-14). `FetchPlan#values(field)` loads it,
+`values(field, q -> q.maxPerParent(n))` bounds it, and one not in the plan stays empty. `ValueChildQuery` carries only
+`maxPerParent` (`MQ2001` below 1): a basic value has no column for a `where`, an `orderBy` or a key group to read, so
+none of them compiles. A value child named twice, or beside a child of its name, is `MQ1703`, and one on a grouped query
+`MQ1704`; the parent's key is selected as a child's is (R-FCH-02).
+
+- **The statement**, per round, is rooted at the parent's root entity and joined `INNER` along the path's to-one steps,
+  then to the collection, with `joinList` for an `@OrderColumn` attribute; it selects the parent's key and the value,
+  with `key IN (…)` in R-FCH-05's rounds (a value row whose key equals none of its round's keys is `MQ2604`). A
+  parent whose path finds no owner (a `null` to-one) gets no value.
+- **Bags.** Rows are never deduplicated, since there is no key to deduplicate on: two equal elements are two rows,
+  and a `NULL` element is kept, never skipped. A `List` field holds them in row order; a `Set` field collects them
+  into a `LinkedHashSet` in row order, keeping the first of equal values. That is safe only while the statement joins
+  no other collection: a plural join besides the element collection (possible only through a hand-written field,
+  since the processor refuses such a path with `MQ3406`) is `MQ1713` at the plan build, before the parent's statement
+  even on an empty page, with a one-key round over the bind limit (`MQ1307`) and R-FCH-04's other refusals (D-138).
+- **Order.** Per parent: the `@OrderColumn`'s `index()` if there is one, then the value itself for a basic element
+  that is not a LOB; otherwise the order is unspecified. `NULL` sorts where the vendor puts it (first on H2 and MySQL,
+  last on PostgreSQL); the engine adds no null ordering. Gaps in an `@OrderColumn` are not filled with `null`s, and an
+  `@OrderBy` on the mapping is not read.
+- **Bound.** `maxPerParent(n)` counts rows, before a `Set` field collapses equal values: a parent with more than `n`
+  is `MQ2603`, and a round reads at most keys × n + 1 rows (R-FCH-11).
+- **Field checks**, at compile time: a field that is not a `List` or `Set` (an `Optional` included), or a collection
+  of `@Embeddable` elements, is `MQ3407` (D-251); an element type the field doesn't hold, a converted type compared as
+  its attribute type, is `MQ3002` (D-252, INV-3); `foreignKey` beside `through` stays `MQ3401`.
+- **Seams.** `ChildStatements.run` renders a value load on chosen keys as a page's value stage does, and the
+  portability dry run renders each value load of a plan on placeholder keys (R-INS-17). Basic values have no getter, so
+  the select audit counts a loaded value child's field as selected and its elements as no read (RFC 0026).
 
 ## 3. Joins
 
@@ -308,3 +351,10 @@ so.
 | AC-FCH-23 | A to-many child with a lower bound only loads a line created in the month after its order's month: the list is complete (R-FCH-18, D-206). |
 | AC-FCH-24 | A to-one `through` child with `verifyMissing` loads a child whose range column lies outside its key's group through the re-read and logs `MQ2608` once per definition; when every key finds a row, no re-read runs (statement count) (R-FCH-18, D-206). |
 | AC-FCH-25 | With `groupWhen`: a child load whose rule returns `false` runs R-FCH-05's chunks with `all`'s values bound and no re-read, and one whose rule returns `true` runs per group (statement count; children equal for rows inside their group); under `assumeInRange()` a row outside its group is found on the `false` branch only; the rule isn't called for one group, for keys whose ungrouped chunks equal the grouped rounds, or for no keys; a `null` value of any group is `MQ1502` on either branch and the rule's exception propagates unwrapped, both before the child's first round; `MQ1708` at the plan build for a group param read with `EQ` (R-FCH-18, D-208). |
+| AC-FCH-26 | The processor generates a `ValueChildField` for a `List` and a `Set` field through an element collection on the parent's root, an `@OrderColumn` one included, and after a to-one association, matching its golden file; a parent whose `@PrimaryKey` is not its `@Id` keys on the root's `@Id`; the record copy keeps `null`s and repeats in a `List` and the first of equal values in a `Set` (R-FCH-03, R-FCH-19). |
+| AC-FCH-27 | Compile failures: `MQ3406` for a value child's path crossing a collection, through an embedded value, past the collection or at a `Map`, a `key` not the parent's `@Id`, a composite parent `@Id`, and a parent rooted at a `@SourceModel`; `MQ3407` for an `Optional` or `Collection` field and for `@Embeddable` elements; `MQ3002` for a mistyped element; `MQ3401` with `foreignKey` and for a `Set` of a model; `MQ3406` for a model child whose `through` ends at an element collection (R-FCH-14, R-FCH-19, D-251, D-252, D-253). |
+| AC-FCH-28 | `FetchPlan#values` returns a copy, leaves the original selection-only, selects the parent's key, and carries `maxPerParent` as the load's bound (R-FCH-02, R-FCH-19). |
+| AC-FCH-29 | `MQ1703` for a value child named twice or beside a child of its name, `MQ2001` for `maxPerParent` below 1, and `MQ1704` for a value child on a grouped query (R-FCH-10, R-FCH-19). |
+| AC-FCH-30 | On Tier 1 and both lines, value children load as bags: a repeated element twice and a `NULL` element kept in a `List`, a `Set` keeping one of each, a converted element read back converted, the `@OrderColumn` order with its `NULL` at its index, values otherwise ordered by value with `NULL` where the vendor puts it, and a parent with no element empty (R-FCH-19, D-247). |
+| AC-FCH-31 | A holder's values load through a to-one association, a parent with no holder getting none; keys over the vendor's limit load in rounds with the same values (R-FCH-05, R-FCH-19). |
+| AC-FCH-32 | `maxPerParent(3)` over four rows of three distinct values is `MQ2603` for a `List` and a `Set` field, and `maxPerParent(4)` holds; a value statement joining another collection is `MQ1713`, and a one-key round over the bind limit `MQ1307`, both before any statement on an empty page; `ChildStatements.run` on a value load prepares the statement a page of those parents prepares, and refuses another executor and no, repeated or `null` keys; the portability dry run renders each value child of a plan on two placeholder keys, bound and inline (R-FCH-19, `api/16` R-INS-17, D-138, D-247). |
