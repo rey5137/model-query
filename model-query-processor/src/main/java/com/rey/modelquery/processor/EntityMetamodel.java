@@ -138,12 +138,20 @@ final class EntityMetamodel {
     record Walk(List<Step> steps, String problem, boolean missingAttribute) {}
 
     /**
-     * Follows {@code path} from {@code root}, as a {@code @FilterColumn} may write it: a segment before the last is
-     * an embedded value or an association (R-PROC-10).
+     * Follows {@code path} from {@code root}: a segment before the last is an embedded value or an association
+     * (R-PROC-10).
      *
      * @implSpec R-GEN-03
      */
     Walk walk(TypeElement root, String path) {
+        return walk(root, path, false);
+    }
+
+    /**
+     * {@link #walk(TypeElement, String)}, going on into the embeddable elements of an element collection when
+     * {@code elements} is set, as a {@code @FilterColumn} path may (R-PROC-13, D-249).
+     */
+    Walk walk(TypeElement root, String path, boolean elements) {
         String[] segments = path.split("\\.", -1);
         DeclaredType owner = (DeclaredType) root.asType();
         boolean property = false;
@@ -166,6 +174,8 @@ final class EntityMetamodel {
                 owner = found.target();
                 // An entity's access type is its own: only an embeddable inherits its owner's.
                 property = false;
+            } else if (elements && found.elements() != null && found.elements().embeddable()) {
+                owner = (DeclaredType) found.elements().element();
             } else if (found.kind() == EntityAttribute.Kind.BASIC) {
                 return new Walk(steps, "'" + segments[i] + "' on " + ownerName
                         + " is not an embedded value, so it has no attribute '" + segments[i + 1] + "'", false);
@@ -257,11 +267,15 @@ final class EntityMetamodel {
         return new Id(Set.copyOf(ids), components, type, generated);
     }
 
-    /** The collection associations of {@code root} itself, in declaration order (R-PROC-13). */
+    /**
+     * The collection associations and element collections of {@code root} itself, in declaration order (R-PROC-13,
+     * D-249).
+     */
     List<EntityAttribute> collections(TypeElement root) {
         List<DeclaredType> hierarchy = hierarchy((DeclaredType) root.asType());
         return attributes(hierarchy, defaultsToProperty(hierarchy, false)).values().stream()
-                .filter(attribute -> attribute.kind() == EntityAttribute.Kind.COLLECTION && attribute.joinable())
+                .filter(attribute -> attribute.kind() == EntityAttribute.Kind.COLLECTION
+                        && (attribute.joinable() || attribute.elements() != null))
                 .toList();
     }
 

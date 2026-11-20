@@ -447,6 +447,9 @@ filter columns of a model it nests. Rejected: letting a filter column retype the
 `ITEMS_TABLE` changes what every other use of it joins); a warning for a `joinType` that repeats the `@Join`'s type;
 a diagnostic for an unused `alias` on a root attribute.
 → `processor/30` R-PROC-11, R-PROC-12, R-PROC-13, `processor/32` `MQ3011`, `MQ3012`, `MQ3013`, `MQ3015`.
+*Amended by D-249 and D-258:* an `@ElementCollection` gets R-PROC-13's `LEFT` constant when, and only when, a filter
+column goes through it, with the `INNER` rule above, and a path may end at it or go into its embeddable elements; a
+path ending at embeddable elements or reaching an association inside them stays `MQ3011`.
 
 **D-47 — What the processor accepts and rejects on a summary model.**
 `@Aggregate(distinct = true)` on `SUM`, `AVG`, `MIN` or `MAX` is `MQ3206`. `@QueryModel(singleGroup = true)` on a model
@@ -3539,6 +3542,32 @@ model columns over `value()`), with no `ORDER BY key` (EclipseLink incompatibili
 parent (such as from lossy key converters) fail with `MQ2609`. At compile-time, entity or embeddable map keys, as
 well as `Map<K, Entity>` associations, fail with `MQ3408` (which suggests `@Child(through = "...") List<...>`).
 → `api/15` R-FCH-20, `processor/32` MQ3408, `reference/90` MQ2609, MQ3408.
+
+**D-257 — `QueryAssert` asserts value and map children (M39.4, 2026-11-20, user decision).** `model-query-test` gains
+`@Incubating` `QueryAssert#values(ValueChildField)` and `QueryAssert#map(MapChildField)`, the counterparts of
+`child(ChildField)` for value children (D-247), `List` and `Set` alike, and map children (D-248). Each fails when the
+query has no plan or the plan does not load the field, naming the children, values and maps it does load (`child`'s
+failure lists them too now), and returns one `@Incubating` `ValueChildAssert` with `hasMaxPerParent` and
+`hasNoMaxPerParent`, failing as `the values of OrderView.tags` or `the map of OrderView.labels`. A value or map load
+has no filter, order or selection of its own (R-FCH-19, R-FCH-20), so there is nothing else to assert; an element
+model's `List` is a `ChildField`, asserted by `child`. The reads are `@EngineFacing` (`FetchPlan.valueLoads()`,
+`mapLoads()` and each load's `field`, `maxPerParent` and `toString`), allowed to `model-query-test` beside D-104's
+`ChildLoad` reads by the TCK's layering rule. Rejected: assertions of the element or key type, the `List` or
+`Set` shape and the `@OrderColumn` (fixed by the generated field, not by the plan under test), and of loaded values
+(`QueryAssert` inspects definitions, never rows; R-INS-06). → `api/16` R-INS-06, AC-INS-25.
+
+**D-258 — An element column is `ColumnField.element(...)`, and the paths a filter takes into an element collection
+(M39.4, 2026-11-20).** The attribute-less column of D-249 is the `@Incubating` factory
+`ColumnField.element(model, table, type)` with the two converted overloads `of` has, plain and ordered (D-93). It reads
+the join itself, is named by the collection (`name()` and `path()` are `tags`), and its resolution is `MQ1002` on a
+node that is no join (at the factory) or a join whose elements are not basic (at first resolution), since an entity or
+an embeddable has attributes to read instead. A map's join reads its value. The processor emits it for a filter path
+ending at basic elements or a map's basic values, and a path may continue into an embeddable element's attributes,
+embedded values included (`"stops.address.city"`). A path ending at embeddable elements (`"stops"`) or reaching an
+association inside them (`"stops.country.name"`) is `MQ3011`: a column can't read an embeddable whole, and a join from
+inside an element is no join a generated `TableField` can name. Rejected: an empty attribute through `ColumnField.of`
+(a sentinel no caller could read off the signature) and a constant for every element collection (D-249). → `api/10`
+R-COL-08, `processor/30` R-PROC-13, `engine/20` R-EXE-16, AC-PROC-68, AC-EXE-30.
 
 ## 2. Open questions
 

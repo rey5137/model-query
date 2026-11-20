@@ -48,6 +48,7 @@ A filter skipped by an empty `Optional` is simply absent, so the test says what 
 | `hasSelection(fields...)`, `selectionContains(fields...)` | The query's `select()`. |
 | `hasFetchSelection(fields...)`, `fetchSelectionContains(fields...)`, `hasNoFetchPlan()` | The selection of the query's fetch plan. |
 | `child(field)` | The query the fetch plan runs for that child, asserted below. |
+| `values(field)`, `map(field)` | The fetch plan's load of that value child or map child, asserted below. |
 
 The matchers in `FilterMatchers` mirror the `Filters` operators by name, with the value form of their parameters:
 `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `range`, `between`, `in`, `notIn`, `like`, `likeIgnoreCase`, `eqIgnoreCase`,
@@ -92,6 +93,22 @@ assertThatQuery(q).child(QCustomerOrders.ORDERS)
 | `hasMaxPerParent(n)`, `hasNoMaxPerParent()` | The bound on children per parent. |
 
 A child the plan doesn't load fails the assertion, and the message lists the children the plan does load.
+
+### Value and map children
+
+`values(field)` and `map(field)` (incubating, 0.16.0) assert that the fetch plan loads a
+[value child or a map child](fetch-plans.md#values-and-maps), the `List`, `Set` or `Map` of an element collection,
+and its `maxPerParent`. A value load has no filter, order or selection of its own, and a map's entries come in no
+order, so there is nothing else to assert. An element model's `List` is a child, asserted with `child(field)`.
+
+```java
+assertThatQuery(tags).values(QOrderTags.TAGS).hasNoMaxPerParent();
+assertThatQuery(tags).values(QOrderTags.TAG_SET).hasMaxPerParent(50);
+assertThatQuery(labels).map(QOrderLabels.LABELS).hasNoMaxPerParent();
+```
+
+A field the plan doesn't load fails the assertion, and the message lists the children, values and maps the plan does
+load.
 
 ## Reading the conditions yourself
 

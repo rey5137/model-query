@@ -348,7 +348,11 @@ column whose path starts at a root the query is not rooted at, which would other
 the same name. A supertype root is accepted; a strict subtype root is refused with a message naming
 `ROOT.treat(<Subtype>.class)` (R-COL-34). An attribute may be a dotted path through embedded values
 (`"address.city"`); a segment that is unknown
-or crosses an association throws `MQ1002` naming it (D-41).
+or crosses an association throws `MQ1002` naming it (D-41). A column with no attribute reads the value of an element
+collection: `ColumnField.element(model, table, type)`, and its two converted overloads, read the join `table` itself,
+which must join an `@ElementCollection` of basic values or a map's basic values (`TableField.join(ROOT, "tags",
+LEFT)`); its `name()` and `path()` are the collection's. A table that is no join is `MQ1002` at the factory, and a join
+whose elements are entities or embeddables is `MQ1002` at first resolution (D-249, D-258).
 
 **R-COL-14** **A converted column.** A column built with a `ColumnConverter<C, F>` has the model type `C` as its type
 and reads an attribute of type `F`: `MQ1001` compares the attribute against `attributeType`, `Row.get` returns

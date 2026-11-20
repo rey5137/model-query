@@ -198,6 +198,11 @@ The select-audit module is new in 0.15.0, test-scope and `@Incubating` (D-228 to
 properties. `ReadAccess` is public only because hooked model classes call it and is not API. See
 [Select audit](select-audit.md).
 
+The element-collection members are new in 0.16.0 and `@Incubating` (D-245 to D-258): `ValueChildField`,
+`MapChildField`, `ValueChildQuery`, `FetchPlan#values` and `FetchPlan#map`, the `@ElementModel` annotation,
+`ColumnField.element` and, in `model-query-test`, `QueryAssert#values`, `QueryAssert#map` and `ValueChildAssert`. The
+executor-facing `ValueLoad` and `MapLoad` are `@EngineFacing`. See [Values and maps](fetch-plans.md#values-and-maps).
+
 The fetch-plan types are new in 0.2.0, `@Incubating`, and not yet placed in the 1.0 freeze list above:
 `FetchPlan`, `ChildField`, `JoinField`, `ChildQuery`, `Enricher` and the `@Child` annotation. The executor-facing
 `ChildLoad` and `JoinPlan` are `@EngineFacing`. See [Fetch plans](fetch-plans.md).

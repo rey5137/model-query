@@ -45,6 +45,9 @@ import java.util.Optional;
 @Incubating
 public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits OrderedColumnField {
 
+    /** The attribute of an element column, which reads the value of its table's join itself (D-249). */
+    private static final String ELEMENT = "";
+
     // A primitive attribute is read as its wrapper, so the two are the same column type (R-COL-08).
     private static final Map<Class<?>, Class<?>> WRAPPERS = Map.of(
             boolean.class, Boolean.class,
@@ -122,17 +125,34 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
      * dotted path through embedded values ({@code "address.city"}); an association on the way needs its own
      * {@link TableField} (R-COL-08).
      */
-    @SuppressWarnings("unchecked")
     public static <M, T, C> OrderedColumnField<M, T, C> of(
             Class<M> model, TableField<?, T> table, String attribute, Class<C> type) {
         requireNotSourceRoot(table);
+        return plain(model, table, requireAttribute(attribute), type);
+    }
+
+    /** A column with no converter; {@code attribute} is {@link #ELEMENT} for an {@link #element} column. */
+    @SuppressWarnings("unchecked")
+    private static <M, T, C> OrderedColumnField<M, T, C> plain(
+            Class<M> model, TableField<?, T> table, String attribute, Class<C> type) {
         // Sound: int.class is a Class<Integer>, so its wrapper is still a Class<C>.
         Class<C> boxed = (Class<C>) boxed(Objects.requireNonNull(type, "type"));
         return new OrderedColumnField<>(
                 Objects.requireNonNull(model, "model"),
                 Objects.requireNonNull(table, "table"),
-                Objects.requireNonNull(attribute, "attribute"),
-                boxed, boxed, null, null);
+                attribute, boxed, boxed, null, null);
+    }
+
+    /**
+     * {@code MQ1002} for an empty attribute, which names nothing to read: the value of an element collection's join
+     * is {@link #element}'s (D-258).
+     */
+    private static String requireAttribute(String attribute) {
+        if (Objects.requireNonNull(attribute, "attribute").isEmpty()) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1002, "ColumnField.of(...) takes the attribute it reads; "
+                    + "the value of a join along an element collection is ColumnField.element(...)");
+        }
+        return attribute;
     }
 
     /**
@@ -148,7 +168,7 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
             Class<M> model, TableField<?, T> table, String attribute, Class<C> type, Class<F> attributeType,
             ColumnConverter<C, F> converter) {
         requireNotSourceRoot(table);
-        return create(model, table, attribute, type, attributeType, converter);
+        return create(model, table, requireAttribute(attribute), type, attributeType, converter);
     }
 
     /**
@@ -160,7 +180,8 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
             Class<M> model, TableField<?, T> table, String attribute, Class<C> type, Class<F> attributeType,
             OrderedColumnConverter<C, F> converter) {
         requireNotSourceRoot(table);
-        return (OrderedColumnField<M, T, C>) create(model, table, attribute, type, attributeType, converter);
+        return (OrderedColumnField<M, T, C>) create(model, table, requireAttribute(attribute), type, attributeType,
+                converter);
     }
 
     /**
@@ -263,6 +284,51 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
         }
     }
 
+    /**
+     * A column of {@code model} reading the value of the element collection {@code table} joins, as {@code type}: the
+     * join itself, with no attribute (R-COL-08, D-249). {@code table} is a join along an {@code @ElementCollection}
+     * of basic values, or a map's basic values, as {@code TableField.join(ROOT, "tags", JoinType.LEFT)} makes; a
+     * filter on the column tests each element, so a filter-only join renders as a semi-join (R-EXE-16).
+     */
+    @Incubating
+    public static <M, T, C> OrderedColumnField<M, T, C> element(
+            Class<M> model, TableField<?, T> table, Class<C> type) {
+        return plain(model, requireElementJoin(table), ELEMENT, type);
+    }
+
+    /**
+     * A converted column like {@link #element(Class, TableField, Class)}: {@code converter} turns the element value,
+     * of type {@code attributeType}, into the model's {@code type} (R-COL-14, D-249).
+     */
+    @Incubating
+    public static <M, T, C, F> ColumnField<M, T, C> element(
+            Class<M> model, TableField<?, T> table, Class<C> type, Class<F> attributeType,
+            ColumnConverter<C, F> converter) {
+        return create(model, requireElementJoin(table), ELEMENT, type, attributeType, converter);
+    }
+
+    /**
+     * A converted element column like {@link #element(Class, TableField, Class, Class, ColumnConverter)} whose
+     * converter keeps order both ways, so it is an {@link OrderedColumnField} (D-93, D-249).
+     */
+    @Incubating
+    public static <M, T, C, F> OrderedColumnField<M, T, C> element(
+            Class<M> model, TableField<?, T> table, Class<C> type, Class<F> attributeType,
+            OrderedColumnConverter<C, F> converter) {
+        return (OrderedColumnField<M, T, C>) create(model, requireElementJoin(table), ELEMENT, type, attributeType,
+                converter);
+    }
+
+    /** {@code MQ1002} unless {@code table} is a join, the only node whose value an element column can read. */
+    private static <T> TableField<?, T> requireElementJoin(TableField<?, T> table) {
+        requireNotSourceRoot(table);
+        if (table.parent() == null || table.key().type() == null) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1002, "ColumnField.element(...) reads the value of a "
+                    + "join along an element collection; " + table.describe() + " is not one");
+        }
+        return table;
+    }
+
     /** An {@link OrderedColumnField} exactly when {@code converter} is an {@link OrderedColumnConverter}. */
     @SuppressWarnings("unchecked")
     private static <M, T, C, F> ColumnField<M, T, C> create(
@@ -308,7 +374,9 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
             return cteColumn(from);
         }
         Path<C> path;
-        if (attribute.indexOf('.') >= 0) {
+        if (attribute.equals(ELEMENT)) {
+            path = elementPath(from);
+        } else if (attribute.indexOf('.') >= 0) {
             path = embeddedPath(from);
         } else {
             try {
@@ -323,15 +391,31 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
         if (actual == null || !reads(attributeType, actual)) {
             throw new ModelQueryDefinitionException(MqCode.MQ1001, String.format(
                     "%s.%s: declared %s, entity attribute %s.%s is %s",
-                    model.getSimpleName(), attribute,
+                    model.getSimpleName(), name(),
                     converter == null ? name(type, actual)
                             : "attribute type " + name(attributeType, actual) + " for "
                                     + converter.getClass().getSimpleName(),
                     from.getJavaType().getSimpleName(),
-                    attribute, (actual == null ? "of unknown type" : name(actual, attributeType))
+                    name(), (actual == null ? "of unknown type" : name(actual, attributeType))
                             + idNamed(from, ctx)));
         }
         return path;
+    }
+
+    /**
+     * The join itself, whose value is the element it reached: {@code MQ1002} unless it is a join along a collection
+     * of basic values, since an entity or an embeddable has attributes to read instead (D-249).
+     */
+    @SuppressWarnings("unchecked")
+    private Path<C> elementPath(From<?, T> from) {
+        if (!(from instanceof Join<?, ?> join && join.getAttribute() instanceof PluralAttribute<?, ?, ?> plural
+                && plural.getElementType().getPersistenceType() == Type.PersistenceType.BASIC)) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1002, String.format(
+                    "%s: ColumnField.element(...) reads the value of a join along a collection of basic values; "
+                            + "%s reaches %s, so read one of its attributes with ColumnField.of(...)",
+                    model.getSimpleName(), table.describe(), from.getJavaType().getSimpleName()));
+        }
+        return (Path<C>) from;
     }
 
     /** The CTE element {@code from} aliases {@code attribute} by, which a source's outer column reads (R-SRC-10). */
@@ -610,10 +694,13 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
         return type;
     }
 
-    /** The entity attribute the column reads, dotted when it is read through embedded values. */
+    /**
+     * The entity attribute the column reads, dotted when it is read through embedded values; for an
+     * {@link #element} column, the element collection its table joins.
+     */
     @Override
     public String name() {
-        return attribute;
+        return attribute.equals(ELEMENT) ? table.key().attribute() : attribute;
     }
 
     /** Returns {@link #path(JoinContext)}, with the same type check. */
@@ -629,7 +716,7 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
     @EngineFacing
     public String path() {
         String above = table.path();
-        return above.isEmpty() ? attribute : above + "." + attribute;
+        return above.isEmpty() || attribute.equals(ELEMENT) ? above + attribute : above + "." + attribute;
     }
 
     /**
@@ -639,7 +726,7 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
     @EngineFacing
     public String identityPath() {
         String above = identityPath(table.key());
-        return above.isEmpty() ? attribute : above + "." + attribute;
+        return above.isEmpty() || attribute.equals(ELEMENT) ? above + attribute : above + "." + attribute;
     }
 
     private static String identityPath(JoinKey key) {
@@ -779,6 +866,6 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
 
     @Override
     public String toString() {
-        return (liftedFrom != null ? "outer." : "") + model.getSimpleName() + "." + attribute;
+        return (liftedFrom != null ? "outer." : "") + model.getSimpleName() + "." + name();
     }
 }

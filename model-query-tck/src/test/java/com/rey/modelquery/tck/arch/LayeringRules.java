@@ -38,13 +38,19 @@ final class LayeringRules {
     private static final String QUERY_PACKAGE = "jakarta.persistence.";
     /** The one {@code @EngineFacing} type {@code test} may hold: a fetch plan's child load (D-104). */
     private static final String CHILD_LOAD = "com.rey.modelquery.core.ChildLoad";
+    private static final String VALUE_LOAD = "com.rey.modelquery.core.ValueLoad";
+    private static final String MAP_LOAD = "com.rey.modelquery.core.MapLoad";
+    /** The {@code @EngineFacing} loads {@code test} may hold: a child's, a value child's and a map child's. */
+    private static final Set<String> LOADS = Set.of(CHILD_LOAD, VALUE_LOAD, MAP_LOAD);
     /**
-     * The {@code @EngineFacing} members {@code test} may call: to assert a child query (D-104), and to build the
-     * lifted column {@code outer(col)} matches (D-112, R-INS-08).
+     * The {@code @EngineFacing} members {@code test} may call: to assert a child query (D-104), a value or map load
+     * (D-257), and to build the lifted column {@code outer(col)} matches (D-112, R-INS-08).
      */
     private static final Set<String> ENGINE_READS = Set.of("com.rey.modelquery.core.FetchPlan.childLoads",
             CHILD_LOAD + ".field", CHILD_LOAD + ".query", CHILD_LOAD + ".maxPerParent", CHILD_LOAD + ".toString",
-            "com.rey.modelquery.core.Outer.reference");
+            "com.rey.modelquery.core.FetchPlan.valueLoads", VALUE_LOAD + ".field", VALUE_LOAD + ".maxPerParent",
+            VALUE_LOAD + ".toString", "com.rey.modelquery.core.FetchPlan.mapLoads", MAP_LOAD + ".field",
+            MAP_LOAD + ".maxPerParent", MAP_LOAD + ".toString", "com.rey.modelquery.core.Outer.reference");
 
     private final String root;
     private final boolean allowEmptyShould;
@@ -202,7 +208,7 @@ final class LayeringRules {
                 }
                 origin.getDirectDependenciesFromSelf().stream()
                         .filter(dependency -> dependency.getTargetClass().isAnnotatedWith(ENGINE_FACING))
-                        .filter(dependency -> !dependency.getTargetClass().getName().equals(CHILD_LOAD))
+                        .filter(dependency -> !LOADS.contains(dependency.getTargetClass().getName()))
                         .forEach(dependency ->
                                 events.add(SimpleConditionEvent.satisfied(dependency, dependency.getDescription())));
             }
