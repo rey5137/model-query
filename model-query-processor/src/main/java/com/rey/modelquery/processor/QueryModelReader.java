@@ -87,6 +87,7 @@ final class QueryModelReader {
     private static final String OPTIONAL = "java.util.Optional";
     private static final String LIST = "java.util.List";
     private static final String SET = "java.util.Set";
+    private static final String MAP = "java.util.Map";
 
     private final Map<String, String> options;
 
@@ -382,18 +383,26 @@ final class QueryModelReader {
         }
         boolean toMany = false;
         boolean set = false;
+        boolean map = false;
+        TypeMirror keyType = null;
         TypeMirror model = null;
-        if (field.asType() instanceof DeclaredType container && container.getTypeArguments().size() == 1
-                && container.getTypeArguments().get(0).getKind() == TypeKind.DECLARED) {
+        if (field.asType() instanceof DeclaredType container) {
+            List<? extends TypeMirror> args = container.getTypeArguments();
             Name name = ((TypeElement) container.asElement()).getQualifiedName();
-            if (name.contentEquals(LIST) || name.contentEquals(SET) || name.contentEquals(OPTIONAL)) {
-                set = name.contentEquals(SET);
-                toMany = !name.contentEquals(OPTIONAL);
-                model = container.getTypeArguments().get(0);
+            if (args.size() == 1 && args.get(0).getKind() == TypeKind.DECLARED) {
+                if (name.contentEquals(LIST) || name.contentEquals(SET) || name.contentEquals(OPTIONAL)) {
+                    set = name.contentEquals(SET);
+                    toMany = !name.contentEquals(OPTIONAL);
+                    model = args.get(0);
+                }
+            } else if (args.size() == 2 && name.contentEquals(MAP)) {
+                map = true;
+                keyType = args.get(0);
+                model = args.get(1);
             }
         }
         return new ChildDefinition(List.of(child.key()), List.of(child.foreignKey()), child.through(), toMany, set,
-                model);
+                map, keyType, model);
     }
 
     /**

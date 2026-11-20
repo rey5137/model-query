@@ -132,9 +132,9 @@ as the raw key (D-100). A customizer must resolve paths through its `JoinContext
 parent's entity. `through` excludes `foreignKey` (`MQ3401`). A `through` path that crosses a non-association or an
 embedded value, or ends at another type than the child's root, a `key` that is not the parent root's single `@Id`, or a
 grouped child model, is `MQ3406`. Grouping, dedupe, bounds and rounds are as R-FCH-04/-05/-11. A path ending at an
-`@ElementCollection` loads a value child (R-FCH-19, D-245), and there `MQ3406` also refuses a path that crosses a
-collection before it, an embedded step, a path that goes on past the collection, a parent root with a composite `@Id`,
-and a `Map` collection (D-253).
+`@ElementCollection` loads a value child (R-FCH-19, D-245) or a map child (R-FCH-20, D-248); `MQ3406` refuses a
+path that crosses a collection before it, an embedded step, a path that goes on past the collection, or a parent root
+with a composite `@Id` (D-253 lifted by R-FCH-20).
 
 **R-FCH-18** *(D-204, D-205, D-206, D-208, D-209, D-212, `@Incubating`)* **Key groups.** `ChildQuery#keyGroups(KeyGroups<?,
 ?>)` reads a child's keys in rounds per group, each round binding its group's values into the same filter. A `KeyGroups`
@@ -224,6 +224,24 @@ none of them compiles. A value child named twice, or beside a child of its name,
 - **Seams.** `ChildStatements.run` renders a value load on chosen keys as a page's value stage does, and the
   portability dry run renders each value load of a plan on placeholder keys (R-INS-17). Basic values have no getter, so
   the select audit counts a loaded value child's field as selected and its elements as no read (RFC 0026).
+
+**R-FCH-20** *(D-248)* **Map children.** A `through` path ending at an `@ElementCollection Map<K, V>` fills a
+`Map<K, V>` field through `MapChildField<M, K, V>` and `FetchPlan#map`; `K` is a basic key (`@MapKeyColumn`,
+`@MapKeyEnumerated`, `@MapKeyTemporal`), and `V` is a basic element or an `@ElementModel` of an embeddable. An entity
+or embeddable map key, or a `Map<K, Entity>` association, is `MQ3408` at compile time (the latter naming the working
+form `@Child(through = "…") List<…>`); an unmapped shape (List/Set over Map or Map over List/Set) is `MQ3407`.
+
+- **Statement and order.** The statement joins `INNER` from the parent's root along the to-one path, joins the element
+  collection map, and selects the parent key, `MapJoin.key()` and `value()` (or the element model's columns over
+  `value()`), never `entry()`. The statement orders by the parent key only: no order by key, and the field is a
+  `LinkedHashMap` in unspecified row order (D-248). A second collection join is `MQ1713`.
+- **Duplicate keys.** Two entries with the same Java key for one parent throw run-time `MQ2609`, naming the field, the
+  parent key and the map key (realistic with a lossy key converter).
+- **Bound and rounds.** `maxPerParent(n)` bounds entries counted in rows; exceeding it is `MQ2603`. Parent keys split
+  into rounds over the vendor limit as other child stages do.
+- **Seams.** `ChildStatements.run`, portability dry runs, treat checks and select audit include map loads.
+  Element-model map values pass through the select-audit hand-off as other child models do, counting getter reads
+  (R-INS-18); basic map values stay as basic value children (not counted per getter).
 
 **R-FCH-21** *(D-246, D-247, D-251)* **Embeddable value children.** A `through` ending at an element collection of
 embeddables fills a `List<C>` where `C` is an `@ElementModel` of that embeddable; the processor generates a
@@ -370,7 +388,7 @@ so.
 | AC-FCH-24 | A to-one `through` child with `verifyMissing` loads a child whose range column lies outside its key's group through the re-read and logs `MQ2608` once per definition; when every key finds a row, no re-read runs (statement count) (R-FCH-18, D-206). |
 | AC-FCH-25 | With `groupWhen`: a child load whose rule returns `false` runs R-FCH-05's chunks with `all`'s values bound and no re-read, and one whose rule returns `true` runs per group (statement count; children equal for rows inside their group); under `assumeInRange()` a row outside its group is found on the `false` branch only; the rule isn't called for one group, for keys whose ungrouped chunks equal the grouped rounds, or for no keys; a `null` value of any group is `MQ1502` on either branch and the rule's exception propagates unwrapped, both before the child's first round; `MQ1708` at the plan build for a group param read with `EQ` (R-FCH-18, D-208). |
 | AC-FCH-26 | The processor generates a `ValueChildField` for a `List` and a `Set` field through an element collection on the parent's root, an `@OrderColumn` one included, and after a to-one association, matching its golden file; a parent whose `@PrimaryKey` is not its `@Id` keys on the root's `@Id`; the record copy keeps `null`s and repeats in a `List` and the first of equal values in a `Set` (R-FCH-03, R-FCH-19). |
-| AC-FCH-27 | Compile failures: `MQ3406` for a value child's path crossing a collection, through an embedded value, past the collection or at a `Map`, a `key` not the parent's `@Id`, a composite parent `@Id`, and a parent rooted at a `@SourceModel`; `MQ3407` for an `Optional` or `Collection` field and for embeddable elements without a matching `List` element model; `MQ3002` for a mistyped basic element; `MQ3401` with `foreignKey` and for a `Set` of a model; `MQ3406` for a model child whose `through` ends at a basic element collection (R-FCH-14, R-FCH-19, D-251, D-252, D-253). |
+| AC-FCH-27 | Compile failures: `MQ3406` for a value child's path crossing a collection, through an embedded value, past the collection, a `key` not the parent's `@Id`, a composite parent `@Id`, and a parent rooted at a `@SourceModel`; `MQ3407` for an `Optional` or `Collection` field, a `List` or `Set` over a `Map` collection, and for embeddable elements without a matching `List` element model; `MQ3408` for an entity or embeddable map key and for a `Map<K, Entity>` association; `MQ3002` for a mistyped basic element; `MQ3401` with `foreignKey` and for a `Set` of a model; `MQ3406` for a model child whose `through` ends at a basic element collection (R-FCH-14, R-FCH-19, R-FCH-20, D-248, D-251, D-252). |
 | AC-FCH-28 | `FetchPlan#values` returns a copy, leaves the original selection-only, selects the parent's key, and carries `maxPerParent` as the load's bound (R-FCH-02, R-FCH-19). |
 | AC-FCH-29 | `MQ1703` for a value child named twice or beside a child of its name, `MQ2001` for `maxPerParent` below 1, and `MQ1704` for a value child on a grouped query (R-FCH-10, R-FCH-19). |
 | AC-FCH-30 | On Tier 1 and both lines, value children load as bags: a repeated element twice and a `NULL` element kept in a `List`, a `Set` keeping one of each, a converted element read back converted, the `@OrderColumn` order with its `NULL` at its index, values otherwise ordered by value with `NULL` where the vendor puts it, and a parent with no element empty (R-FCH-19, D-247). |
@@ -382,3 +400,11 @@ so.
 | AC-FCH-36 | An additional collection join is `MQ1713` before the parent statement; element-child `verifyMissing` is `MQ1708`, and an element-child customizer is `MQ1704` (R-FCH-21, D-255). |
 | AC-FCH-37 | Element child loads split over the vendor key limit; `ChildStatements.run` and portability dry runs render their statements (R-FCH-21). |
 | AC-FCH-38 | Element child models pass through select-audit, which counts their getter reads (R-FCH-21, R-INS-18). |
+| AC-FCH-39 | Map children load into a `Map<K, V>` field through `FetchPlan#map` in unspecified row order, with basic elements, enum map keys and embeddable element models, empty parents keeping an empty map (R-FCH-20, D-248). |
+| AC-FCH-40 | A to-one association reaches a holder's map; keys over the vendor key limit split into rounds with identical entries (R-FCH-20). |
+| AC-FCH-41 | Duplicate map keys for one parent throw `MQ2609`, naming the field, parent key and map key; realistic with a lossy key converter (R-FCH-20, D-248). |
+| AC-FCH-42 | `maxPerParent` counts rows and throws `MQ2603` when exceeded (R-FCH-11, R-FCH-20). |
+| AC-FCH-43 | A map statement joining an additional collection is `MQ1713`; `ChildStatements.run` and portability dry run render map loads on chosen keys and refuse another executor, no, repeated or null keys (R-FCH-20). |
+| AC-FCH-44 | An association of type `Map<K, Entity>` loads as a list of models through `@Child(through = "...") List<Model>` (D-248). |
+| AC-FCH-45 | `MQ1703` for a map child named twice or beside a child or value child of its name, `MQ2001` for `maxPerParent` below 1, and `MQ1704` for a map child on a grouped query; `FetchPlan#map` returns a copy and selects the parent key (R-FCH-10, R-FCH-20). |
+| AC-FCH-46 | Element-model map values pass through select-audit, which counts their getter reads (R-FCH-20, R-INS-18). |

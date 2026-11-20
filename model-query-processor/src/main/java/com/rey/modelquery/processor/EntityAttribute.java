@@ -43,16 +43,22 @@ record EntityAttribute(
     }
 
     /**
-     * What an {@code @ElementCollection} holds, which a value child reads (api/15 R-FCH-19).
+     * What an {@code @ElementCollection} holds, which a value child reads (api/15 R-FCH-19, R-FCH-20).
      *
+     * @param key the map key's boxed type when {@code map} is true, or {@code null}
      * @param element the element type: a {@code Collection<E>}'s {@code E}, a {@code Map<K, V>}'s {@code V}, boxed;
      *     {@code null} when the declared type names none
      * @param map whether the attribute is a {@code Map}
+     * @param keyEmbeddable whether the map key is an {@code @Embeddable}
+     * @param keyEntity whether the map key is an {@code @Entity}
      * @param embeddable whether the element is an {@code @Embeddable}
      * @param ordered whether it carries {@code @OrderColumn}, so a join reads its position with {@code index()}
      * @param lob whether it carries {@code @Lob}, whose value no statement orders by
+     * @param keyConverter the converter class for the key, or {@code null}
+     * @param valueConverter the converter class for the value, or {@code null}
      */
-    record Elements(TypeMirror element, boolean map, boolean embeddable, boolean ordered, boolean lob) {}
+    record Elements(TypeMirror key, TypeMirror element, boolean map, boolean keyEmbeddable, boolean keyEntity,
+            boolean embeddable, boolean ordered, boolean lob, TypeMirror keyConverter, TypeMirror valueConverter) {}
 
     /** What an attribute is to a path (R-GEN-02). */
     enum Kind {

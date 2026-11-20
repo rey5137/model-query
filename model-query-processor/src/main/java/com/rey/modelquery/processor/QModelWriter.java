@@ -25,6 +25,7 @@ import com.squareup.javapoet.WildcardTypeName;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -281,9 +282,13 @@ final class QModelWriter {
             type.addField(fetchFields.joinField(model, join));
         }
         for (ModelField child : writeOnly ? List.<ModelField>of() : model.children()) {
-            // A @Child holding no model is a value child, of an element collection (R-FCH-19).
-            type.addField(nestedModels.child(child) == null ? fetchFields.valueChildField(model, child)
-                    : fetchFields.childField(model, child));
+            if (child.child().map()) {
+                type.addField(fetchFields.mapChildField(model, child));
+            } else if (nestedModels.child(child) == null) {
+                type.addField(fetchFields.valueChildField(model, child));
+            } else {
+                type.addField(fetchFields.childField(model, child));
+            }
         }
         // The set a @Selected field is filled from is declared after every other constant: it holds them, so a class
         // initialiser that reached it earlier would read them null (R-GEN-29).
@@ -378,7 +383,8 @@ final class QModelWriter {
             init.add("\n.set($S, ALL)\n.set($S, DEFAULT)", "ALL", "DEFAULT");
             joined.forEach(table -> init.add("\n.joinSet($L, $L)", table.table(), table.selectSet()));
         }
-        indexCall(init, "child", model.children().stream().filter(child -> nestedModels.child(child) != null)
+        indexCall(init, "child", model.children().stream()
+                .filter(child -> !child.child().map() && nestedModels.child(child) != null)
                 .map(ModelField::constant).toList());
         init.add("\n.build()$<$<");
         // The holder is named Index and may share a name with a user's type; JavaPoet qualifies the one it must.
@@ -1193,11 +1199,12 @@ final class QModelWriter {
     }
 
     /**
-     * A {@code @Child} field until a fetch plan loads it: an empty {@code List}, {@code Set} or {@code Optional}
-     * (R-FCH-03, R-FCH-19).
+     * A {@code @Child} field until a fetch plan loads it: an empty {@code List}, {@code Set}, {@code Map} or
+     * {@code Optional} (R-FCH-03, R-FCH-19, R-FCH-20).
      */
     private static CodeBlock unloaded(ModelField field) {
-        return field.child().set() ? CodeBlock.of("$T.of()", Set.class)
+        return field.child().map() ? CodeBlock.of("$T.of()", Map.class)
+                : field.child().set() ? CodeBlock.of("$T.of()", Set.class)
                 : field.child().toMany() ? CodeBlock.of("$T.of()", List.class) : CodeBlock.of("$T.empty()", OPTIONAL);
     }
 

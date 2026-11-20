@@ -175,6 +175,7 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ2606` | An `Enricher.byKey` or `byKeys` lookup returned `null` | `api/15` R-FCH-08, R-FCH-15 |
 | `MQ2607` | A key-group function returned `null`; the message names the key. After the parent statement, before the child's first round; for `byKeys` and `one(q, key)`, before any statement | `api/15` R-FCH-18, `engine/20` R-EXE-18, D-204 |
 | `MQ2608` | A key's row was found only by the `verifyMissing` re-read of a child load, `byKeys` or `one(q, key)`; logged `WARNING` once per definition, naming it and a sample key, never a bound value, never thrown | `api/15` R-FCH-18, `engine/20` R-EXE-18, D-206 |
+| `MQ2609` | Two entries with the same Java key for one parent in a map element collection (realistic with a lossy key converter); names the field, the parent key and the map key | `api/15` R-FCH-20, D-248 |
 | `MQ2701` | A recursive source's tree is deeper than its `maxDepth`; the message names the model, the limit and the key of the first row past it. Read from the statement's own first row, so a too-deep tree is refused whole rather than returned in part; nothing is refused on an empty result | `api/17` R-SRC-08, D-144 |
 | `MQ2702` | A recursive source's graph closed a cycle: the message names the model and the first key the cycle clause marked, which is the row the source would read twice. Read as `MQ2701` is | `api/17` R-SRC-08, D-144 |
 | `MQ2703` | A tree source's walk reaches a node key twice, through overlapping seeds or more than one path. The message names the model and the key's first column. Read from the statement's first row after `MQ2701` and `MQ2702`, over the whole CTE; nothing is refused on an empty result | `api/17` R-SRC-14, D-147 |
@@ -198,7 +199,8 @@ aggregates, `MQ3046` includes an unknown join and a nonempty `entityJoin` combin
 expression, for any function (R-PROC-47, D-202). The remaining families are
 `MQ3201`–`MQ3208` for aggregate models,
 `MQ3301`–`MQ3307` for update models,
-`MQ3401`–`MQ3407` for `@Child` (`api/15`; `MQ3407` for value children and element-model misuse, D-251), `MQ3501`–`MQ3506` for insert
+`MQ3401`–`MQ3408` for `@Child` (`api/15`; `MQ3407` for value children and element-model misuse, `MQ3408` for map
+children, D-248, D-251), `MQ3501`–`MQ3506` for insert
 models and `generateInserts` (D-116, D-117, D-123). Codes are not repeated here to keep one owner.
 
 ## 5. `MQ4xxx` — configuration

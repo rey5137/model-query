@@ -5,14 +5,19 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
+import jakarta.persistence.JoinTable;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.MapKeyColumn;
+import jakarta.persistence.MapKeyEnumerated;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OrderColumn;
 import jakarta.persistence.Table;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Fixture entity over {@code tagged_cards}, whose element collections a value child reads: basic tags, states
@@ -60,4 +65,36 @@ public class TaggedCardEntity {
     @CollectionTable(name = "tagged_card_ordered_spots", joinColumns = @JoinColumn(name = "card_id"))
     @OrderColumn(name = "pos")
     List<SpotValue> orderedSpots;
+
+    @ElementCollection
+    @CollectionTable(name = "tagged_card_labels", joinColumns = @JoinColumn(name = "card_id"))
+    @MapKeyColumn(name = "label_key")
+    @Column(name = "label_val")
+    Map<String, String> labels;
+
+    @ElementCollection
+    @CollectionTable(name = "tagged_card_counts", joinColumns = @JoinColumn(name = "card_id"))
+    @MapKeyEnumerated(EnumType.STRING)
+    @MapKeyColumn(name = "status_key")
+    @Column(name = "count_val")
+    Map<OrderStatus, Integer> counts;
+
+    @ElementCollection
+    @CollectionTable(name = "tagged_card_spots_map", joinColumns = @JoinColumn(name = "card_id"))
+    @MapKeyColumn(name = "spot_key")
+    Map<String, SpotValue> spotsMap;
+
+    @ElementCollection
+    @CollectionTable(name = "tagged_card_case_labels", joinColumns = @JoinColumn(name = "card_id"))
+    @MapKeyColumn(name = "label_key")
+    @Convert(converter = LowerCaseConverter.class, attributeName = "key")
+    @Column(name = "label_val")
+    Map<String, String> caseLabels;
+
+    @OneToMany
+    @JoinTable(name = "tagged_card_held_map",
+            joinColumns = @JoinColumn(name = "holder_id"),
+            inverseJoinColumns = @JoinColumn(name = "card_id"))
+    @MapKeyColumn(name = "role_key")
+    Map<String, TaggedCardEntity> heldMap;
 }

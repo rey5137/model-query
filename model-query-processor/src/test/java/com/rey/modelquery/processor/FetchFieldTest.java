@@ -687,7 +687,6 @@ class FetchFieldTest {
                         @Child(through = "siblings.tags") List<String> merged,
                         @Child(through = "box.inner") List<String> embedded,
                         @Child(through = "tags.length") List<String> past,
-                        @Child(through = "labels") List<String> labels,
                         @Child(key = "name", through = "tags") List<String> notId) {}
                 """, """
                 @QueryModel(root = PairEntity.class)
@@ -713,8 +712,6 @@ class FetchFieldTest {
                         + "which a join can't reach into",
                 "MQ3406: TaggedCard.past: through 'tags.length' goes on past the element collection 'tags' of "
                         + "TaggedEntity, whose elements a path can't step into; end it there",
-                "MQ3406: TaggedCard.labels: through 'labels' ends at the element collection 'labels', a Map, which "
-                        + "a List or Set value child can't hold",
                 "MQ3406: TaggedCard.notId: key 'name' is not the single @Id of TaggedEntity, which a through child "
                         + "is matched on",
                 "MQ3406: PairCard.tags: PairEntity has a composite id, and a value child is matched on the parent's "
@@ -729,6 +726,7 @@ class FetchFieldTest {
                 @QueryModel(root = TaggedEntity.class)
                 public record TaggedCard(
                         @PrimaryKey Long id,
+                        @Child(through = "labels") List<String> labels,
                         @Child(through = "tags") Optional<String> optional,
                         @Child(through = "tags") java.util.Collection<String> collection,
                         @Child(through = "spots") List<String> spots,
@@ -743,6 +741,8 @@ class FetchFieldTest {
 
         assertThat(compilation).failed();
         assertThat(errors(compilation)).containsExactly(
+                "MQ3407: TaggedCard.labels: through 'labels' ends at the element collection 'labels', a Map, which "
+                        + "a List or Set value child can't hold",
                 "MQ3407: TaggedCard.optional: through 'tags' ends at the element collection 'tags', and a value "
                         + "child is a List or Set of its element type, found Optional<String>",
                 "MQ3407: TaggedCard.collection: through 'tags' ends at the element collection 'tags', and a value "
@@ -757,6 +757,135 @@ class FetchFieldTest {
                         + "Set holds the values of an element collection",
                 "MQ3406: TaggedCard.modelThere: through 'tags' ends at the element collection 'tags', not at "
                         + "TaggedEntity, the root of TaggedRef; a value child is a List or Set of its element type");
+    }
+
+    @Test
+    void ac_proc_66_map_child_generates_map_child_field_matching_golden_file() {
+        Compilation compilation = compileTagged("""
+                @QueryModel(root = TaggedEntity.class)
+                public record TaggedMapCard(
+                        @PrimaryKey Long id,
+                        @Child(through = "labels") java.util.Map<String, String> labels) {}
+                """);
+
+        assertThat(compilation).succeededWithoutWarnings();
+        assertThat(generated(compilation, "models.QTaggedMapCard"))
+                .isEqualTo(resource("golden/QTaggedMapCard.java"));
+    }
+
+    @Test
+    void ac_proc_66_element_model_map_child_generates_map_child_field() throws Exception {
+        Compilation compilation = compileTagged("""
+                @com.rey.modelquery.annotations.ElementModel(Spot.class)
+                public record SpotRow(String city) {}
+                """, """
+                @jakarta.persistence.Entity
+                public class MapSpotEntity {
+                    @jakarta.persistence.Id
+                    Long id;
+                    @jakarta.persistence.ElementCollection
+                    java.util.Map<String, Spot> spots;
+                }
+                """, """
+                @QueryModel(root = MapSpotEntity.class)
+                public record MapSpotCard(
+                        @PrimaryKey Long id,
+                        @Child(through = "spots") java.util.Map<String, SpotRow> spots) {}
+                """);
+
+        assertThat(compilation).succeededWithoutWarnings();
+        String generated = generated(compilation, "models.QMapSpotCard");
+        assertThat(generated).contains("MapChildField<MapSpotCard, String, SpotRow> SPOTS");
+        assertThat(generated).contains("isElementModel()");
+        assertThat(generated).contains("elementQuery()");
+        var field = (com.rey.modelquery.core.MapChildField<?, ?, ?>) classes(compilation)
+                .loadClass("models.QMapSpotCard").getField("SPOTS").get(null);
+        assertThat(field.isElementModel()).isTrue();
+        assertThat(field.elementQuery()).isNotNull();
+    }
+
+    @Test
+    void ac_proc_67_map_child_rejects_entity_or_embeddable_key_and_map_association() {
+        Compilation compilation = compileTagged("""
+                @jakarta.persistence.Entity
+                public class MapKeyEntity {
+                    @jakarta.persistence.Id
+                    Long id;
+                    @jakarta.persistence.ElementCollection
+                    java.util.Map<TaggedEntity, String> entityKey;
+                    @jakarta.persistence.ElementCollection
+                    java.util.Map<Spot, String> embeddableKey;
+                    @jakarta.persistence.OneToMany
+                    java.util.Map<String, TaggedEntity> assocMap;
+                }
+                """, """
+                @QueryModel(root = MapKeyEntity.class)
+                public record BadKeys(
+                        @PrimaryKey Long id,
+                        @Child(through = "entityKey") java.util.Map<TaggedEntity, String> entityKey,
+                        @Child(through = "embeddableKey") java.util.Map<Spot, String> embeddableKey,
+                        @Child(through = "assocMap") java.util.Map<String, TaggedRef> assocMap) {}
+                """, """
+                @QueryModel(root = TaggedEntity.class)
+                public record TaggedRef(@PrimaryKey Long id) {}
+                """, """
+                @QueryModel(root = MapKeyEntity.class)
+                public record WorkingList(
+                        @PrimaryKey Long id,
+                        @Child(through = "assocMap") List<TaggedRef> assocList) {}
+                """);
+
+        assertThat(compilation).failed();
+        assertThat(errors(compilation)).anySatisfy(err -> assertThat(err).startsWith("MQ3408: BadKeys.entityKey:"))
+                .anySatisfy(err -> assertThat(err).startsWith("MQ3408: BadKeys.embeddableKey:"))
+                .anySatisfy(err -> assertThat(err).startsWith("MQ3408: BadKeys.assocMap: through 'assocMap' ends at "
+                        + "the Map association 'assocMap'; use @Child(through = \"assocMap\") List<TaggedRef> "
+                        + "instead"));
+    }
+
+    @Test
+    void ac_proc_67_map_child_rejects_mismatched_types_and_shapes() {
+        Compilation compilation = compileTagged("""
+                @QueryModel(root = TaggedEntity.class)
+                public record BadMapCard(
+                        @PrimaryKey Long id,
+                        @Child(through = "tags") java.util.Map<String, String> notMap,
+                        @Child(through = "labels") java.util.Map<Integer, String> badKey,
+                        @Child(through = "labels") java.util.Map<String, Integer> badValue,
+                        @Child(through = "labels") java.util.Map<String, SpotRow> badElementModel) {}
+                """, """
+                @com.rey.modelquery.annotations.ElementModel(Spot.class)
+                public record SpotRow(String city) {}
+                """);
+
+        assertThat(compilation).failed();
+        assertThat(errors(compilation)).containsExactly(
+                "MQ3407: BadMapCard.notMap: through 'tags' ends at the element collection 'tags', and a value child "
+                        + "is a List or Set of its element type, found Map<String, String>",
+                "MQ3002: BadMapCard.badKey: Map<Integer, String> has key Integer, and the element collection 'labels' "
+                        + "has key String",
+                "MQ3002: BadMapCard.badValue: Map<String, Integer> holds Integer, and the element collection 'labels' "
+                        + "holds String",
+                "MQ3407: BadMapCard.badElementModel: an @ElementModel is only valid as an embeddable element "
+                        + "collection value child");
+    }
+
+    @Test
+    void ac_proc_67_source_rooted_map_child_is_mq3406() {
+        Compilation compilation = compileTagged("""
+                @com.rey.modelquery.annotations.SourceModel(root = TaggedEntity.class)
+                public record TaggedTotals(@PrimaryKey Long id) {}
+                """, """
+                @QueryModel(root = TaggedTotals.class)
+                public record TaggedMapRow(
+                        @PrimaryKey Long id,
+                        @Child(through = "labels") java.util.Map<String, String> labels) {}
+                """);
+
+        assertThat(compilation).failed();
+        assertThat(errors(compilation)).containsExactly(
+                "MQ3406: TaggedMapRow.labels: through 'labels' needs an entity root to join along, and TaggedMapRow is "
+                        + "rooted at TaggedTotals, a @SourceModel; use foreignKey");
     }
 
     @Test

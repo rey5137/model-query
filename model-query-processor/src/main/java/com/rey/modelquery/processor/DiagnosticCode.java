@@ -247,6 +247,8 @@ enum DiagnosticCode {
     MQ3406("@Child through path, key or child model that a through child can't load"),
     /** A value child whose field is not a {@code List} or {@code Set}, or whose elements are not basic. */
     MQ3407("Value child field that is not a List or Set of basic elements"),
+    /** An entity or embeddable map key, or a {@code Map} association (R-FCH-20, D-248). */
+    MQ3408("@Child on a map with an entity or embeddable key, or on a Map association"),
 
     /**
      * An insert model that names its root's generated id, or does not name with {@code @PrimaryKey} an id that has

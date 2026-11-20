@@ -362,10 +362,37 @@ final class EntityMetamodel {
                     null, false, true, enumType, temporal, null);
         }
         if (hasAny(member, List.of(ELEMENT_COLLECTION))) {
-            var elements = new EntityAttribute.Elements(element == null ? null : ProcessorTypes.boxed(types, element),
-                    arguments.size() == 2, element instanceof DeclaredType declared
-                            && hasAny(declared.asElement(), List.of(EMBEDDABLE)),
-                    hasAny(member, List.of(JPA + "OrderColumn")), hasAny(member, List.of(JPA + "Lob")));
+            boolean isMap = arguments.size() == 2;
+            TypeMirror keyType = isMap ? arguments.get(0) : null;
+            TypeMirror mkc = mapKeyClass(member);
+            if (mkc != null) {
+                keyType = mkc;
+            }
+            TypeMirror keyConverter = converterFor(member, "key");
+            if (keyConverter != null) {
+                TypeMirror converted = converterAttributeType(keyConverter);
+                if (converted != null) {
+                    keyType = converted;
+                }
+            }
+            TypeMirror valueConverter = converterFor(member, "value");
+            if (valueConverter != null) {
+                TypeMirror converted = converterAttributeType(valueConverter);
+                if (converted != null) {
+                    element = converted;
+                }
+            }
+            boolean keyEmbeddable = keyType instanceof DeclaredType declared
+                    && hasAny(declared.asElement(), List.of(EMBEDDABLE));
+            boolean keyEntity = keyType instanceof DeclaredType declared
+                    && hasAny(declared.asElement(), List.of(JPA + "Entity"));
+            var elements = new EntityAttribute.Elements(
+                    keyType == null ? null : ProcessorTypes.boxed(types, keyType),
+                    element == null ? null : ProcessorTypes.boxed(types, element),
+                    isMap, keyEmbeddable, keyEntity,
+                    element instanceof DeclaredType declared && hasAny(declared.asElement(), List.of(EMBEDDABLE)),
+                    hasAny(member, List.of(JPA + "OrderColumn")), hasAny(member, List.of(JPA + "Lob")),
+                    keyConverter, valueConverter);
             return new EntityAttribute(
                     name, type, EntityAttribute.Kind.COLLECTION, null, version, updatable, insertable, null, false,
                     null, false, true, enumType, temporal, elements);
@@ -633,6 +660,79 @@ final class EntityMetamodel {
                 .filter(entry -> entry.getKey().getSimpleName().contentEquals(name))
                 .map(entry -> entry.getValue().getValue())
                 .findFirst().orElse(null);
+    }
+
+    private TypeMirror mapKeyClass(Element member) {
+        for (AnnotationMirror mirror : member.getAnnotationMirrors()) {
+            if (isNamed(mirror, JPA + "MapKeyClass")) {
+                Object val = value(mirror, "value");
+                if (val instanceof TypeMirror tm) {
+                    return tm;
+                }
+            }
+        }
+        return null;
+    }
+
+    private TypeMirror converterFor(Element member, String attributeName) {
+        for (AnnotationMirror mirror : member.getAnnotationMirrors()) {
+            if (isNamed(mirror, JPA + "Convert")) {
+                TypeMirror conv = checkConvert(mirror, attributeName);
+                if (conv != null) {
+                    return conv;
+                }
+            } else if (isNamed(mirror, JPA + "Converts")) {
+                Object val = value(mirror, "value");
+                if (val instanceof List<?> list) {
+                    for (Object item : list) {
+                        if (item instanceof AnnotationValue av && av.getValue() instanceof AnnotationMirror nested) {
+                            TypeMirror conv = checkConvert(nested, attributeName);
+                            if (conv != null) {
+                                return conv;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private static TypeMirror checkConvert(AnnotationMirror mirror, String attributeName) {
+        Object attr = value(mirror, "attributeName");
+        String name = attr instanceof String s ? s : "";
+        if (name.equals(attributeName) || (attributeName.equals("value") && name.isEmpty())) {
+            Object conv = value(mirror, "converter");
+            if (conv instanceof TypeMirror tm) {
+                return tm;
+            }
+        }
+        return null;
+    }
+
+    private DeclaredType implemented(TypeMirror type, String name) {
+        if (type == null || type.getKind() != TypeKind.DECLARED) {
+            return null;
+        }
+        var declared = (DeclaredType) type;
+        if (((TypeElement) declared.asElement()).getQualifiedName().contentEquals(name)) {
+            return declared;
+        }
+        for (TypeMirror supertype : types.directSupertypes(type)) {
+            DeclaredType found = implemented(supertype, name);
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    private TypeMirror converterAttributeType(TypeMirror converter) {
+        DeclaredType implemented = implemented(converter, JPA + "AttributeConverter");
+        if (implemented != null && !implemented.getTypeArguments().isEmpty()) {
+            return implemented.getTypeArguments().get(0);
+        }
+        return null;
     }
 
     private static boolean isNamed(AnnotationMirror mirror, String qualifiedName) {
