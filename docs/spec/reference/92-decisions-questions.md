@@ -3448,6 +3448,50 @@ files there still merge unless the directory is cleaned or the property is set (
 Rejected: deleting the files of dead pids at session open, which removes earlier forks of the same build under
 `reuseForks=false` and Surefire's files under Failsafe. → `api/16` R-INS-21, AC-INS-22.
 
+**D-245 — Element collections are read as value children through `through`; RFC 0027 accepted (RFC 0027 Part A,
+2026-11-20, user decision).** RFC 0027 is accepted after its architect review and its acceptance spike (Hibernate 6.6
+and 7.4, EclipseLink 4.0 and 5.0, on H2, PostgreSQL and MySQL). `@Child(through = path)` may end at an
+`@ElementCollection`, directly on the parent's root or after to-one associations only; a to-many before it, an
+embedded step, a path past it and a composite parent `@Id` are `MQ3406`. A basic element is a `ValueChildField<M, E>`
+on a `List<E>` or `Set<E>` field, loaded by `FetchPlan#values` with a `ValueChildQuery` carrying only `maxPerParent`;
+`ChildField` stays for model children, since its `query()` needs a model builder. The engine joins an `@OrderColumn`
+attribute with `joinList`. Rejected: a separate `@Child` attribute (a second name for the same path) and a fake model
+for basic values (filters and order typed over nothing). → `rfc/0027` Part A, `api/15` R-FCH-14, R-FCH-19.
+
+**D-246 — Embeddable elements use `@ElementModel` (RFC 0027 Part A, 2026-11-20, user decision).** `@ElementModel(X.class)`
+names an `@Embeddable` and generates columns on an engine-internal element table, with no public `ROOT`, no `query()`,
+no `@PrimaryKey`, `@Child` or `@Join` and no customizer; it is valid only as a value child's type (`MQ3407`). A
+`@QueryModel` rooted at an embeddable stays `MQ3038`. Rejected: `@QueryModel(root = Embeddable)` (compiles then fails
+at run time, R-GEN-18 and `MQ3405`), and a plain record mapped by component name (loses `@Column` paths, converters,
+INV-3 checks and the `Q*` field list). → `rfc/0027` Part A, `api/15` R-FCH-21, `processor/30` R-PROC-39.
+
+**D-247 — Value children are bags (RFC 0027 Part A, 2026-11-20, user decision).** Value-child rows are never
+deduplicated; `NULL` elements are kept, and an embeddable element whose columns are all `NULL` maps to a model with null
+fields. A to-many join in a value-child statement is `MQ1713` at the plan build, before the parent's statement (D-138).
+`verifyMissing` is `MQ1708` for every value child (D-209 extended); a basic value child has no key groups. The order is
+the `@OrderColumn`, then the child query's order, then a basic non-LOB value; otherwise unspecified, and `NULL`
+placement is the vendor's. For a `Set` field `maxPerParent` counts rows before equal elements collapse. → `rfc/0027`
+Part A, `api/15` R-FCH-04, R-FCH-18, R-FCH-19.
+
+**D-248 — Maps load through `key()` and `value()` with no key order (RFC 0027 Part B, 2026-11-20, user decision).** A
+`through` path ending at an `@ElementCollection Map<K, V>` loads into a `Map<K, V>` field through `MapChildField` and
+`FetchPlan#map`; `K` is basic, `V` basic or an `@ElementModel`. The statement selects `key()` and `value()`, never
+`entry()` (fails on Hibernate, loses keys on EclipseLink), and has no order by key (EclipseLink renders it invalidly
+over an embeddable value), so the field promises no order. The processor models element and map-key converters and
+`@MapKey*` annotations for INV-3. Two entries with one Java key for one parent are `MQ2609`. An entity or embeddable
+key, and an entity value, are `MQ3408`; the latter's message names `@Child(through) List<…>`. → `rfc/0027` Part B,
+`api/15` R-FCH-20.
+
+**D-249 — Filters may go through an element collection (RFC 0027 Part C, 2026-11-20, user decision).** A
+`@FilterColumn` path may end at an element collection, as a generated join with R-PROC-13's constant and a written
+`joinType`; R-EXE-16 renders it as a semi-join where it applies. A basic element's value is a `ColumnField` on the
+join node with no attribute. D-46 is amended: an element collection gets a table constant only when a filter column
+goes through it, so existing `Q*` classes gain no member. `@Join` and `@JoinSource` still refuse element-collection
+paths (`MQ3044`). → `rfc/0027` Part C, `processor/30` R-PROC-13, `engine/20` R-EXE-16.
+
+**D-250 — Element collections are M39; the freeze moves to M40 (RFC 0027, 2026-11-20, user decision).** M39 ships in
+0.16.0, slices M39.0 to M39.4; the freeze, M40, stays last. → `docs/plan/mvp-plan` §39.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

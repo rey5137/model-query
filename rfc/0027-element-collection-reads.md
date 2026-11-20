@@ -1,6 +1,6 @@
 # RFC 0027 — Element collections and maps: value children and filters
 
-- **Status:** draft (revised after the architect review and the acceptance spike; Spike results)
+- **Status:** accepted as D-245 to D-250 (2026-11-20), after its architect review and its acceptance spike (Spike results)
 - **Affects:**
   - **`api/15`:** R-FCH-03 (a `List` child needs a `@PrimaryKey` *unless it is a value child*), R-FCH-04 (dedupe
     and the closing primary-key order do not apply to value children), R-FCH-14 (`through` may end at an element
@@ -19,7 +19,8 @@
     definitions) and `MQ3408` (map key/value types); run-time `MQ1713` (a to-many join in a value-child
     statement, at the plan build) and `MQ2609` (two map entries for one key). The numbers are placeholders until
     acceptance.
-  - **`reference/92`:** a D-n per decision below; D-46 and D-209 amended.
+  - **`reference/92`:** D-245 to D-250; D-46 and D-209 amended.
+  - **`docs/plan/mvp-plan.md`:** this is M39; the freeze moves to M40 (D-250).
   - **`delivery/61`**, japicmp: the new public types.
   - **`docs/site`:** the "Child collections" page gains "Values and maps", with JPA and Spring tabs.
 - **Discussion:** TBD
@@ -234,10 +235,11 @@ off).
 
 ## Milestone
 
-If accepted, this is one milestone in the release after 0.15.0, in this slice order:
-1. A1: basic value children, `ValueChildField`.
-2. A2: `@ElementModel` and embeddable children.
-3. B: maps and the converter modelling.
-4. C: filters and the table constant.
+M39 in 0.16.0, the freeze moving to M40 (D-250); the acceptance spike is M39.0:
 
-The 1.0 freeze moves one milestone later.
+| Slice | Content |
+|---|---|
+| M39.1 | Basic value children: `ValueChildField`, `FetchPlan#values`, `List`/`Set` fields, `index()` order, bags |
+| M39.2 | `@ElementModel` and embeddable value children |
+| M39.3 | Maps and the element and map-key converter modelling |
+| M39.4 | Filters through an element collection and the table constant; docs and changelog |
