@@ -13,28 +13,25 @@ import org.assertj.core.api.AbstractAssert;
 @Incubating
 public final class ValueChildAssert extends AbstractAssert<ValueChildAssert, Object> {
 
-    /** The load, as a failure names it: {@code the values of OrderView.tags}, {@code the map of OrderView.labels}. */
+    /** The load, as a failure names it: {@code the values of OrderView.tags}. */
     private final String load;
-    /** What the load counts per parent: {@code values} or {@code entries}. */
-    private final String rows;
     private final int maxPerParent;
 
-    ValueChildAssert(Object field, String load, String rows, int maxPerParent) {
+    ValueChildAssert(Object field, String load, int maxPerParent) {
         super(field, ValueChildAssert.class);
         this.load = load;
-        this.rows = rows;
         this.maxPerParent = maxPerParent;
     }
 
-    /** At most {@code expected} values, or entries, are loaded per parent, counted in rows (R-FCH-11). */
+    /** At most {@code expected} values are loaded per parent, counted in rows (R-FCH-11). */
     public ValueChildAssert hasMaxPerParent(int expected) {
         if (maxPerParent != expected) {
-            failWithMessage("Expecting %s to load at most %s %s per parent, but %s", load, expected, rows, bound());
+            failWithMessage("Expecting %s to load at most %s values per parent, but %s", load, expected, bound());
         }
         return this;
     }
 
-    /** The load has no {@code maxPerParent}: every value, or entry, is loaded. */
+    /** The load has no {@code maxPerParent}: every value is loaded. */
     public ValueChildAssert hasNoMaxPerParent() {
         if (maxPerParent != 0) {
             failWithMessage("Expecting %s to have no maxPerParent, but %s", load, bound());
