@@ -154,7 +154,7 @@ public final class QueryAssert<M> extends AbstractAssert<QueryAssert<M>, ModelQu
                 "Expecting %s to load the values %s, but it has no fetch plan", describe(), name));
         for (var load : plan.valueLoads()) {
             if (load.field().name().equals(field.name())) {
-                return withStateOf(this, new ValueChildAssert(field, "the values of " + load, "values",
+                return withStateOf(this, new ValueChildAssert(field, "the values of " + load,
                         load.maxPerParent()));
             }
         }
