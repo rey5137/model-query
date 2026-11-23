@@ -32,6 +32,15 @@ public interface MapChildField<M, K, V> {
     /** The {@code @ElementCollection} attribute of {@link #owner()}. */
     String attribute();
 
+    /** The key class {@code K} names, which the plan build checks against the map's key type, boxed (D-260). */
+    Class<K> keyType();
+
+    /**
+     * The value class {@code V} names. The plan build checks it against the map's value type, boxed, for a basic value;
+     * for an {@code @ElementModel} value it is the model class, and its columns are checked instead (D-260).
+     */
+    Class<V> valueType();
+
     /** Whether the value is an {@code @ElementModel} of an embeddable. */
     @EngineFacing
     @Incubating

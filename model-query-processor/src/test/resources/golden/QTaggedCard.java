@@ -64,6 +64,11 @@ public final class QTaggedCard {
         }
 
         @Override
+        public Class<String> elementType() {
+            return String.class;
+        }
+
+        @Override
         public boolean isOrdered() {
             return false;
         }
@@ -109,6 +114,11 @@ public final class QTaggedCard {
         }
 
         @Override
+        public Class<Integer> elementType() {
+            return Integer.class;
+        }
+
+        @Override
         public boolean isOrdered() {
             return true;
         }
@@ -151,6 +161,11 @@ public final class QTaggedCard {
         @Override
         public String attribute() {
             return "notes";
+        }
+
+        @Override
+        public Class<String> elementType() {
+            return String.class;
         }
 
         @Override
@@ -201,6 +216,7 @@ public final class QTaggedCard {
                 .select(ID)
                 .set("ALL", ALL)
                 .set("DEFAULT", DEFAULT)
+                .valueChild(TAGS, SCORES, PARENT_NOTES)
                 .build();
     }
 }

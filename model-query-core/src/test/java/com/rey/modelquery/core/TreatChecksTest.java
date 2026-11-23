@@ -194,6 +194,7 @@ class TreatChecksTest {
             @Override public ColumnField<View, ?, ?> key() { return ID; }
             @Override public TableField<?, ?> owner() { return owner; }
             @Override public String attribute() { return "tags"; }
+            @Override public Class<String> elementType() { return String.class; }
             @Override public boolean isOrdered() { return false; }
             @Override public boolean ordersByValue() { return true; }
             @Override public View with(View parent, List<String> values) { return parent; }

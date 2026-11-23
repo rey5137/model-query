@@ -138,7 +138,8 @@ The literal-filter and bound-argument members (D-128, 0.9.0) are `@Incubating` t
 `Expr.value(Object)`, and the `ConstantRenderer` capability `ProviderSupport#constants` returns. `ModelUpdate.Rendered`,
 `ModelDelete.Rendered`, `EntityLoad` (what `ModelUpdate#buildEntityLoad` and `ModelDelete#buildEntityLoad` return, the
 load and the `JoinContext` that rendered it) and `JoinContext#statementParameters()` are `@EngineFacing`, so they are
-not API.
+not API. So are `ValueChildField#isOrdered()` and `#ordersByValue()`, `MapChildField#isElementModel()` and
+`#elementQuery()`, and the `MapLoad.Statement` record with the `ValueLoad` and `MapLoad` it comes from (D-261).
 The returning-write and conflict-extension members (D-129, 0.9.0) are `@Incubating` through 1.0: the three returning
 writes, `updateReturning`, `deleteReturning` and `insertReturning`, on `ModelQueryExecutor` and on
 `ModelQueryRepository`; `ConflictUpdate#setExpression` with `ConflictExpression` and `Assignment.Conflict`; the

@@ -563,6 +563,11 @@ class FetchPlanTest {
             }
 
             @Override
+            public Class<String> elementType() {
+                return String.class;
+            }
+
+            @Override
             public boolean isOrdered() {
                 return false;
             }
@@ -657,6 +662,15 @@ class FetchPlanTest {
     }
 
     @Test
+    void ac_fch_45_a_map_field_whose_element_model_flag_and_query_disagree_throws_mq1713() {
+        var plan = FetchPlan.of(SelectSet.of(ID));
+
+        assertCode(() -> plan.map(mapField("tagsMap", true)), MqCode.MQ1713,
+                "MQ1713: map child tagsMap: isElementModel() is true but elementQuery() is null; a field overrides "
+                        + "both or neither (D-261)");
+    }
+
+    @Test
     void ac_fch_45_a_map_child_named_twice_or_beside_a_child_or_value_throws_mq1703() {
         var withTagsMap = FetchPlan.of(SelectSet.of(ID)).map(mapField("tagsMap"));
         var withLines = FetchPlan.of(SelectSet.of(ID)).child(LINES, LINE);
@@ -695,7 +709,17 @@ class FetchPlanTest {
     }
 
     private static MapChildField<InvoiceView, String, String> mapField(String name) {
+        return mapField(name, false);
+    }
+
+    /** A map field whose {@code isElementModel()} is {@code elementModel}, with no {@code elementQuery()} either way. */
+    private static MapChildField<InvoiceView, String, String> mapField(String name, boolean elementModel) {
         return new MapChildField<>() {
+            @Override
+            public boolean isElementModel() {
+                return elementModel;
+            }
+
             @Override
             public String name() {
                 return name;
@@ -714,6 +738,16 @@ class FetchPlanTest {
             @Override
             public String attribute() {
                 return "tagsMap";
+            }
+
+            @Override
+            public Class<String> keyType() {
+                return String.class;
+            }
+
+            @Override
+            public Class<String> valueType() {
+                return String.class;
             }
 
             @Override

@@ -3393,12 +3393,23 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
                 + (load.maxPerParent() > 0 ? 1 : 0);
     }
 
+    /**
+     * A {@code through} child's statement builds first, so a field whose {@code isElement()} disagrees with its join is
+     * {@code MQ1713} before {@code checkFirstRun}, which the flag also decides (D-259).
+     */
+    private void checkElementFlag(ChildLoad<?, ?> load) {
+        if (load.field().through().isPresent()) {
+            load.build(em.getCriteriaBuilder(), renderOptions);
+        }
+    }
+
     /** Builds {@code load}'s statement as {@link #childrenOf} does and checks it binds one key within the limit. */
     private <M, C> void checkChildBuild(ChildLoad<M, C> load) {
+        // Built first, so a field whose isElement() disagrees with its join is refused before anything else (D-259).
+        BuiltQuery<C> built = load.build(em.getCriteriaBuilder(), renderOptions);
         if (!load.field().isElement()) {
             checkFirstRun(load.query()); // the child's own phases and plan, its nested children included
         }
-        BuiltQuery<C> built = load.build(em.getCriteriaBuilder(), renderOptions);
         load.requireBindableKeys(built); // the keys bind after the parent statement ran (R-FLT-08)
         withinBindLimit(load, childOwnBinds(load, built) + 1, 0);
     }
@@ -4473,6 +4484,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
      */
     private <E2, C> Map<Object, List<C>> childrenOf(ChildLoad<?, C> load, ModelQuery<E2, ?, C> q,
             List<Object> keys) {
+        checkElementFlag(load);
         if (!load.field().isElement()) {
             checkFirstRun(q);
         }
@@ -4531,6 +4543,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
             throw new IllegalArgumentException(load + ": a child run takes one or more distinct keys, none null, not "
                     + keys);
         }
+        checkElementFlag(load);
         if (!load.field().isElement()) {
             checkFirstRun(q);
         }

@@ -5,10 +5,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rey.modelquery.audit.test.AuditCustomerView;
 import com.rey.modelquery.audit.test.AuditLineView;
+import com.rey.modelquery.audit.test.AuditLabelledOrderView;
 import com.rey.modelquery.audit.test.AuditOrderEntity;
 import com.rey.modelquery.audit.test.AuditOrderView;
 import com.rey.modelquery.audit.test.AuditTaggedOrderView;
 import com.rey.modelquery.audit.test.ProjectionAuditCustomerView;
+import com.rey.modelquery.audit.test.QAuditLabelledOrderView;
 import com.rey.modelquery.audit.test.QAuditLineView;
 import com.rey.modelquery.audit.test.QAuditOrderView;
 import com.rey.modelquery.audit.test.QAuditTaggedOrderView;
@@ -146,6 +148,29 @@ class AcIns20Test extends AuditTestBase {
 
             assertThat(AuditObserver.tagOf(unloaded).isSelected("tags")).isFalse();
             assertThatThrownBy(unloaded::tags).isInstanceOf(UnselectedColumnRead.class);
+            assertThat(AuditObserver.tagOf(unloaded).unselectedReads()).hasSize(1);
+        }
+    }
+
+    @Test
+    void ac_ins_20_map_child_loaded_by_plan_is_selected_and_unloaded_is_unselected() {
+        try (EntityManager em = sessions.createEntityManager()) {
+            ModelQueryExecutor<AuditOrderEntity> executor = orderExecutor(em);
+            FetchPlan<AuditLabelledOrderView> plan = FetchPlan.of(QAuditLabelledOrderView.ALL)
+                    .map(QAuditLabelledOrderView.LABELS);
+            AuditLabelledOrderView loaded = executor.one(QAuditLabelledOrderView.query()
+                    .where(f -> f.eq(QAuditLabelledOrderView.ID, 1L)).fetch(plan).build()).orElseThrow();
+
+            assertThat(AuditObserver.tagOf(loaded).isSelected("labels")).isTrue();
+            assertThat(loaded.labels()).containsEntry("tier", "gold");
+            assertThat(AuditObserver.tagOf(loaded).unselectedReads()).isEmpty();
+
+            AuditLabelledOrderView unloaded = executor.one(QAuditLabelledOrderView.query()
+                    .select(QAuditLabelledOrderView.ALL).where(f -> f.eq(QAuditLabelledOrderView.ID, 1L)).build())
+                    .orElseThrow();
+
+            assertThat(AuditObserver.tagOf(unloaded).isSelected("labels")).isFalse();
+            assertThatThrownBy(unloaded::labels).isInstanceOf(UnselectedColumnRead.class);
             assertThat(AuditObserver.tagOf(unloaded).unselectedReads()).hasSize(1);
         }
     }

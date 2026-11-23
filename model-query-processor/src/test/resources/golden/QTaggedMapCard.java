@@ -62,6 +62,16 @@ public final class QTaggedMapCard {
         }
 
         @Override
+        public Class<String> keyType() {
+            return String.class;
+        }
+
+        @Override
+        public Class<String> valueType() {
+            return String.class;
+        }
+
+        @Override
         public TaggedMapCard with(TaggedMapCard parent, Map<String, String> entries) {
             return new TaggedMapCard(parent.id(),
                     Collections.unmodifiableMap(new LinkedHashMap<>(entries)));
@@ -99,6 +109,7 @@ public final class QTaggedMapCard {
                 .select(ID)
                 .set("ALL", ALL)
                 .set("DEFAULT", DEFAULT)
+                .mapChild(LABELS)
                 .build();
     }
 }

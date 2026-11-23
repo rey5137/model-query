@@ -151,7 +151,7 @@ public final class ChildLoad<M, C> {
         return through == null
                 ? query.buildQuery(cb, Phase.MODEL, options, values)
                 : query.buildThroughQuery(cb, options, through, field.key(), values, field.isElement(),
-                        field.isOrderedElement());
+                        field.isOrderedElement(), toString());
     }
 
     /**

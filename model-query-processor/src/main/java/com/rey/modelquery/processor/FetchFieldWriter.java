@@ -40,6 +40,7 @@ final class FetchFieldWriter {
     private static final ClassName INCUBATING = ClassName.get("com.rey.modelquery.annotations", "Incubating");
     private static final ClassName JOIN_TYPE = ClassName.get("jakarta.persistence.criteria", "JoinType");
     private static final ClassName OPTIONAL = ClassName.get(Optional.class);
+    private static final ClassName CLASS = ClassName.get(Class.class);
     private static final ClassName LIST = ClassName.get(List.class);
     private static final ClassName MAP = ClassName.get(Map.class);
     private static final WildcardTypeName ANY = WildcardTypeName.subtypeOf(Object.class);
@@ -212,6 +213,9 @@ final class FetchFieldWriter {
                 .addMethod(method("attribute", ClassName.get(String.class))
                         .addStatement("return $S", through.elements().name())
                         .build())
+                .addMethod(method("elementType", ParameterizedTypeName.get(CLASS, element))
+                        .addStatement("return $T.class", element)
+                        .build())
                 .addMethod(method("isOrdered", TypeName.BOOLEAN)
                         .addStatement("return $L", elements.ordered())
                         .build())
@@ -265,6 +269,12 @@ final class FetchFieldWriter {
                         .build())
                 .addMethod(method("attribute", ClassName.get(String.class))
                         .addStatement("return $S", through.elements().name())
+                        .build())
+                .addMethod(method("keyType", ParameterizedTypeName.get(CLASS, keyType))
+                        .addStatement("return $T.class", keyType)
+                        .build())
+                .addMethod(method("valueType", ParameterizedTypeName.get(CLASS, valueType))
+                        .addStatement("return $T.class", valueType)
                         .build())
                 .addMethod(nullness.unmarked(with).build());
         ModelDefinition child = nestedModels.child(field);

@@ -671,7 +671,7 @@ var tags = QOrderTags.query()
 - **A bag.** One statement per round selects the parent's key and the value, and keeps every row: two equal tags are
   two entries of the `List`, and a `NULL` element is kept. A `Set` keeps the first of equal values.
 - **Order.** The `@OrderColumn`'s position first, if the mapping has one, then the value itself, unless it is a LOB.
-  `NULL` sorts where the database puts it: first on H2 and MySQL, last on PostgreSQL.
+  `NULL` sorts last on every database. A basic element type the database cannot order fails the load; mark it `@Lob`.
 - **The key.** Values match on the root's single `@Id`, so the value child needs no `@PrimaryKey` of its own. The
   `through` path may cross to-one associations first (`"customer.tags"`), never a collection (`MQ3406`).
 - **The bound.** `maxPerParent(n)` counts rows, before a `Set` collapses equal values; a parent with more is `MQ2603`.

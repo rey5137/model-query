@@ -41,7 +41,7 @@ throws when it affects no rows (see [Bulk writes](bulk-writes.md)).
 
 | Code | What went wrong |
 |---|---|
-| `MQ1001` | A column's declared type does not match the entity attribute. |
+| `MQ1001` | A column's declared type does not match the entity attribute; a value or map child field's declared element, key or value type is not the element collection's, at the plan build. |
 | `MQ1002` | An attribute named by a column or join does not exist on its entity. |
 | `MQ1003` | A column or table sits on a root entity the query is not rooted at. |
 | `MQ1004` | A write reads a to-one by its id in its filter, set clause or an upsert's `doUpdate(...).where(...)`, but the provider does not report the foreign key as a column of the entity's own table referencing the target's primary key. The message says "the provider reports that it is not" or "the provider cannot tell". |
@@ -93,7 +93,7 @@ throws when it affects no rows (see [Bulk writes](bulk-writes.md)).
 | `MQ1704` | A fetch plan with a child, at any join depth, on a grouped query. |
 | `MQ1705` | A join plan selects an aggregate, which cannot be re-rooted under the join. |
 | `MQ1708` | A key-group definition that does not fit its child or query, at the plan build for a child and at `build()` for a query, before any statement: a key type unequal to the key's attribute type, a group param nothing reads or that the model also binds, `verifyMissing` with no `bind` or on a to-many child, or a group param read in a way the child or query does not allow. See [Child loads over partitioned tables](fetch-plans.md#child-loads-over-partitioned-tables) and [Key groups](reading-keys.md#key-groups-on-a-partitioned-table). |
-| `MQ1713` | A value or map child's statement joins a collection besides its element collection, which would repeat its values; at the plan build, before the parent's statement. |
+| `MQ1713` | A value, map or element child's statement joins a collection besides its element collection, which would repeat its values; an element child whose `isElement()` disagrees with its join, or a map child whose `isElementModel()` and `elementQuery()` disagree; at the plan build, before the parent's statement. |
 | `MQ1601` | Bulk write: no predicate left after skipping rows, or a conflict arbiter's `where(...)` whose filters were all skipped. |
 | `MQ1602` | Bulk write: column is assigned twice. |
 | `MQ1603` | Bulk write: `set(column, null)` called; NULL must be written with `setNull`. |
@@ -222,7 +222,7 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | Code | What went wrong |
 |---|---|
 | `MQ3001` | Unknown attribute, or a dotted `@Column(attribute)` that leaves embedded values. |
-| `MQ3002` | Model type is not the entity attribute's type, and no converter provided or built in (`Instant` or `Date` over a `Timestamp`). On a to-one, a column that is not the target's id type, or whose mapping cannot be read by id (the message names the reason). |
+| `MQ3002` | Model type is not the entity attribute's type, and no converter provided or built in (`Instant` or `Date` over a `Timestamp`). On a to-one, a column that is not the target's id type, or whose mapping cannot be read by id (the message names the reason). An `@ElementCollection` element or map key type that cannot be read (D-260). |
 | `MQ3003` | `@Join` attribute is not a to-one association, or the nested model's root does not match the target. |
 | `MQ3004` | Missing `@PrimaryKey` on a model with no `@Aggregate` field. |
 | `MQ3005` | `@Join` field is not `Optional<X>`, or `X` is neither a `@QueryModel` nor bound by a `@BindQueryModel`, or `X` has an `@Aggregate` or `@Computed` field. |

@@ -3476,8 +3476,10 @@ deduplicated; `NULL` elements are kept, and an embeddable element whose columns 
 fields. A to-many join in a value-child statement is `MQ1713` at the plan build, before the parent's statement (D-138).
 `verifyMissing` is `MQ1708` for every value child (D-209 extended); a basic value child has no key groups. The order is
 the `@OrderColumn`, then the child query's order, then a basic non-LOB value; otherwise unspecified, and `NULL`
-placement is the vendor's. For a `Set` field `maxPerParent` counts rows before equal elements collapse. → `rfc/0027`
+placement is the vendor's *(amended by D-261: NULL last on every vendor)*. For a `Set` field `maxPerParent` counts rows before equal elements collapse. → `rfc/0027`
 Part A, `api/15` R-FCH-04, R-FCH-18, R-FCH-19.
+*Amended by D-261:* the engine's value order renders `NULL` last explicitly on every vendor, in place of the vendor's own
+placement.
 
 **D-248 — Maps load through `key()` and `value()` with no key order (RFC 0027 Part B, 2026-11-20, user decision).** A
 `through` path ending at an `@ElementCollection Map<K, V>` loads into a `Map<K, V>` field through `MapChildField` and
@@ -3568,6 +3570,44 @@ association inside them (`"stops.country.name"`) is `MQ3011`: a column can't rea
 inside an element is no join a generated `TableField` can name. Rejected: an empty attribute through `ColumnField.of`
 (a sentinel no caller could read off the signature) and a constant for every element collection (D-249). → `api/10`
 R-COL-08, `processor/30` R-PROC-13, `engine/20` R-EXE-16, AC-PROC-68, AC-EXE-30.
+
+**D-259 — An element child is recognised from its resolved join, not only its field's `isElement()` (M39 gate,
+2026-11-23, architect review).** A field whose flag disagrees with the join, an element child over an association or an
+association child over an element collection, is refused at the plan build with `MQ1713` naming the load, so the
+bag guard of R-FCH-21 cannot be bypassed. Rejected: trusting the flag (a hand-written field silently repeats rows). →
+`api/15` R-FCH-21, AC-FCH-36, `reference/90` MQ1713.
+
+**D-260 — Value and map child fields declare their element, key and value classes (M39 gate, 2026-11-23, architect
+review, user decision).** `ValueChildField` gains the abstract `Class<E> elementType()`, `MapChildField` the abstract
+`Class<K> keyType()` and `Class<V> valueType()`; the processor generates them, reading `@ElementCollection.targetClass`
+as the element type when it is set and raising `MQ3002` when the element or key type still can't be read, rather than
+skipping the check. `ValueLoad.build` and `MapLoad.build` compare each, boxed, with the join's `getJavaType()` and
+throw `MQ1001` naming the load. `valueType()` of an `@ElementModel` value is the model class and is not compared: its
+columns are checked instead. Rejected: processor-only checking (a hand-written field pollutes the heap with values of
+another type). → `api/15` R-FCH-19, R-FCH-20, AC-FCH-28, AC-FCH-45, `processor/32` MQ3002.
+
+**D-261 — A value child's own order puts NULL last on every vendor, and the engine-only field flags are `@EngineFacing`
+(M39 gate, 2026-11-23, architect review, user decision).** Where the engine itself orders a value child by its
+element (`ValueLoad`, after any `index()`, for a basic non-LOB element), it renders an explicit `nullsLast` through the
+same path as an explicit `nullsLast()` (R-COL-12, `OrderField`): the provider's clause, or a null-test key, so a `List`
+reads `["a", null]` on H2, MySQL and PostgreSQL alike (INV-6). It is always `nullsLast`, never plain ascending as
+`first()` does for a column that cannot be `NULL`, because the JPA metamodel gives no nullability for a collection
+element. A basic element type the database cannot order fails the load with an SQL error; mark it `@Lob`. Maps and
+element-model children add no value order, so they are unchanged. `ValueChildField#isOrdered()` and `#ordersByValue()`
+are `@EngineFacing`, as are `MapChildField#isElementModel()` and `#elementQuery()` (kept as a pair), `MapLoad.Statement`
+and the loads. A `MapChildField` whose two disagree is `MQ1713` at the plan build, naming the field, in D-259's family
+(`MQ1704` already means a child on a grouped query). Rejected: vendor placement (a list differs
+between H2 and PostgreSQL, against R-COL-12 and INV-6); a plain-ascending branch (no portable nullability signal for
+elements). → `api/15` R-FCH-19, AC-FCH-30, `delivery/61`, `reference/90` MQ1713.
+
+**D-262 — `FieldIndex` indexes value and map children, and `Resolution` carries them (M39 gate, 2026-11-23, architect
+review, user decision).** `FieldIndex` holds a model's `ValueChildField`s and `MapChildField`s next to its `ChildField`s,
+by name (`valueChild(name)`, `mapChild(name)`, `Builder.valueChild(...)`, `Builder.mapChild(...)`), and
+`Resolution<M>` gains `values` and `maps` between `children` and `unknown`. `resolve` looks a name up as a select
+field, a set, a child, a value child, then a map child, and the generated index passes every value and map constant
+(R-COL-23, R-GEN-33). The select audit reads the index instead of reflecting over value-child constants, so a map
+child is a model property and reading one a plan did not load is `UnselectedColumnRead` (R-INS-18). Rejected: constants
+only (a client-driven fetch could not reach a value or map child, and the record would change after 1.0).
 
 ## 2. Open questions
 

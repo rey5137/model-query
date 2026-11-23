@@ -19,6 +19,7 @@ import jakarta.persistence.criteria.Selection;
 import jakarta.persistence.criteria.Subquery;
 import jakarta.persistence.metamodel.EntityType;
 import jakarta.persistence.metamodel.PluralAttribute;
+import jakarta.persistence.metamodel.Type;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
@@ -655,10 +656,11 @@ public final class ModelQuery<E, K, M> {
      * The customizer, if any, runs last, its {@code query.getRoots()} holding the parent's entity.
      *
      * @throws ModelQueryDefinitionException {@code MQ1205} when the customizer changed the ordering or grouping
-     *     or dropped a source check column
+     *     or dropped a source check column; {@code MQ1713} when {@code element} disagrees with the join's attribute,
+     *     or an element child's statement joins another collection; {@code load} names the child in the message
      */
     BuiltQuery<M> buildThroughQuery(CriteriaBuilder cb, RenderOptions options, TableField<?, ?> through,
-            ColumnField<?, ?, ?> parentKey, Map<QueryParam<?>, Object> perRound, boolean element, boolean ordered) {
+            ColumnField<?, ?, ?> parentKey, Map<QueryParam<?>, Object> perRound, boolean element, boolean ordered, String load) {
         CriteriaQuery<Tuple> query = cb.createTupleQuery();
         Root<?> from = query.from(through.pathRoot());
         JoinContext parent = JoinContext.readOf(from, cb, query, bound(options, perRound));
@@ -666,6 +668,15 @@ public final class ModelQuery<E, K, M> {
                 ? through.parent().resolve(parent).joinList(through.key().attribute(), JoinType.INNER)
                 : through.parent().resolve(parent).join(through.key().attribute(), JoinType.INNER))
                 : through.resolve(parent);
+        boolean elementJoin = join instanceof Join<?, ?> j && j.getAttribute() instanceof PluralAttribute<?, ?, ?> p
+                && p.getElementType().getPersistenceType() != Type.PersistenceType.ENTITY;
+        if (elementJoin != element) {
+            // The flag decides the list join and the ordering, and the guard below must not hang on it (D-259).
+            throw new ModelQueryDefinitionException(MqCode.MQ1713, load + ": the field says it is "
+                    + (element ? "" : "not ") + "an element child, but its path ends at "
+                    + (elementJoin ? "an element collection" : "an association") + " ('"
+                    + ((Join<?, ?>) join).getAttribute().getName() + "')");
+        }
         Expression<?> key = parentKey.path(parent);
         JoinContext child = parent.rootedAt(join, root.rootEntity());
         Walk walk = joinSources(query, child, join, from);
@@ -674,8 +685,9 @@ public final class ModelQuery<E, K, M> {
             List<String> extra = new ArrayList<>();
             ValueLoad.pluralJoins(from, (Join<?, ?>) join, extra);
             if (!extra.isEmpty()) {
-                throw new ModelQueryDefinitionException(MqCode.MQ1713, "element child's statement joins "
-                        + "additional collections: " + String.join(", ", extra));
+                throw new ModelQueryDefinitionException(MqCode.MQ1713, load + ": the element child's statement "
+                        + "joins the collection " + String.join(", ", extra) + " besides its element collection, "
+                        + "which would repeat its values; reach it through to-one associations only");
             }
             if (ordered) {
                 List<Order> order = new ArrayList<>();

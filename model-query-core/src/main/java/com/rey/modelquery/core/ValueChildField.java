@@ -32,12 +32,20 @@ public interface ValueChildField<M, E> {
     String attribute();
 
     /**
+     * The element class {@code E} names, which the plan build checks against the collection's element type, boxed
+     * (INV-3, D-260).
+     */
+    Class<E> elementType();
+
+    /**
      * Whether the collection carries {@code @OrderColumn}: the values are then joined as a list and read in its
      * {@code index()} order.
      */
+    @EngineFacing
     boolean isOrdered();
 
     /** Whether the values are ordered by themselves after any {@code index()}: a basic element that is not a LOB. */
+    @EngineFacing
     boolean ordersByValue();
 
     /**

@@ -379,6 +379,11 @@ class ChildStatementsTest {
             }
 
             @Override
+            public Class<String> elementType() {
+                return String.class;
+            }
+
+            @Override
             public boolean isOrdered() {
                 return false;
             }
@@ -418,6 +423,16 @@ class ChildStatementsTest {
             @Override
             public String attribute() {
                 return "labels";
+            }
+
+            @Override
+            public Class<String> keyType() {
+                return String.class;
+            }
+
+            @Override
+            public Class<String> valueType() {
+                return String.class;
             }
 
             @Override
