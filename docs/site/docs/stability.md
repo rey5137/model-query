@@ -1,6 +1,6 @@
 # API stability
 
-model-query is at 0.15.0. Until 1.0.0 the public API may change in any minor release, and the commit that does it is
+model-query is at 0.16.0. Until 1.0.0 the public API may change in any minor release, and the commit that does it is
 marked breaking. From 1.0.0 the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Today: everything is `@Incubating`
@@ -198,9 +198,10 @@ The select-audit module is new in 0.15.0, test-scope and `@Incubating` (D-228 to
 properties. `ReadAccess` is public only because hooked model classes call it and is not API. See
 [Select audit](select-audit.md).
 
-The element-collection members are new in 0.16.0 and `@Incubating` (D-245 to D-258): `ValueChildField`,
-`MapChildField`, `ValueChildQuery`, `FetchPlan#values` and `FetchPlan#map`, the `@ElementModel` annotation,
-`ColumnField.element` and, in `model-query-test`, `QueryAssert#values`, `QueryAssert#map` and `ValueChildAssert`. The
+The element-collection members are new in 0.16.0 and `@Incubating` (D-245 to D-263): `ValueChildField`,
+`MapChildField`, `ValueChildQuery`, `MapChildQuery`, `FetchPlan#values` and `FetchPlan#map`, the `@ElementModel`
+annotation, `ColumnField.element` and, in `model-query-test`, `QueryAssert#values`, `QueryAssert#map`,
+`ValueChildAssert` and `MapChildAssert`. The
 executor-facing `ValueLoad` and `MapLoad` are `@EngineFacing`. See [Values and maps](fetch-plans.md#values-and-maps).
 
 The fetch-plan types are new in 0.2.0, `@Incubating`, and not yet placed in the 1.0 freeze list above:
