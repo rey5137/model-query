@@ -26,6 +26,7 @@ import com.rey.modelquery.portability.internal.DryRun;
 import com.rey.modelquery.portability.internal.OfflineUnit;
 import com.rey.modelquery.portability.internal.Outcome;
 import com.rey.modelquery.tck.col.TaggedCardEntity;
+import com.rey.modelquery.tck.fch.QCardMaps;
 import com.rey.modelquery.tck.fch.QCardValues;
 import com.rey.modelquery.tck.fch.QCardSpots;
 import com.rey.modelquery.tck.fch.QSpotRow;
@@ -119,6 +120,25 @@ class ChildStatementPortabilityTest {
                 assertThat(lines.get(1).detail()).contains("tagged_card_tags");
                 assertThat(lines.get(2).detail()).contains("tagged_card_scores").contains("pos");
                 assertThat(lines.get(3).detail()).contains("holder_id").contains("tagged_card_tags");
+            }
+        }
+    }
+
+    @Test
+    void ac_fch_47_filtered_map_children_render_in_dry_runs() {
+        var plan = FetchPlan.of(QCardMaps.ALL).map(QCardMaps.SPOTS,
+                q -> q.where(f -> f.eq(QSpotRow.CITY, "Rome")));
+        var q = QCardMaps.query().fetch(plan).build();
+        for (Map<String, Object> properties : List.<Map<String, Object>>of(Map.of(),
+                Map.of("hibernate.criteria.value_handling_mode", "inline"))) {
+            var unit = OfflineUnit.ofClasses(List.of(TaggedCardEntity.class), List.of(), properties);
+            List<CallResult> results = run(unit, list("MAPS", TaggedCardEntity.class, q));
+            for (Target target : TARGETS) {
+                List<CallResult> lines = on(results, target);
+                assertThat(lines).extracting(CallResult::child).containsExactly("", "spots");
+                assertThat(lines).allSatisfy(line -> assertThat(line.outcome()).isEqualTo(Outcome.REACHED));
+                assertThat(lines.get(1).detail()).contains("tagged_card_spots_map", "in (?,?)")
+                        .containsPattern("where [^ ]+\\.city=");
             }
         }
     }

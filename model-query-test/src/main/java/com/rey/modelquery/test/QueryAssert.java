@@ -171,14 +171,14 @@ public final class QueryAssert<M> extends AbstractAssert<QueryAssert<M>, ModelQu
      * @param <V> the map value type
      */
     @Incubating
-    public <K, V> ValueChildAssert map(MapChildField<M, K, V> field) {
+    public <K, V> MapChildAssert map(MapChildField<M, K, V> field) {
         Objects.requireNonNull(field, "field");
         String name = query() + "." + field.name();
         FetchPlan<M> plan = query().fetch().orElseThrow(() -> failure(
                 "Expecting %s to load the map %s, but it has no fetch plan", describe(), name));
         for (var load : plan.mapLoads()) {
             if (load.field().name().equals(field.name())) {
-                return withStateOf(this, new ValueChildAssert(field, "the map of " + load, "entries",
+                return withStateOf(this, new MapChildAssert(field, "the map of " + load,
                         load.maxPerParent()));
             }
         }

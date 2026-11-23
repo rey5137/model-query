@@ -125,16 +125,17 @@ class ElementChildTest {
             var owner = new Owner();
             owner.id = 1L;
             owner.mapElements.put("primary", new Element("Rome"));
+            owner.mapElements.put("secondary", new Element("Paris"));
             em.persist(owner);
             em.getTransaction().commit();
-            var plan = FetchPlan.of(SelectSet.of(MAP_ID)).map(MAP_CHILD);
+            var plan = FetchPlan.of(SelectSet.of(MAP_ID)).map(MAP_CHILD, q -> q.where(f -> f.eq(VALUE, "Rome")));
             var query = ModelQuery.builder(ROOT, row -> new MapParent(row.get(MAP_ID), Map.of()))
                     .primaryKey(PrimaryKey.of(MAP_ID)).fetch(plan).build();
             var result = new ArrayList<MapParent>();
             var handOffs = HandOffTest.Recording.recording(() -> result.addAll(
                     ModelQueryExecutor.create(em, Owner.class, ModelQueryConfig.defaults())
                             .list(query, Limit.unlimited())));
-            assertThat(result.get(0).mapElements()).containsEntry("primary", new Row("Rome"));
+            assertThat(result.get(0).mapElements()).containsExactlyEntriesOf(Map.of("primary", new Row("Rome")));
             assertThat(handOffs).hasSize(2);
             assertThat(handOffs.get(0).models()).containsExactly(result.get(0).mapElements().get("primary"));
         }

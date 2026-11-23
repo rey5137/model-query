@@ -640,6 +640,85 @@ class FetchPlanTest {
     }
 
     @Test
+    void ac_fch_49_map_query_copies_and_replaces_filters_without_changing_the_original() {
+        MapChildQuery<String, String> empty = MapChildQuery.empty(null);
+        var filtered = empty.where(f -> f.add((ctx, cb) -> cb.conjunction()));
+        var bounded = filtered.maxPerParent(2);
+        var replaced = bounded.where(f -> f);
+        assertThat(empty.filters()).isEmpty();
+        assertThat(empty.bound()).isZero();
+        assertThat(filtered.filters()).hasSize(1);
+        assertThat(filtered.bound()).isZero();
+        assertThat(bounded.filters()).hasSize(1);
+        assertThat(bounded.bound()).isEqualTo(2);
+        assertThat(replaced.filters()).isEmpty();
+        assertThat(replaced.bound()).isEqualTo(2);
+    }
+
+    @Test
+    void map_loads_with_different_filters_have_distinct_definition_keys() {
+        var from = QueryParam.of("from", Long.class);
+        var groups = KeyGroups.by(Long.class, key -> key).bind(from, key -> key).assumeInRange();
+        var builder = ModelQuery.builder(LINE_ROOT, row -> new LineView())
+                .primaryKey(PrimaryKey.of(LINE_ID)).select(SelectSet.of(LINE_ID))
+                .where(f -> f.compare(LINE_ID, Op.GTE, Expr.param(from))).keyGroups(groups);
+        MapChildField<InvoiceView, String, LineView> field = new MapChildField<>() {
+            @Override
+            public String name() {
+                return "linesMap";
+            }
+
+            @Override
+            public ColumnField<InvoiceView, ?, ?> key() {
+                return ID;
+            }
+
+            @Override
+            public TableField<?, ?> owner() {
+                return ROOT;
+            }
+
+            @Override
+            public String attribute() {
+                return "linesMap";
+            }
+
+            @Override
+            public Class<String> keyType() {
+                return String.class;
+            }
+
+            @Override
+            public Class<LineView> valueType() {
+                return LineView.class;
+            }
+
+            @Override
+            public boolean isElementModel() {
+                return true;
+            }
+
+            @Override
+            public ModelQuery.Builder<?, ?, LineView> elementQuery() {
+                return builder;
+            }
+
+            @Override
+            public InvoiceView with(InvoiceView parent, Map<String, LineView> entries) {
+                return parent;
+            }
+        };
+        var first = FetchPlan.of(SelectSet.of(ID)).map(field, q -> q.where(f -> f.eq(LINE_ID, 1L)));
+        var second = FetchPlan.of(SelectSet.of(ID)).map(field, q -> q.where(f -> f.eq(LINE_ID, 2L)));
+
+        assertThat(first.mapLoads().get(0).elementQuery().definitionKey())
+                .isNotSameAs(second.mapLoads().get(0).elementQuery().definitionKey())
+                .isNotSameAs(builder.build().definitionKey());
+        assertThat(builder.build().keyGroups()).containsSame(groups);
+        assertThat(first.mapLoads().get(0).elementQuery().keyGroups()).isEmpty();
+    }
+
+    @Test
     void ac_fch_45_a_map_child_is_a_copy_whose_key_is_selected_and_bounded_in_rows() {
         var base = FetchPlan.of(SelectSet.of(STATUS));
         var plan = base.map(mapField("tagsMap"), q -> q.maxPerParent(3));
@@ -712,7 +791,7 @@ class FetchPlanTest {
         return mapField(name, false);
     }
 
-    /** A map field whose {@code isElementModel()} is {@code elementModel}, with no {@code elementQuery()} either way. */
+    /** A map field with the given {@code isElementModel()}, and no {@code elementQuery()} either way. */
     private static MapChildField<InvoiceView, String, String> mapField(String name, boolean elementModel) {
         return new MapChildField<>() {
             @Override

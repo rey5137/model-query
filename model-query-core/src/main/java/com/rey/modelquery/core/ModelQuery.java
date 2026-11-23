@@ -660,7 +660,8 @@ public final class ModelQuery<E, K, M> {
      *     or an element child's statement joins another collection; {@code load} names the child in the message
      */
     BuiltQuery<M> buildThroughQuery(CriteriaBuilder cb, RenderOptions options, TableField<?, ?> through,
-            ColumnField<?, ?, ?> parentKey, Map<QueryParam<?>, Object> perRound, boolean element, boolean ordered, String load) {
+            ColumnField<?, ?, ?> parentKey, Map<QueryParam<?>, Object> perRound, boolean element, boolean ordered,
+            String load) {
         CriteriaQuery<Tuple> query = cb.createTupleQuery();
         Root<?> from = query.from(through.pathRoot());
         JoinContext parent = JoinContext.readOf(from, cb, query, bound(options, perRound));
@@ -704,6 +705,15 @@ public final class ModelQuery<E, K, M> {
 
     boolean hasCustomizer() {
         return customizer != null;
+    }
+
+    /** The map child's filters rendered on its value join, with the query's parameter bindings. */
+    List<Predicate> mapChildPredicates(JoinContext joins) {
+        return ConditionGroup.toPredicates(where, joins);
+    }
+
+    RenderOptions mapChildOptions(RenderOptions options) {
+        return bound(options);
     }
 
     /** Selection, predicate, grouping and ordering of {@code phase}, before any customizer runs. */
@@ -2054,6 +2064,16 @@ public final class ModelQuery<E, K, M> {
         Builder<E, K, M> forChildren(FetchPlan<M> plan, List<Filter> where, List<OrderField<M, ?>> orderBy) {
             return new Builder<>(root, mapper, null, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
                     finisher, customizer, where, groupBy, having, plan, null, source, joinedSources, entityJoins,
+                    joinFilters, bindings, null, null);
+        }
+
+        Class<?> rootEntity() {
+            return root.rootEntity();
+        }
+
+        Builder<E, K, M> forMapChild(List<Filter> where) {
+            return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
+                    finisher, customizer, where, groupBy, having, fetch, lock, source, joinedSources, entityJoins,
                     joinFilters, bindings, null, null);
         }
 

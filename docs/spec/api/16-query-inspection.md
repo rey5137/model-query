@@ -118,9 +118,8 @@ the child's `foreignKey` unless already selected, then its join plans', R-FCH-05
 `foreignKey`, R-FCH-14) and its `maxPerParent`, with the same matchers; a field the plan doesn't load fails, naming the
 children it loads. A value child and a map child (`api/15` R-FCH-19, R-FCH-20) are asserted through
 `assertThatQuery(q).values(field)` and `map(field)`, which read `FetchPlan.valueLoads()` and `mapLoads()`, each load's
-field and `maxPerParent`, also `@EngineFacing`; `ValueChildAssert` asserts the `maxPerParent`, since a value load has no
-filter, order or selection of its own. A field the plan doesn't load fails, naming the children, values and maps it
-loads (D-257).
+field and `maxPerParent`, also `@EngineFacing`; `ValueChildAssert` and `MapChildAssert` assert the bound. A field the
+plan doesn't load fails, naming the children, values and maps it loads (D-257, D-263).
 
 **R-INS-07** **Matchers mirror `Filters`.** `FilterMatchers` has one factory per `Filters` operator, with the same
 name and the value form of its parameters (`eq`, `ne`, `in`, `like`, `isNull`, `between`, `compare`, `op`, `or`,
@@ -556,4 +555,4 @@ by self-attach at run time: a late attach after the first executor call leaves t
 | AC-INS-22 | The report lists unread selected columns per call site and select set, names the real test methods and counts them (two `@Test` methods read "across 2 tests"), excludes engine-added keys and portability replays, and two forks' files merge to the union (R-INS-21). |
 | AC-INS-23 | Every `ModelQueryExecutor` method returning models, enumerated by reflection, tags its result; a `stream` call and a call through an application decorator get the application's call site; a read on an unjoined pool thread is labelled; a caller inside `com.rey.modelquery.*` is its own call site, not a JUnit frame (R-INS-18, R-INS-20, D-237, D-240). |
 | AC-INS-24 | The jar without the agent fails the JUnit session when it opens; outside JUnit it logs once and changes no SQL and no result; the `jpa` default changes neither; without the agent `HandOffObserver.installed()` is the no-op default, outside JUnit and in the TCK, which has the audit jar on its class path (R-INS-18, R-INS-22, D-228, D-230, D-242). |
-| AC-INS-25 | `values(field)` and `map(field)` pass for a value child (`List` and `Set`) and a map child the plan loads and assert their `maxPerParent` bounded and unbounded; a failure names the load (`the values of OrderView.tags`, `the map of OrderView.labels`) and its bound, keeps the query's description, and a field the plan doesn't load, or a query with no plan, fails naming the children, values and maps the plan loads (R-INS-06, D-257). Tested by `ValueChildAssertTest.ac_ins_25_*`. |
+| AC-INS-25 | `values(field)` and `map(field)` pass for a value child (`List` and `Set`) and a map child the plan loads and assert their `maxPerParent` bounded and unbounded; a failure names the load (`the values of OrderView.tags`, `the map of OrderView.labels`) and its bound, keeps the query's description, and a field the plan doesn't load, or a query with no plan, fails naming the children, values and maps the plan loads (R-INS-06, D-257, D-263). Tested by `ValueChildAssertTest.ac_ins_25_*` and `MapChildAssertTest.ac_ins_25_*`. |

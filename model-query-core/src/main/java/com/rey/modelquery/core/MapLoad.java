@@ -33,16 +33,23 @@ import java.util.function.Function;
 public final class MapLoad<M, K, V> {
 
     private final MapChildField<M, K, V> field;
-    private final int maxPerParent;
+    private final MapChildQuery<K, V> query;
+    private final ModelQuery<?, ?, V> elementQuery;
 
-    MapLoad(MapChildField<M, K, V> field, ValueChildQuery<V> query) {
+    MapLoad(MapChildField<M, K, V> field, MapChildQuery<K, V> query) {
         if (field.isElementModel() != (field.elementQuery() != null)) {
-            throw new ModelQueryDefinitionException(MqCode.MQ1713, "map child " + field.name() + ": isElementModel() is "
-                    + field.isElementModel() + " but elementQuery() " + (field.elementQuery() == null ? "is null"
-                            : "is set") + "; a field overrides both or neither (D-261)");
+            throw new ModelQueryDefinitionException(MqCode.MQ1713,
+                    "map child " + field.name() + ": isElementModel() is " + field.isElementModel()
+                            + " but elementQuery() " + (field.elementQuery() == null ? "is null" : "is set")
+                            + "; a field overrides both or neither (D-261)");
         }
         this.field = field;
-        this.maxPerParent = query.bound();
+        this.query = query;
+        if (!field.isElementModel() && !query.filters().isEmpty()) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1714, this + ": a map child's filter needs an "
+                    + "@ElementModel value; this map has basic values");
+        }
+        this.elementQuery = field.isElementModel() ? field.elementQuery().forMapChild(query.filters()).build() : null;
     }
 
     /** The map child field the load fills. */
@@ -50,9 +57,18 @@ public final class MapLoad<M, K, V> {
         return field;
     }
 
+    /** The immutable map child query supplied to the plan (R-FCH-20). */
+    public MapChildQuery<K, V> query() {
+        return query;
+    }
+
+    ModelQuery<?, ?, V> elementQuery() {
+        return elementQuery;
+    }
+
     /** The most entries per parent, counted in rows, or 0 for no bound (R-FCH-11, D-248). */
     public int maxPerParent() {
-        return maxPerParent;
+        return query.bound();
     }
 
     /**
@@ -68,17 +84,10 @@ public final class MapLoad<M, K, V> {
         Objects.requireNonNull(options, "options");
         CriteriaQuery<Tuple> query = cb.createTupleQuery();
         Root<?> root = query.from(field.owner().pathRoot());
-        JoinContext joins = JoinContext.readOf(root, cb, query, options);
+        JoinContext joins = JoinContext.readOf(root, cb, query,
+                elementQuery == null ? options : elementQuery.mapChildOptions(options));
         From<?, ?> owner = field.owner().resolve(joins);
         MapJoin<?, ?, ?> mapJoin = (MapJoin<?, ?, ?>) owner.join(field.attribute(), JoinType.INNER);
-        List<String> toMany = new ArrayList<>();
-        ValueLoad.pluralJoins(root, mapJoin, toMany);
-        if (!toMany.isEmpty()) {
-            throw new ModelQueryDefinitionException(MqCode.MQ1713, this + ": the map child's statement joins the "
-                    + "collection " + String.join(", ", toMany) + " besides the element collection '"
-                    + field.attribute() + "', which would repeat its entries; reach the element collection through "
-                    + "to-one associations only");
-        }
         ValueLoad.checkType(this, "key", field.keyType(), mapJoin.key().getJavaType(), field.attribute());
         if (!field.isElementModel()) {
             ValueLoad.checkType(this, "value", field.valueType(), mapJoin.value().getJavaType(), field.attribute());
@@ -90,16 +99,26 @@ public final class MapLoad<M, K, V> {
         selections.add(mapKey);
         RowSelection rowSelection = null;
         Function<Row, ?> mapper = null;
-        ModelQuery<?, ?, ?> elementQuery = null;
         if (field.isElementModel()) {
-            ModelQuery<?, ?, V> q = field.elementQuery().build();
-            elementQuery = q;
-            JoinContext child = joins.rootedAt(mapJoin, q.rootEntity());
-            rowSelection = q.modelSelection();
+            JoinContext child = joins.rootedAt(mapJoin, elementQuery.rootEntity());
+            rowSelection = elementQuery.modelSelection();
             selections.addAll(rowSelection.selections(child));
-            mapper = q.mapping();
+            mapper = elementQuery.mapping();
+            List<Predicate> filters = elementQuery.mapChildPredicates(child);
+            if (!filters.isEmpty()) {
+                query.where(filters.toArray(Predicate[]::new));
+            }
+            child.checkJoinFilters();
         } else {
             selections.add(mapJoin.value());
+        }
+        List<String> toMany = new ArrayList<>();
+        ValueLoad.pluralJoins(root, mapJoin, toMany);
+        if (!toMany.isEmpty()) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1713, this + ": the map child's statement joins the "
+                    + "collection " + String.join(", ", toMany) + " besides the element collection '"
+                    + field.attribute() + "', which would repeat its entries; reach the element collection through "
+                    + "to-one associations only");
         }
         query.multiselect(selections);
         query.orderBy(cb.asc(key));

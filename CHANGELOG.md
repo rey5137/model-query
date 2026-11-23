@@ -6,7 +6,7 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
 ## [0.16.0] - Unreleased
 
-0.16.0 covers milestone M39 (RFC 0027, D-245 to D-258): `@ElementCollection`s read as value children, element models
+0.16.0 covers milestone M39 (RFC 0027, D-245 to D-263): `@ElementCollection`s read as value children, element models
 and map children through `@Child(through)`, and filters through an element collection. Every API addition below is
 `@Incubating`.
 
@@ -32,6 +32,8 @@ and map children through `@Child(through)`, and filters through an element colle
   `MapChildField<M, K, V>`, loaded by `FetchPlan#map`, with a basic key and a basic or `@ElementModel` value. It reads
   `key()` and `value()`, never `entry()`, into a `LinkedHashMap` with no key order. Key and value converters are
   modelled for INV-3; a key converter works on Hibernate only, since EclipseLink refuses the mapping at startup.
+  `MapChildQuery` filters element-model values with `where` and bounds matching rows with `maxPerParent` (D-263).
+  A non-empty filter on a basic value is `MQ1714` at plan build.
 - Filters through an element collection (RFC 0027 Part C, R-PROC-13, R-EXE-16, D-249, D-258): a `@FilterColumn` path
   may end at an element collection of basic values or a map's values (`path = "tags"`), or go into an embeddable
   element's attributes (`"stops.city"`), with a written `joinType`. The collection gets its `TAGS_TABLE` constant only
@@ -40,9 +42,9 @@ and map children through `@Child(through)`, and filters through an element colle
 - `ColumnField.element(model, table, type)` and its two converted overloads (R-COL-08, D-258): the value of a join
   along an element collection of basic values, the column a basic element filter reads; on anything but such a join
   it is `MQ1002`.
-- `QueryAssert#values(ValueChildField)` and `QueryAssert#map(MapChildField)`, returning `ValueChildAssert` with
-  `hasMaxPerParent` and `hasNoMaxPerParent` (R-INS-06, D-257): assert that a fetch plan loads a value or map child. A
-  failure lists the children, values and maps the plan does load.
+- `QueryAssert#values(ValueChildField)` and `QueryAssert#map(MapChildField)`, returning `ValueChildAssert` and
+  `MapChildAssert` with `hasMaxPerParent` and `hasNoMaxPerParent` (R-INS-06, D-257, D-263): assert that a fetch plan
+  loads a value or map child. A failure lists the children, values and maps the plan does load.
 - `FieldIndex` and `FieldIndex.Resolution` carry value and map children (R-COL-23, R-GEN-33, D-262): `valueChild(name)`,
   `mapChild(name)` and their builder methods, and `Resolution` gains `values` and `maps`; the select audit reports an
   unloaded map child read as an unselected read.

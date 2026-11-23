@@ -744,6 +744,33 @@ var labels = QOrderLabels.query()
     List<OrderLabels> list = orderRepository.findAll(labels, Limit.of(100));
     ```
 
+An element-model map value can be filtered by its columns. For an element collection named `spots` whose values are
+the `Stop` embeddable above:
+
+```java
+@QueryModel(root = OrderEntity.class)
+public record OrderSpots(@PrimaryKey Long id, @Child(through = "spots") Map<String, StopRow> spots) {}
+
+var spots = QOrderSpots.query()
+        .fetch(FetchPlan.of(QOrderSpots.ALL).map(QOrderSpots.SPOTS,
+                q -> q.where(f -> f.eq(QStopRow.CITY, "Rome")).maxPerParent(1)))
+        .build();
+```
+
+=== "Plain JPA"
+
+    ```java
+    List<OrderSpots> matching = executor.list(spots, Limit.of(100));
+    ```
+
+=== "Spring repository"
+
+    ```java
+    List<OrderSpots> matching = orderRepository.findAll(spots, Limit.of(100));
+    ```
+
+The bound counts matching entries. A non-empty filter on a basic-valued map fails at plan build with `MQ1714`.
+
 - **No order.** The map is a `LinkedHashMap` in the order the rows come; the statement never orders by the key, which
   EclipseLink can't render for an embeddable value.
 - **Duplicate keys.** Two entries with the same Java key for one parent are `MQ2609`. Only a lossy key converter can

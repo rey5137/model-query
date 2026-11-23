@@ -4366,7 +4366,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
             if (load.field().isElementModel() && elementQuery == null) {
                 elementQuery = (ModelQuery<?, ?, V>) statement.elementQuery();
             }
-            statement.query().where(load.keyIn(statement, roundKeys));
+            Predicate mapFilter = statement.query().getRestriction();
+            Predicate keyMatch = load.keyIn(statement, roundKeys);
+            statement.query().where(mapFilter == null ? keyMatch : cb.and(mapFilter, keyMatch));
             TypedQuery<Tuple> query = create(load, em, statement.query(), null, null, statement.joins());
             long cap = (long) roundKeys.size() * load.maxPerParent() + 1;
             if (load.maxPerParent() > 0) {

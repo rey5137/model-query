@@ -4,10 +4,9 @@ import com.rey.modelquery.annotations.Incubating;
 import org.assertj.core.api.AbstractAssert;
 
 /**
- * Assertions on what a fetch plan loads into a value child or a map child, from {@link QueryAssert#values} or
- * {@link QueryAssert#map}: that the plan loads the field, and its {@code maxPerParent}, with the messages of
- * {@link QueryAssert} (D-257). A value child's load has no filter, order or selection of its own to assert, and a
- * map's entries come in no order.
+ * Assertions on what a fetch plan loads into a value child, from {@link QueryAssert#values}: that the plan loads the
+ * field, and its {@code maxPerParent}, with the messages of {@link QueryAssert} (D-257). A value child's load has no
+ * filter, order or selection of its own to assert.
  *
  * @implSpec api/16 R-INS-06, D-257
  */

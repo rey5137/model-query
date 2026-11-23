@@ -94,6 +94,7 @@ throws when it affects no rows (see [Bulk writes](bulk-writes.md)).
 | `MQ1705` | A join plan selects an aggregate, which cannot be re-rooted under the join. |
 | `MQ1708` | A key-group definition that does not fit its child or query, at the plan build for a child and at `build()` for a query, before any statement: a key type unequal to the key's attribute type, a group param nothing reads or that the model also binds, `verifyMissing` with no `bind` or on a to-many child, or a group param read in a way the child or query does not allow. See [Child loads over partitioned tables](fetch-plans.md#child-loads-over-partitioned-tables) and [Key groups](reading-keys.md#key-groups-on-a-partitioned-table). |
 | `MQ1713` | A value, map or element child's statement joins a collection besides its element collection, which would repeat its values; an element child whose `isElement()` disagrees with its join, or a map child whose `isElementModel()` and `elementQuery()` disagree; at the plan build, before the parent's statement. |
+| `MQ1714` | A map child's non-empty filter needs an `@ElementModel` value; the map has basic values. Refused when the fetch plan is built, before any statement. |
 | `MQ1601` | Bulk write: no predicate left after skipping rows, or a conflict arbiter's `where(...)` whose filters were all skipped. |
 | `MQ1602` | Bulk write: column is assigned twice. |
 | `MQ1603` | Bulk write: `set(column, null)` called; NULL must be written with `setNull`. |
