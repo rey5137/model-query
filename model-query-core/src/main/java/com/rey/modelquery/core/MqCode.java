@@ -312,6 +312,10 @@ public enum MqCode {
     @Incubating
     MQ1713("A value, map or element child's statement joins a collection besides its element collection"),
 
+    /** A non-empty map child filter needs an element-model value (R-FCH-20, D-263). */
+    @Incubating
+    MQ1714("A map child's filter needs an @ElementModel value"),
+
     /**
      * An insert column not mapped, mapped twice or from a column with another converter, set twice or set though
      * the model has it, or not on the root; {@code lockKeys()} on insert-values; or {@code insertReturningKeys} with
@@ -435,7 +439,8 @@ public enum MqCode {
      * {@code build()} (R-COL-39, D-194, D-195, D-218).
      */
     @Incubating
-    MQ1912("A join filter must read only its LEFT join's own columns, values and constants, and no INNER join may read through it"),
+    MQ1912("A join filter must read only its LEFT join's own columns, values and constants, "
+            + "and no INNER join may read through it"),
 
     /** A page size or {@code maxPerParent} that is not positive, or a limit that is negative (R-EXE-06, R-FCH-11). */
     MQ2001("A page or chunk size and maxPerParent must be positive, and a limit must not be negative"),

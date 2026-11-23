@@ -3489,6 +3489,7 @@ over an embeddable value), so the field promises no order. The processor models 
 `@MapKey*` annotations for INV-3. Two entries with one Java key for one parent are `MQ2609`. An entity or embeddable
 key, and an entity value, are `MQ3408`; the latter's message names `@Child(through) List<…>`. → `rfc/0027` Part B,
 `api/15` R-FCH-20.
+*Amended by D-263:* element-model map values may be filtered; map ordering remains unspecified.
 
 **D-249 — Filters may go through an element collection (RFC 0027 Part C, 2026-11-20, user decision).** A
 `@FilterColumn` path may end at an element collection, as a generated join with R-PROC-13's constant and a written
@@ -3557,6 +3558,7 @@ model's `List` is a `ChildField`, asserted by `child`. The reads are `@EngineFac
 `ChildLoad` reads by the TCK's layering rule. Rejected: assertions of the element or key type, the `List` or
 `Set` shape and the `@OrderColumn` (fixed by the generated field, not by the plan under test), and of loaded values
 (`QueryAssert` inspects definitions, never rows; R-INS-06). → `api/16` R-INS-06, AC-INS-25.
+*Amended by D-263:* `map` returns `MapChildAssert` rather than `ValueChildAssert`.
 
 **D-258 — An element column is `ColumnField.element(...)`, and the paths a filter takes into an element collection
 (M39.4, 2026-11-20).** The attribute-less column of D-249 is the `@Incubating` factory
@@ -3608,6 +3610,14 @@ field, a set, a child, a value child, then a map child, and the generated index 
 (R-COL-23, R-GEN-33). The select audit reads the index instead of reflecting over value-child constants, so a map
 child is a model property and reading one a plan did not load is `UnselectedColumnRead` (R-INS-18). Rejected: constants
 only (a client-driven fetch could not reach a value or map child, and the record would change after 1.0).
+
+**D-263 — Map child value filters (M39.5, 2026-11-23, user decision).** `FetchPlan.map` takes an immutable
+`MapChildQuery<K, V>` with `where(UnaryOperator<Filters<V>>)` and `maxPerParent`; `MapLoad` exposes the query. An
+element-model value's filter uses R-FCH-21's machinery and refusals on `value()` in the map statement. The bound counts
+filtered rows. A non-empty filter for a basic value is `MQ1714` at plan build, naming the field. There is no order or
+key filter, and D-248's unspecified map order remains. `QueryAssert.map` returns `MapChildAssert`; value assertions keep
+their API. Engine seams use the new query. → `api/15` R-FCH-20, AC-FCH-47, AC-FCH-48, `api/16` R-INS-06,
+`reference/90` MQ1714.
 
 ## 2. Open questions
 

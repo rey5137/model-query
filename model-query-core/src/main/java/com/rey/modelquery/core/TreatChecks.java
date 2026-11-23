@@ -682,6 +682,9 @@ public final class TreatChecks {
             plan.mapLoads().forEach(map -> {
                 register(map.field().owner());
                 table(map.field().owner().key());
+                if (map.elementQuery() != null) {
+                    definition(map.elementQuery());
+                }
             });
             plan.joinPlans().forEach(join -> {
                 join.plan().selection().fields().forEach(this::field);

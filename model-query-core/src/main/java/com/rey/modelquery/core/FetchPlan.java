@@ -109,16 +109,18 @@ public final class FetchPlan<M> {
 
     /**
      * A copy that loads the map child {@code field}, bounded by what {@code query} makes of an empty
-     * {@link ValueChildQuery} (R-FCH-11, R-FCH-20, D-248).
+     * {@link MapChildQuery} (R-FCH-11, R-FCH-20, D-263).
      *
      * @throws ModelQueryDefinitionException {@code MQ1703} when the plan already loads {@code field}
      */
     @Incubating
-    public <K, V> FetchPlan<M> map(MapChildField<M, K, V> field, UnaryOperator<ValueChildQuery<V>> query) {
+    public <K, V> FetchPlan<M> map(MapChildField<M, K, V> field, UnaryOperator<MapChildQuery<K, V>> query) {
         Objects.requireNonNull(field, "field");
         Objects.requireNonNull(query, "query");
         requireNewChild(field.key().model(), field.name());
-        ValueChildQuery<V> load = Objects.requireNonNull(query.apply(ValueChildQuery.empty()), "query result");
+        var builder = field.elementQuery();
+        MapChildQuery<K, V> load = Objects.requireNonNull(query.apply(
+                MapChildQuery.empty(builder == null ? null : builder.rootEntity())), "query result");
         return new FetchPlan<>(select, children, values, append(maps, new MapLoad<>(field, load)), joins, enrichers);
     }
 

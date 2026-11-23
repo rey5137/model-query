@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rey.modelquery.core.ColumnField;
+import com.rey.modelquery.core.Expr;
 import com.rey.modelquery.core.FetchPlan;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.MapChildField;
@@ -13,8 +14,11 @@ import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
+import com.rey.modelquery.core.Op;
+import com.rey.modelquery.core.QueryParam;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
+import com.rey.modelquery.jpa.vendor.ChildStatements;
 import com.rey.modelquery.tck.col.ConstantStatus;
 import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.col.OrderStatus;
@@ -39,6 +43,47 @@ class MapChildTest {
 
     private static ModelQuery<TaggedCardEntity, Long, CardMaps> cards(FetchPlan<CardMaps> plan) {
         return QCardMaps.query().orderBy(QCardMaps.ID.asc()).fetch(plan).build();
+    }
+
+    @TckTest
+    void ac_fch_47_map_value_filter_and_bound_count_only_matching_rows(TckDatabase db) {
+        var plan = FetchPlan.of(QCardMaps.ALL).map(QCardMaps.SPOTS,
+                q -> q.where(f -> f.eq(QSpotRow.CITY, "Rome")).maxPerParent(1));
+        List<String> page = SqlSnapshots.assertMatches(db, "fch-33-map-filter", ds ->
+                withExecutor(ds, TaggedCardEntity.class, executor -> {
+                    List<CardMaps> loaded = executor.list(cards(plan), Limit.unlimited());
+                    assertThat(loaded.get(0).spots()).containsExactlyEntriesOf(
+                            Map.of("primary", new SpotRow("Rome", new BigDecimal("1.25"), ConstantStatus.PENDING)));
+                    assertThat(loaded.subList(1, loaded.size())).allSatisfy(card -> assertThat(card.spots()).isEmpty());
+                }));
+        List<String> standalone = SqlSnapshots.capture(db, ds -> withExecutor(ds, TaggedCardEntity.class, executor ->
+                ChildStatements.run(executor, plan.mapLoads().get(0), List.of(1L, 2L, 3L, 4L, 5L))));
+        assertThat(standalone).containsExactly(page.get(1));
+        var over = FetchPlan.of(QCardMaps.ALL).map(QCardMaps.SPOTS,
+                q -> q.where(f -> f.isNotNull(QSpotRow.CITY)).maxPerParent(1));
+        withExecutor(JoinTestSupport.dataSource(db), TaggedCardEntity.class, executor ->
+                assertThatThrownBy(() -> executor.list(cards(over), Limit.unlimited()))
+                        .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                                e -> assertThat(e.code()).isEqualTo(MqCode.MQ2603)));
+    }
+
+    @org.junit.jupiter.api.Test
+    void ac_fch_48_basic_map_rejects_nonempty_filter_at_plan_build() {
+        assertThatThrownBy(() -> FetchPlan.of(QCardMaps.ALL).map(QCardMaps.LABELS,
+                q -> q.where(f -> f.add((ctx, cb) -> cb.conjunction()))))
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1714))
+                .hasMessageContaining("CardMaps.labels");
+        FetchPlan.of(QCardMaps.ALL).map(QCardMaps.LABELS, q -> q.where(f -> f));
+    }
+
+    @org.junit.jupiter.api.Test
+    void ac_fch_48_element_map_refuses_an_unbound_filter_parameter() {
+        var city = QueryParam.of("city", String.class);
+        assertThatThrownBy(() -> FetchPlan.of(QCardMaps.ALL).map(QCardMaps.SPOTS,
+                q -> q.where(f -> f.compare(QSpotRow.CITY, Op.EQ, Expr.param(city)))))
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1512));
     }
 
     @TckTest
@@ -219,7 +264,7 @@ class MapChildTest {
         return labels("heldLabels", held, String.class, String.class);
     }
 
-    /** The card's own {@code labels}, a {@code Map<String, String>}, whose field declares {@code key}, {@code value}. */
+    /** The card's own {@code labels}, a {@code Map<String, String>}, declaring {@code key} and {@code value}. */
     @SuppressWarnings("unchecked")
     private static MapChildField<CardMaps, String, String> labels(String name, TableField<?, ?> owner,
             Class<?> key, Class<?> value) {

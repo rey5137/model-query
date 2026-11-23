@@ -228,7 +228,7 @@ none of them compiles. A value child named twice, or beside a child of its name,
   portability dry run renders each value load of a plan on placeholder keys (R-INS-17). Basic values have no getter, so
   the select audit counts a loaded value child's field as selected and its elements as no read (RFC 0026).
 
-**R-FCH-20** *(D-248)* **Map children.** A `through` path ending at an `@ElementCollection Map<K, V>` fills a
+**R-FCH-20** *(D-248, D-263)* **Map children.** A `through` path ending at an `@ElementCollection Map<K, V>` fills a
 `Map<K, V>` field through `MapChildField<M, K, V>` and `FetchPlan#map`; `K` is a basic key (`@MapKeyColumn`,
 `@MapKeyEnumerated`, `@MapKeyTemporal`), and `V` is a basic element or an `@ElementModel` of an embeddable. An entity
 or embeddable map key, or a `Map<K, Entity>` association, is `MQ3408` at compile time (the latter naming the working
@@ -240,7 +240,11 @@ form `@Child(through = "…") List<…>`); an unmapped shape (List/Set over Map 
   `LinkedHashMap` in unspecified row order (D-248). A second collection join is `MQ1713`.
 - **Duplicate keys.** Two entries with the same Java key for one parent throw run-time `MQ2609`, naming the field, the
   parent key and the map key (realistic with a lossy key converter).
-- **Bound and rounds.** `maxPerParent(n)` bounds entries counted in rows; exceeding it is `MQ2603`. Parent keys split
+- **Query and filter.** `map(field, q -> ...)` takes an immutable `MapChildQuery<K, V>` with `where` and
+  `maxPerParent`. `where` uses the same `Filters<V>` and refusals as R-FCH-21, over the element model's columns on
+  `value()`. A non-empty filter on a basic-valued map is `MQ1714` at the plan build, naming the field. There is no
+  child ordering, key ordering or key filter.
+- **Bound and rounds.** `maxPerParent(n)` bounds filtered entries counted in rows; exceeding it is `MQ2603`. Parent keys split
   into rounds over the vendor limit as other child stages do.
 - **Seams.** `ChildStatements.run`, portability dry runs, treat checks and select audit include map loads.
   Element-model map values pass through the select-audit hand-off as other child models do, counting getter reads
@@ -413,3 +417,6 @@ so.
 | AC-FCH-44 | An association of type `Map<K, Entity>` loads as a list of models through `@Child(through = "...") List<Model>` (D-248). |
 | AC-FCH-45 | `MQ1703` for a map child named twice or beside a child or value child of its name, `MQ2001` for `maxPerParent` below 1, and `MQ1704` for a map child on a grouped query; `FetchPlan#map` returns a copy and selects the parent key (R-FCH-10, R-FCH-20). A `MapChildField` declaring another key or value type than the map's is `MQ1001` before the parent's statement, and a converted key (`CASE_LABELS`) passes (D-260; `MapChildTest.ac_fch_45_*`). |
 | AC-FCH-46 | Element-model map values pass through select-audit, which counts their getter reads (R-FCH-20, R-INS-18). |
+| AC-FCH-47 | A map value filter loads only matching element-model entries and leaves other parents' maps empty; `maxPerParent` counts the filtered rows and throws `MQ2603` when those exceed the bound. The filtered statement matches the vendor snapshot and is rendered by `ChildStatements.run` and portability dry runs (R-FCH-20, D-263). |
+| AC-FCH-48 | A non-empty filter on a basic-valued map fails with `MQ1714` naming the field at plan build; an empty filter is allowed. An element-model filter with an unbound parameter is `MQ1512` at plan build (R-FCH-20, D-263). |
+| AC-FCH-49 | `MapChildQuery` keeps its original filters and bound when copied, and `where` replaces earlier filters (R-FCH-20, INV-9). |
