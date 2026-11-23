@@ -1,6 +1,7 @@
 package com.rey.modelquery.portability.internal;
 
 import com.rey.modelquery.core.ChildLoad;
+import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.FetchPlan;
 import com.rey.modelquery.core.JoinPlan;
 import com.rey.modelquery.core.KeyGroups;
@@ -27,6 +28,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -168,38 +170,35 @@ public final class DryRun {
                 load.query().fetch().ifPresent(own -> children(emf, target, config, call, own, at, results));
             }
         }
-        // A value child has no plan of its own, so its line is the last of its path (R-FCH-19).
+        // A value or map child has no plan of its own, so its line is the last of its path (R-FCH-19, R-FCH-20).
         for (ValueLoad<?, ?> load : plan.valueLoads()) {
-            String at = path.isEmpty() ? load.field().name() : path + "." + load.field().name();
-            Class<?> type = Placeholders.boxed(load.field().key().attributeType());
-            Optional<List<Object>> keys = Placeholders.of(type);
-            if (keys.isEmpty()) {
-                results.add(new CallResult(call.label(), target, Outcome.HARNESS_ERROR, false, "the checker can't "
-                        + "build a placeholder key of " + type.getName() + " for " + load + ", so its statement is "
-                        + "not checked; with real keys it runs").withChild(at));
-                continue;
-            }
-            results.add(child(emf, target, config, call, null, keys.get(),
-                    executor -> ChildStatements.run(executor, load, keys.get())).withChild(at));
+            results.add(planless(emf, target, config, call, path, load, load.field().name(), load.field().key(),
+                    (executor, keys) -> ChildStatements.run(executor, load, keys)));
         }
-        // A map child has no plan of its own, so its line is the last of its path (R-FCH-20).
         for (MapLoad<?, ?, ?> load : plan.mapLoads()) {
-            String at = path.isEmpty() ? load.field().name() : path + "." + load.field().name();
-            Class<?> type = Placeholders.boxed(load.field().key().attributeType());
-            Optional<List<Object>> keys = Placeholders.of(type);
-            if (keys.isEmpty()) {
-                results.add(new CallResult(call.label(), target, Outcome.HARNESS_ERROR, false, "the checker can't "
-                        + "build a placeholder key of " + type.getName() + " for " + load + ", so its statement is "
-                        + "not checked; with real keys it runs").withChild(at));
-                continue;
-            }
-            results.add(child(emf, target, config, call, null, keys.get(),
-                    executor -> ChildStatements.run(executor, load, keys.get())).withChild(at));
+            results.add(planless(emf, target, config, call, path, load, load.field().name(), load.field().key(),
+                    (executor, keys) -> ChildStatements.run(executor, load, keys)));
         }
         for (JoinPlan<?, ?> join : plan.joinPlans()) {
             String at = path.isEmpty() ? join.field().name() : path + "." + join.field().name();
             children(emf, target, config, call, join.plan(), at, results);
         }
+    }
+
+    /** The line of a value or map {@code load} run on a placeholder of its parent {@code key}, or the harness error. */
+    private static CallResult planless(EntityManagerFactory emf, Target target, ModelQueryConfig config, DryCall call,
+            String path, Object load, String name, ColumnField<?, ?, ?> key,
+            BiConsumer<ModelQueryExecutor<Object>, List<Object>> run) {
+        String at = path.isEmpty() ? name : path + "." + name;
+        Class<?> type = Placeholders.boxed(key.attributeType());
+        Optional<List<Object>> keys = Placeholders.of(type);
+        if (keys.isEmpty()) {
+            return new CallResult(call.label(), target, Outcome.HARNESS_ERROR, false, "the checker can't "
+                    + "build a placeholder key of " + type.getName() + " for " + load + ", so its statement is "
+                    + "not checked; with real keys it runs").withChild(at);
+        }
+        return child(emf, target, config, call, null, keys.get(), executor -> run.accept(executor, keys.get()))
+                .withChild(at);
     }
 
     /**
