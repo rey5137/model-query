@@ -152,6 +152,37 @@ class MapChildTest {
     }
 
     @TckTest
+    void ac_fch_45_a_map_field_declaring_another_key_or_value_type_is_mq1001_before_any_statement(TckDatabase db) {
+        Object[][] cases = {
+                {Integer.class, String.class, "key type Integer, but the element collection 'labels' has key type "
+                        + "String"},
+                {String.class, Integer.class, "value type Integer, but the element collection 'labels' has value "
+                        + "type String"}};
+        for (Object[] c : cases) {
+            var q = QCardMaps.query().where(f -> f.eq(QCardMaps.ID, -1L))
+                    .fetch(FetchPlan.of(QCardMaps.ALL).map(labels("labels", QCardMaps.ROOT, (Class<?>) c[0],
+                            (Class<?>) c[1]))).build();
+
+            List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, TaggedCardEntity.class, executor ->
+                    assertThatThrownBy(() -> executor.list(q, Limit.unlimited()))
+                            .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                                    e -> assertThat(e.code()).isEqualTo(MqCode.MQ1001))
+                            .hasMessage("MQ1001: CardMaps.labels: declared " + c[2])));
+            assertThat(sql).as("refused at the plan build, before the parent's statement").isEmpty();
+        }
+    }
+
+    @TckTest
+    void ac_fch_45_a_converted_map_key_passes_the_key_type_check(TckDatabase db) {
+        // Nothing matches, so only the plan build runs: the converter's Java side is the key type declared.
+        var q = QCardCaseLabels.query().where(f -> f.eq(QCardCaseLabels.ID, -1L))
+                .fetch(FetchPlan.of(QCardCaseLabels.ALL).map(QCardCaseLabels.CASE_LABELS)).build();
+
+        withExecutor(JoinTestSupport.dataSource(db), TaggedCardEntity.class, executor ->
+                assertThat(executor.list(q, Limit.unlimited())).isEmpty());
+    }
+
+    @TckTest
     void ac_fch_44_list_child_through_map_association_resolves(TckDatabase db) {
         var plan = FetchPlan.of(QCardHeldList.ALL).child(QCardHeldList.HELD, FetchPlan.of(QHeldCard.ALL));
         var q = QCardHeldList.query().orderBy(QCardHeldList.ID.asc()).fetch(plan).build();
@@ -185,10 +216,17 @@ class MapChildTest {
     private static MapChildField<CardMaps, String, String> heldLabels() {
         TableField<?, ?> held = TableField.<TaggedCardEntity, TaggedCardEntity>join(QCardMaps.ROOT, "held",
                 JoinType.INNER);
+        return labels("heldLabels", held, String.class, String.class);
+    }
+
+    /** The card's own {@code labels}, a {@code Map<String, String>}, whose field declares {@code key}, {@code value}. */
+    @SuppressWarnings("unchecked")
+    private static MapChildField<CardMaps, String, String> labels(String name, TableField<?, ?> owner,
+            Class<?> key, Class<?> value) {
         return new MapChildField<>() {
             @Override
             public String name() {
-                return "heldLabels";
+                return name;
             }
 
             @Override
@@ -198,12 +236,22 @@ class MapChildTest {
 
             @Override
             public TableField<?, ?> owner() {
-                return held;
+                return owner;
             }
 
             @Override
             public String attribute() {
                 return "labels";
+            }
+
+            @Override
+            public Class<String> keyType() {
+                return (Class<String>) key;
+            }
+
+            @Override
+            public Class<String> valueType() {
+                return (Class<String>) value;
             }
 
             @Override

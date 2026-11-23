@@ -51,6 +51,7 @@ public abstract class AuditTestBase {
 
             var first = new AuditOrderEntity(1L, 100L, "First order", c1);
             first.getTags().addAll(List.of("rush", "gift"));
+            first.getLabels().put("tier", "gold");
             first.getSpots().add(new AuditSpot("Rome"));
             em.persist(first);
             em.persist(new AuditOrderEntity(2L, 200L, "Second order", c2));

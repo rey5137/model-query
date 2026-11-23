@@ -101,6 +101,37 @@ class ElementModelChildTest {
     }
 
     @TckTest
+    void ac_fch_36_a_field_whose_flag_disagrees_with_its_join_is_mq1713_on_every_path(TckDatabase db) {
+        var held = TableField.<TaggedCardEntity, TaggedCardEntity>join(QCardSpots.ROOT, "held", JoinType.INNER);
+        // Over the element collection with isElement() false, once with a collection on the path, once without.
+        for (TableField<?, ?> through : List.of(TableField.<TaggedCardEntity, Object>join(held, "spots",
+                JoinType.INNER), TableField.<TaggedCardEntity, Object>join(QCardSpots.ROOT, "spots",
+                JoinType.INNER))) {
+            ChildField<CardSpots, SpotRow> lying = new ChildField<>() {
+                public String name() { return "lying"; }
+                public ColumnField<CardSpots, ?, ?> key() { return QCardSpots.ID; }
+                public Optional<ColumnField<SpotRow, ?, ?>> foreignKey() { return Optional.empty(); }
+                public Optional<TableField<?, ?>> through() { return Optional.of(through); }
+                public boolean isToMany() { return true; }
+                public ModelQuery.Builder<?, ?, SpotRow> query() { return QCardSpots.SPOTS.query(); }
+                public CardSpots with(CardSpots parent, List<SpotRow> children) { return parent; }
+            };
+            var plan = FetchPlan.of(QCardSpots.ALL).child(lying, SPOT);
+            var q = QCardSpots.query().where(f -> f.eq(QCardSpots.ID, -1L)).fetch(plan).build();
+            List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, TaggedCardEntity.class, executor -> {
+                assertThatThrownBy(() -> executor.list(q, Limit.unlimited()))
+                        .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                                e -> assertThat(e.code()).isEqualTo(MqCode.MQ1713))
+                        .hasMessageContaining("CardSpots.lying: the field says it is not an element child");
+                assertThatThrownBy(() -> ChildStatements.run(executor, plan.childLoads().get(0), List.of(1L)))
+                        .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                                e -> assertThat(e.code()).isEqualTo(MqCode.MQ1713));
+            }));
+            assertThat(sql).as("refused before the parent's statement and any child statement").isEmpty();
+        }
+    }
+
+    @TckTest
     void ac_fch_37_rounds_and_child_statements_use_the_element_load(TckDatabase db) {
         var plan = FetchPlan.of(QCardSpots.ALL).child(QCardSpots.SPOTS, SPOT);
         var q = QCardSpots.query().orderBy(QCardSpots.ID.asc()).fetch(plan).build();

@@ -74,6 +74,8 @@ class ElementChildTest {
         }
         public TableField<?, ?> owner() { return ROOT; }
         public String attribute() { return "mapElements"; }
+        @Override public Class<String> keyType() { return String.class; }
+        @Override public Class<Row> valueType() { return Row.class; }
         public boolean isElementModel() { return true; }
         public ModelQuery.Builder<?, ?, Row> elementQuery() {
             return ModelQuery.builder(ELEMENT, row -> new Row(row.get(VALUE))).select(SelectSet.of(VALUE));

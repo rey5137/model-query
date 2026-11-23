@@ -18,6 +18,13 @@ and map children through `@Child(through)`, and filters through an element colle
   round's statement is rooted at the parent's entity and selects its `@Id` and the value. The values are a bag: repeats
   and `NULL` elements are kept, and a `Set` keeps the first of equal values. They are ordered by `index()` under
   `@OrderColumn`, then by the value unless it is a LOB. A converted element reads back converted.
+  The values' own order puts `NULL` last on every vendor (an explicit `nullsLast`, D-261); a basic element type the
+  database cannot order fails the load, so mark it `@Lob`.
+- Element and map child fields declare their classes (D-259, D-260, D-261): `ValueChildField#elementType()` and
+  `MapChildField#keyType()` and `#valueType()` are compared, boxed, with the element collection's, and a mismatch is
+  `MQ1001` at the plan build; an element or map-key type the processor cannot read is `MQ3002`. An element child is
+  recognised from its join, and a field whose `isElement()` disagrees with it, or a map field whose `isElementModel()`
+  and `elementQuery()` disagree, is `MQ1713`.
 - Element models (R-FCH-21, D-246, D-254, D-255): `@ElementModel(Embeddable.class)` generates columns, `ALL` and
   `MAPPER` over an embeddable, with no public `ROOT` or `query()`. A `List<C>` of it through an element collection of
   that embeddable is a `ChildField` whose query may filter, order and bound by the element's columns.
@@ -36,6 +43,9 @@ and map children through `@Child(through)`, and filters through an element colle
 - `QueryAssert#values(ValueChildField)` and `QueryAssert#map(MapChildField)`, returning `ValueChildAssert` with
   `hasMaxPerParent` and `hasNoMaxPerParent` (R-INS-06, D-257): assert that a fetch plan loads a value or map child. A
   failure lists the children, values and maps the plan does load.
+- `FieldIndex` and `FieldIndex.Resolution` carry value and map children (R-COL-23, R-GEN-33, D-262): `valueChild(name)`,
+  `mapChild(name)` and their builder methods, and `Resolution` gains `values` and `maps`; the select audit reports an
+  unloaded map child read as an unselected read.
 - Diagnostics: `MQ3407` (a value-child or element-model field the load can't fill), `MQ3408` (an entity or embeddable
   map key, or a `Map<K, Entity>` association), `MQ1713` (a value or map statement joining another collection, at the
   plan build) and `MQ2609` (one map key twice for one parent). `MQ3011` covers a filter path ending at embeddable

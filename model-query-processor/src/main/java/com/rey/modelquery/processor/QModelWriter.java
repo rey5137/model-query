@@ -386,6 +386,11 @@ final class QModelWriter {
         indexCall(init, "child", model.children().stream()
                 .filter(child -> !child.child().map() && nestedModels.child(child) != null)
                 .map(ModelField::constant).toList());
+        indexCall(init, "valueChild", model.children().stream()
+                .filter(child -> !child.child().map() && nestedModels.child(child) == null)
+                .map(ModelField::constant).toList());
+        indexCall(init, "mapChild", model.children().stream().filter(child -> child.child().map())
+                .map(ModelField::constant).toList());
         init.add("\n.build()$<$<");
         // The holder is named Index and may share a name with a user's type; JavaPoet qualifies the one it must.
         ClassName holder = generated.nestedClass("Index");

@@ -595,7 +595,7 @@ an entity root when `X` is `@Entity`, a source root when `X` is `@SourceModel`. 
 checked against the embeddable, including nested `@Column` paths, converters and INV-3 types. It declares no
 `@PrimaryKey`, `@Child`, `@Join`, `@FilterColumn`, `@GroupBy`, `@Aggregate`, `@JoinSource` or `@JoinEntity`
 (`MQ3407`); it is valid only as the model of a matching
-embeddable element-collection value child (`MQ3407` otherwise). `@QueryModel` rooted at an embeddable remains
+embeddable element-collection value child or of a map child's value (`MQ3407` otherwise). `@QueryModel` rooted at an embeddable remains
 `MQ3038`.
 On a model rooted at a source the processor checks every field against the source model's fields by name and
 then by type (INV-3), a `@Column` path being a single segment and taking the converter of the source's field, so an

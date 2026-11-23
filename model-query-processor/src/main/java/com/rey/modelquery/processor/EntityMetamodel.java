@@ -382,6 +382,10 @@ final class EntityMetamodel {
             if (mkc != null) {
                 keyType = mkc;
             }
+            TypeMirror targetClass = targetClass(member);
+            if (targetClass != null) {
+                element = targetClass;
+            }
             TypeMirror keyConverter = converterFor(member, "key");
             if (keyConverter != null) {
                 TypeMirror converted = converterAttributeType(keyConverter);
@@ -683,6 +687,17 @@ final class EntityMetamodel {
                 if (val instanceof TypeMirror tm) {
                     return tm;
                 }
+            }
+        }
+        return null;
+    }
+
+    /** The {@code @ElementCollection(targetClass)} of {@code member}, or {@code null} when unset (D-260). */
+    private TypeMirror targetClass(Element member) {
+        for (AnnotationMirror mirror : member.getAnnotationMirrors()) {
+            if (isNamed(mirror, ELEMENT_COLLECTION)
+                    && value(mirror, "targetClass") instanceof TypeMirror tm && tm.getKind() == TypeKind.DECLARED) {
+                return tm;
             }
         }
         return null;

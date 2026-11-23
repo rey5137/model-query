@@ -418,6 +418,8 @@ and `DEFAULT`. `FieldIndex` derives each key from the constant itself, with tier
 | Filter-only column | Its attribute path (`@FilterColumn.path`): a filter-only column has no property (D-55). The alias isn't part of the key | `@FilterColumn` constants. They can be filtered on but not selected |
 | Column set | `ALL` and `DEFAULT` as passed; a join set by its join's property path (`TableField.propertyPath()`) | `ALL`, `DEFAULT` and each `@Join` set, when the model generates sets. Not `GROUP_KEYS`, not `SELECTED_FIELDS` |
 | Child | `ChildField.name()`, the `@Child` field's name | Every `ChildField` |
+| Value child | `ValueChildField.name()`, the `@Child` field's name | Every `ValueChildField` (D-262) |
+| Map child | `MapChildField.name()`, the `@Child` field's name | Every `MapChildField` (D-262) |
 
 Keys are exact and case-sensitive, as in R-QRY-14. A select key and a set key can be the same string (`customer` is a
 set; `customer.name` is a column), because they are looked up by kind. Within one kind, the same key with an equal

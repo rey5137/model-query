@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
@@ -66,6 +67,77 @@ class FieldIndexTest {
 
         @Override
         public OrderView with(OrderView parent, List<Item> children) {
+            throw new UnsupportedOperationException();
+        }
+    }
+
+    /** A value child that is only a name, as {@link Items} is for a child. */
+    private record Tags(String name, boolean ordered) implements ValueChildField<OrderView, String> {
+        @Override
+        public ColumnField<OrderView, ?, ?> key() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public TableField<?, ?> owner() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public String attribute() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Class<String> elementType() {
+            return String.class;
+        }
+
+        @Override
+        public boolean isOrdered() {
+            return ordered;
+        }
+
+        @Override
+        public boolean ordersByValue() {
+            return false;
+        }
+
+        @Override
+        public OrderView with(OrderView parent, List<String> values) {
+            throw new UnsupportedOperationException();
+        }
+    }
+
+    /** A map child that is only a name. */
+    private record Labels(String name) implements MapChildField<OrderView, String, String> {
+        @Override
+        public ColumnField<OrderView, ?, ?> key() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public TableField<?, ?> owner() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public String attribute() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Class<String> keyType() {
+            return String.class;
+        }
+
+        @Override
+        public Class<String> valueType() {
+            return String.class;
+        }
+
+        @Override
+        public OrderView with(OrderView parent, Map<String, String> entries) {
             throw new UnsupportedOperationException();
         }
     }
@@ -234,6 +306,31 @@ class FieldIndexTest {
     }
 
     @Test
+    void ac_col_23_resolve_routes_value_and_map_children_to_their_own_lists() {
+        var tags = new Tags("tags", false);
+        var labels = new Labels("labels");
+        var index = FieldIndex.builder(OrderView.class).select(STATUS).child(ITEMS).valueChild(tags).mapChild(labels)
+                .build();
+
+        var resolved = index.resolve(List.of("labels", "items", "tags", "labels", "tags", "status", "nope"));
+
+        assertThat(index.valueChild("tags")).containsSame(tags);
+        assertThat(index.mapChild("labels")).containsSame(labels);
+        assertThat(index.child("tags")).isEmpty();
+        assertThat(resolved.values()).containsExactly(tags);
+        assertThat(resolved.maps()).containsExactly(labels);
+        assertThat(resolved.children()).containsExactly(ITEMS);
+        assertThat(resolved.select().fields()).containsExactly(STATUS);
+        assertThat(resolved.unknown()).containsExactly("nope");
+        assertThat(index.names()).containsExactly("status", "items", "tags", "labels");
+        assertThat(index.only(List.of("tags", "labels")).resolve(List.of("tags", "labels", "items")).unknown())
+                .containsExactly("items");
+        assertThatThrownBy(() -> FieldIndex.builder(OrderView.class)
+                .valueChild(tags).valueChild(new Tags("tags", true)).build())
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
     void ac_col_23_resolve_keeps_each_child_once_in_input_order() {
         var resolved = index().resolve(List.of("notes", "items", "notes", "items"));
 
@@ -274,7 +371,7 @@ class FieldIndexTest {
         names.clear();
         var children = new ArrayList<ChildField<OrderView, ?>>(List.of(ITEMS));
         var unknown = new ArrayList<>(List.of("zip"));
-        var made = new FieldIndex.Resolution<>(SelectSet.<OrderView>of(), children, unknown);
+        var made = new FieldIndex.Resolution<>(SelectSet.<OrderView>of(), children, List.of(), List.of(), unknown);
         children.clear();
         unknown.clear();
 

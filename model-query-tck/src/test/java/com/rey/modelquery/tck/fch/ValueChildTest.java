@@ -25,7 +25,6 @@ import jakarta.persistence.criteria.JoinType;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -54,17 +53,17 @@ class ValueChildTest {
                     assertThat(loaded).extracting(CardValues::id).containsExactly(1L, 2L, 3L, 4L, 5L);
                     CardValues alpha = loaded.get(0);
                     CardValues beta = loaded.get(1);
-                    // A bag: the repeated tag twice and the NULL tag kept; NULL sorts where the vendor puts it.
-                    assertThat(alpha.tags()).containsExactlyInAnyOrder("red", "blue", "red", null);
-                    assertThat(alpha.tags().stream().filter(Objects::nonNull))
-                            .as("ordered by the value after the key").containsExactly("blue", "red", "red");
+                    // A bag: the repeated tag twice and the NULL tag kept, ordered by the value with the NULL last on
+                    // every vendor (D-261).
+                    assertThat(alpha.tags()).as("ordered by the value after the key, NULL last")
+                            .containsExactly("blue", "red", "red", null);
                     assertThat(alpha.tagSet()).containsExactlyInAnyOrder("red", "blue", null);
                     assertThat(beta.tags()).containsExactly("green");
                     assertThat(beta.tagSet()).containsExactly("green");
                     // Converted from one stored letter each, ordered by the stored letter: C, P, P.
                     assertThat(alpha.states()).containsExactly(ConstantStatus.CLOSED, ConstantStatus.PENDING,
                             ConstantStatus.PENDING);
-                    assertThat(beta.states()).containsExactlyInAnyOrder(ConstantStatus.FAILED, null);
+                    assertThat(beta.states()).as("NULL last").containsExactly(ConstantStatus.FAILED, null);
                     // The @OrderColumn order, seeded backwards, its NULL at its index.
                     assertThat(alpha.scores()).containsExactly(30, null, 10, 30);
                     assertThat(loaded.get(3).scores()).containsExactly(5);
@@ -82,7 +81,7 @@ class ValueChildTest {
         withExecutor(JoinTestSupport.dataSource(db), TaggedCardEntity.class, executor -> {
             List<CardValues> loaded = executor.list(q, Limit.unlimited());
             // Cards 3 and 4 are held by cards 1 and 2; the others have no holder, so the INNER join finds nothing.
-            assertThat(loaded.get(2).holderTags()).containsExactlyInAnyOrder("red", "blue", "red", null);
+            assertThat(loaded.get(2).holderTags()).containsExactly("blue", "red", "red", null);
             assertThat(loaded.get(3).holderTags()).containsExactly("green");
             assertThat(loaded).filteredOn(card -> card.id() != 3L && card.id() != 4L)
                     .allSatisfy(card -> assertThat(card.holderTags()).isEmpty());
@@ -157,6 +156,30 @@ class ValueChildTest {
         assertThat(sql).as("refused before any statement").isEmpty();
     }
 
+    @TckTest
+    void ac_fch_28_a_value_field_declaring_another_element_type_is_mq1001_before_any_statement(TckDatabase db) {
+        var q = QCardValues.query().where(f -> f.eq(QCardValues.ID, -1L))
+                .fetch(FetchPlan.of(QCardValues.ALL).values(tags("tags", QCardValues.ROOT, Integer.class))).build();
+
+        List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, TaggedCardEntity.class, executor ->
+                assertThatThrownBy(() -> executor.list(q, Limit.unlimited()))
+                        .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                                e -> assertThat(e.code()).isEqualTo(MqCode.MQ1001))
+                        .hasMessage("MQ1001: CardValues.tags: declared element type Integer, but the element "
+                                + "collection 'tags' has element type String")));
+        assertThat(sql).as("refused at the plan build, before the parent's statement").isEmpty();
+    }
+
+    @TckTest
+    void ac_fch_28_a_converted_element_passes_the_element_type_check(TckDatabase db) {
+        // Nothing matches, so only the plan build runs: the converter's Java side is the element type declared.
+        var q = QCardValues.query().where(f -> f.eq(QCardValues.ID, -1L))
+                .fetch(FetchPlan.of(QCardValues.ALL).values(QCardValues.STATES)).build();
+
+        withExecutor(JoinTestSupport.dataSource(db), TaggedCardEntity.class, executor ->
+                assertThat(executor.list(q, Limit.unlimited())).isEmpty());
+    }
+
     private static List<String> sorted(List<String> values) {
         return values.stream().sorted(Comparator.nullsFirst(Comparator.naturalOrder())).toList();
     }
@@ -165,10 +188,16 @@ class ValueChildTest {
     private static ValueChildField<CardValues, String> heldTags() {
         TableField<?, ?> held = TableField.<TaggedCardEntity, TaggedCardEntity>join(QCardValues.ROOT, "held",
                 JoinType.INNER);
+        return tags("heldTags", held, String.class);
+    }
+
+    /** The card's own {@code tags}, a {@code List<String>}, whose field declares {@code declared} as its element. */
+    private static ValueChildField<CardValues, String> tags(String name, TableField<?, ?> owner,
+            Class<?> declared) {
         return new ValueChildField<>() {
             @Override
             public String name() {
-                return "heldTags";
+                return name;
             }
 
             @Override
@@ -178,12 +207,18 @@ class ValueChildTest {
 
             @Override
             public TableField<?, ?> owner() {
-                return held;
+                return owner;
             }
 
             @Override
             public String attribute() {
                 return "tags";
+            }
+
+            @Override
+            @SuppressWarnings("unchecked")
+            public Class<String> elementType() {
+                return (Class<String>) declared;
             }
 
             @Override

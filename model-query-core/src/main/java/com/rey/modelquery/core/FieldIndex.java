@@ -20,11 +20,11 @@ import java.util.Set;
  * <p>A select field's key is tier 1 of the rule {@link ModelQuery#orderedBy} uses (R-QRY-14): a column's property
  * path, else its attribute path; an expression's name; an aggregate's {@link AggregateField#named named} property,
  * else its name. A filter-only column is keyed by its attribute path, a join set by its join's property path and a
- * child by its name. A select key and a set key can be one string, because each is looked up by kind. Immutable, so
+ * child, value child or map child by its name. A select key and a set key can be one string, because each is looked up by kind. Immutable, so
  * an index serves any number of concurrent callers (INV-9).
  *
  * @param <M> the model the fields belong to
- * @implSpec R-COL-23, R-COL-24, D-121
+ * @implSpec R-COL-23, R-COL-24, D-121, D-262
  */
 @Incubating
 public final class FieldIndex<M> {
@@ -35,18 +35,23 @@ public final class FieldIndex<M> {
     private final Map<String, ColumnField<M, ?, ?>> filterOnly;
     private final Map<String, SelectSet<M>> sets;
     private final Map<String, ChildField<M, ?>> children;
+    private final Map<String, ValueChildField<M, ?>> values;
+    private final Map<String, MapChildField<M, ?, ?>> maps;
     /** What {@link #filter} accepts: the select columns and expressions, then the filter-only columns. */
     private final Map<String, ScalarField<M, ?>> filters;
     private final Set<String> names;
 
     private FieldIndex(Class<M> model, Map<String, SelectField<M, ?>> selects,
             Map<String, ColumnField<M, ?, ?>> filterOnly, Map<String, SelectSet<M>> sets,
-            Map<String, ChildField<M, ?>> children) {
+            Map<String, ChildField<M, ?>> children, Map<String, ValueChildField<M, ?>> values,
+            Map<String, MapChildField<M, ?, ?>> maps) {
         this.model = model;
         this.selects = selects;
         this.filterOnly = filterOnly;
         this.sets = sets;
         this.children = children;
+        this.values = values;
+        this.maps = maps;
         var filters = new LinkedHashMap<String, ScalarField<M, ?>>();
         selects.forEach((key, field) -> {
             if (field instanceof ScalarField<M, ?> scalar) {
@@ -58,6 +63,8 @@ public final class FieldIndex<M> {
         var all = new LinkedHashSet<>(selects.keySet());
         all.addAll(sets.keySet());
         all.addAll(children.keySet());
+        all.addAll(values.keySet());
+        all.addAll(maps.keySet());
         this.names = Collections.unmodifiableSet(all);
     }
 
@@ -88,10 +95,21 @@ public final class FieldIndex<M> {
         return Optional.ofNullable(children.get(Objects.requireNonNull(name, "name")));
     }
 
+    /** The value child (an element collection's basic or embeddable values) named {@code name}. */
+    public Optional<ValueChildField<M, ?>> valueChild(String name) {
+        return Optional.ofNullable(values.get(Objects.requireNonNull(name, "name")));
+    }
+
+    /** The map child (an element collection's {@code Map}) named {@code name}. */
+    public Optional<MapChildField<M, ?, ?>> mapChild(String name) {
+        return Optional.ofNullable(maps.get(Objects.requireNonNull(name, "name")));
+    }
+
     /**
-     * Turns each name into a select field, a set or a child, looked up in that order of kinds. The select fields keep
-     * input order with a set expanded in place and a repeated field kept once; each child appears once; a name that
-     * is none of the three, a filter-only column and {@code ""} included, is listed in {@code unknown}, distinct.
+     * Turns each name into a select field, a set, a child, a value child or a map child, looked up in that order of
+     * kinds. The select fields keep input order with a set expanded in place and a repeated field kept once; each
+     * child, value child and map child appears once; a name that is none of them, a filter-only column and
+     * {@code ""} included, is listed in {@code unknown}, distinct.
      * Never throws for a name the index does not hold, because the names usually come from a client (R-COL-23).
      *
      * @throws NullPointerException when {@code names} or an element is {@code null}
@@ -100,23 +118,32 @@ public final class FieldIndex<M> {
         Objects.requireNonNull(names, "names");
         var select = new LinkedHashSet<SelectField<M, ?>>();
         var kids = new LinkedHashSet<ChildField<M, ?>>();
+        var valueKids = new LinkedHashSet<ValueChildField<M, ?>>();
+        var mapKids = new LinkedHashSet<MapChildField<M, ?, ?>>();
         var unknown = new LinkedHashSet<String>();
         for (String name : names) {
             Objects.requireNonNull(name, "names element");
             SelectField<M, ?> field = selects.get(name);
             SelectSet<M> set = sets.get(name);
             ChildField<M, ?> child = children.get(name);
+            ValueChildField<M, ?> value = values.get(name);
+            MapChildField<M, ?, ?> map = maps.get(name);
             if (field != null) {
                 select.add(field);
             } else if (set != null) {
                 select.addAll(set.fields());
             } else if (child != null) {
                 kids.add(child);
+            } else if (value != null) {
+                valueKids.add(value);
+            } else if (map != null) {
+                mapKids.add(map);
             } else {
                 unknown.add(name);
             }
         }
-        return new Resolution<>(SelectSet.copyOf(select), List.copyOf(kids), List.copyOf(unknown));
+        return new Resolution<>(SelectSet.copyOf(select), List.copyOf(kids), List.copyOf(valueKids),
+                List.copyOf(mapKids), List.copyOf(unknown));
     }
 
     /**
@@ -157,10 +184,11 @@ public final class FieldIndex<M> {
                     + (emptied.isEmpty() ? "" : "leaves the set empty: " + emptied)
                     + "; names() are " + this.names + ", filterNames() are " + filters.keySet());
         }
-        return new FieldIndex<>(model, keptSelects, kept(filterOnly, keep), keptSets, kept(children, keep));
+        return new FieldIndex<>(model, keptSelects, kept(filterOnly, keep), keptSets, kept(children, keep),
+                kept(values, keep), kept(maps, keep));
     }
 
-    /** What {@link #resolve} accepts: the select, set and child keys, in that order. */
+    /** What {@link #resolve} accepts: the select, set, child, value child and map child keys, in that order. */
     public Set<String> names() {
         return names;
     }
@@ -212,15 +240,21 @@ public final class FieldIndex<M> {
      *
      * @param select the select fields, in input order, as a set
      * @param children the children, each once, in input order
-     * @param unknown the names that are neither, distinct, in input order
+     * @param values the value children, each once, in input order
+     * @param maps the map children, each once, in input order
+     * @param unknown the names that are none of them, distinct, in input order
      * @param <M> the model
      */
-    public record Resolution<M>(SelectSet<M> select, List<ChildField<M, ?>> children, List<String> unknown) {
+    @Incubating
+    public record Resolution<M>(SelectSet<M> select, List<ChildField<M, ?>> children,
+            List<ValueChildField<M, ?>> values, List<MapChildField<M, ?, ?>> maps, List<String> unknown) {
 
         /** Copies the lists, so a resolution cannot be changed through them (CC-IMM). */
         public Resolution {
             Objects.requireNonNull(select, "select");
             children = List.copyOf(children);
+            values = List.copyOf(values);
+            maps = List.copyOf(maps);
             unknown = List.copyOf(unknown);
         }
     }
@@ -239,6 +273,8 @@ public final class FieldIndex<M> {
         private final Map<String, ColumnField<M, ?, ?>> filterOnly = new LinkedHashMap<>();
         private final Map<String, SelectSet<M>> sets = new LinkedHashMap<>();
         private final Map<String, ChildField<M, ?>> children = new LinkedHashMap<>();
+        private final Map<String, ValueChildField<M, ?>> values = new LinkedHashMap<>();
+        private final Map<String, MapChildField<M, ?, ?>> maps = new LinkedHashMap<>();
         /** The first key given two different fields, thrown by {@link #build()}. */
         private IllegalStateException clash;
 
@@ -294,6 +330,24 @@ public final class FieldIndex<M> {
             return this;
         }
 
+        /** Adds value children, each under its {@link ValueChildField#name() name}. */
+        @SafeVarargs
+        public final Builder<M> valueChild(ValueChildField<M, ?>... children) {
+            for (ValueChildField<M, ?> child : checked(children, "children")) {
+                add(values, child.name(), child, "value child");
+            }
+            return this;
+        }
+
+        /** Adds map children, each under its {@link MapChildField#name() name}. */
+        @SafeVarargs
+        public final Builder<M> mapChild(MapChildField<M, ?, ?>... children) {
+            for (MapChildField<M, ?, ?> child : checked(children, "children")) {
+                add(maps, child.name(), child, "map child");
+            }
+            return this;
+        }
+
         /**
          * The index. A filter-only column whose key a select column or expression already holds is dropped when
          * equal to it.
@@ -316,7 +370,9 @@ public final class FieldIndex<M> {
             });
             return new FieldIndex<>(model, Collections.unmodifiableMap(new LinkedHashMap<>(selects)),
                     Collections.unmodifiableMap(onlyFilters), Collections.unmodifiableMap(new LinkedHashMap<>(sets)),
-                    Collections.unmodifiableMap(new LinkedHashMap<>(children)));
+                    Collections.unmodifiableMap(new LinkedHashMap<>(children)),
+                    Collections.unmodifiableMap(new LinkedHashMap<>(values)),
+                    Collections.unmodifiableMap(new LinkedHashMap<>(maps)));
         }
 
         /**

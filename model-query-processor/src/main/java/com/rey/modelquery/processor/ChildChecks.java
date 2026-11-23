@@ -198,6 +198,13 @@ final class ChildChecks {
                 + model.source().name() + ", a @SourceModel; use foreignKey");
     }
 
+    /** {@code MQ3002} for an element or key type of {@code collection} the processor can't read (INV-3, D-260). */
+    private static void unreadable(ModelField field, String where, String collection, String what,
+            Diagnostics diagnostics) {
+        diagnostics.error(field.element(), DiagnosticCode.MQ3002, where + "can't read the " + what + " type of "
+                + collection + "; declare it generically or set @ElementCollection(targetClass)");
+    }
+
     /**
      * The checks of a value child, whose {@code through} path ends or fails at an element collection (R-FCH-19):
      * {@code MQ3401} with {@code foreignKey}, {@code MQ3406} for the path, a composite {@code @Id}, or a key that
@@ -234,8 +241,9 @@ final class ChildChecks {
                         + ", a Map, which a List or Set value child can't hold");
                 return;
             }
-            if (elements.key() != null && !types.isSameType(ProcessorTypes.boxed(types, definition.keyType()),
-                    elements.key())) {
+            if (elements.key() == null) {
+                unreadable(field, where, collection, "key", diagnostics);
+            } else if (!types.isSameType(ProcessorTypes.boxed(types, definition.keyType()), elements.key())) {
                 diagnostics.error(field.element(), DiagnosticCode.MQ3002, where
                         + ModelValidator.display(field.type()) + " has key "
                         + ModelValidator.display(definition.keyType()) + ", and " + collection + " has key "
@@ -253,8 +261,9 @@ final class ChildChecks {
                 diagnostics.error(field.element(), DiagnosticCode.MQ3407, where
                         + "an @ElementModel is only valid as an embeddable element collection value child");
                 return;
-            } else if (elements.element() != null && !types.isSameType(
-                    ProcessorTypes.boxed(types, definition.model()), elements.element())) {
+            } else if (elements.element() == null) {
+                unreadable(field, where, collection, "element", diagnostics);
+            } else if (!types.isSameType(ProcessorTypes.boxed(types, definition.model()), elements.element())) {
                 diagnostics.error(field.element(), DiagnosticCode.MQ3002, where
                         + ModelValidator.display(field.type()) + " holds "
                         + ModelValidator.display(definition.model()) + ", and " + collection + " holds "
@@ -285,7 +294,9 @@ final class ChildChecks {
                 diagnostics.error(field.element(), DiagnosticCode.MQ3407, where
                         + "an @ElementModel is only valid as an embeddable element collection value child");
                 return;
-            } else if (elements.element() != null && !types.isSameType(definition.model(), elements.element())) {
+            } else if (elements.element() == null) {
+                unreadable(field, where, collection, "element", diagnostics);
+            } else if (!types.isSameType(definition.model(), elements.element())) {
                 diagnostics.error(field.element(), DiagnosticCode.MQ3002, where + ModelValidator.display(field.type())
                         + " holds " + ModelValidator.display(definition.model()) + ", and " + collection + " holds "
                         + ModelValidator.display(elements.element()));

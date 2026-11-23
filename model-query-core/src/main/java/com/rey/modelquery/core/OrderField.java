@@ -68,7 +68,16 @@ public record OrderField<M, C>(SelectField<M, C> column, boolean ascending, Null
         }
         // A grouped expression key takes the portable form even where the provider renders the clause itself.
         boolean portableKey = grouped && column instanceof ExpressionField<?, ?>;
-        RenderOptions options = ctx.renderOptions();
+        return render(ctx.renderOptions(), cb, expression, ascending, nulls, portableKey);
+    }
+
+    /**
+     * The orders of {@code expression} with an explicit {@code nulls} precedence: the provider's own clause where its
+     * renderer has one, else a null-test key before the column (R-COL-12). Also the engine's own implicit orders.
+     */
+    static List<Order> render(RenderOptions options, CriteriaBuilder cb, Expression<?> expression, boolean ascending,
+            NullPrecedence nulls, boolean portableKey) {
+        Order own = ascending ? cb.asc(expression) : cb.desc(expression);
         // The provider's renderer omits the clause itself where the dialect already sorts so.
         Optional<Order> nativeOrder = portableKey ? Optional.empty()
                 : options.nullPrecedenceRenderer()

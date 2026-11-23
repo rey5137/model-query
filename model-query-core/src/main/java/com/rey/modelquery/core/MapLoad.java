@@ -36,6 +36,11 @@ public final class MapLoad<M, K, V> {
     private final int maxPerParent;
 
     MapLoad(MapChildField<M, K, V> field, ValueChildQuery<V> query) {
+        if (field.isElementModel() != (field.elementQuery() != null)) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1713, "map child " + field.name() + ": isElementModel() is "
+                    + field.isElementModel() + " but elementQuery() " + (field.elementQuery() == null ? "is null"
+                            : "is set") + "; a field overrides both or neither (D-261)");
+        }
         this.field = field;
         this.maxPerParent = query.bound();
     }
@@ -55,7 +60,8 @@ public final class MapLoad<M, K, V> {
      * then the value (or element model columns).
      *
      * @throws ModelQueryDefinitionException {@code MQ1713} when it joins a collection besides the element collection,
-     *     whose rows would repeat its entries (D-248)
+     *     whose rows would repeat its entries (D-248); {@code MQ1001} when the field's {@code keyType()} or, for a
+     *     basic value, {@code valueType()} is not the map's (D-260)
      */
     public Statement build(CriteriaBuilder cb, RenderOptions options) {
         Objects.requireNonNull(cb, "cb");
@@ -72,6 +78,10 @@ public final class MapLoad<M, K, V> {
                     + "collection " + String.join(", ", toMany) + " besides the element collection '"
                     + field.attribute() + "', which would repeat its entries; reach the element collection through "
                     + "to-one associations only");
+        }
+        ValueLoad.checkType(this, "key", field.keyType(), mapJoin.key().getJavaType(), field.attribute());
+        if (!field.isElementModel()) {
+            ValueLoad.checkType(this, "value", field.valueType(), mapJoin.value().getJavaType(), field.attribute());
         }
         Expression<?> key = field.key().path(joins);
         Expression<?> mapKey = mapJoin.key();

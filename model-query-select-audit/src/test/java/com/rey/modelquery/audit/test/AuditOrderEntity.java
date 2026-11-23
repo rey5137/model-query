@@ -8,7 +8,9 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Entity
 @Table(name = "audit_order")
@@ -29,6 +31,10 @@ public class AuditOrderEntity {
     @ElementCollection
     @CollectionTable(name = "audit_order_spot")
     private List<AuditSpot> spots = new ArrayList<>();
+
+    @ElementCollection
+    @CollectionTable(name = "audit_order_label")
+    private Map<String, String> labels = new HashMap<>();
 
     public AuditOrderEntity() {}
 
@@ -57,6 +63,10 @@ public class AuditOrderEntity {
 
     public List<String> getTags() {
         return tags;
+    }
+
+    public Map<String, String> getLabels() {
+        return labels;
     }
 
     public List<AuditSpot> getSpots() {

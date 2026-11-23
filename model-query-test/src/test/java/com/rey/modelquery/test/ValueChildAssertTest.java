@@ -128,6 +128,11 @@ class ValueChildAssertTest {
             }
 
             @Override
+            public Class<String> elementType() {
+                return String.class;
+            }
+
+            @Override
             public boolean isOrdered() {
                 return false;
             }
@@ -164,6 +169,16 @@ class ValueChildAssertTest {
             @Override
             public String attribute() {
                 return name;
+            }
+
+            @Override
+            public Class<String> keyType() {
+                return String.class;
+            }
+
+            @Override
+            public Class<String> valueType() {
+                return String.class;
             }
 
             @Override

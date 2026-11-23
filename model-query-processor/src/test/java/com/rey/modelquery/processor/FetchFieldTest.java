@@ -871,6 +871,35 @@ class FetchFieldTest {
     }
 
     @Test
+    void ac_proc_67_target_class_gives_the_element_type_and_an_unreadable_one_is_mq3002() {
+        String entity = """
+                @jakarta.persistence.Entity
+                public class RawEntity {
+                    @jakarta.persistence.Id
+                    Long id;
+                    @jakarta.persistence.ElementCollection(targetClass = String.class)
+                    @SuppressWarnings("rawtypes")
+                    java.util.List good;
+                    @jakarta.persistence.ElementCollection
+                    @SuppressWarnings("rawtypes")
+                    java.util.List bad;
+                }
+                """;
+        Compilation compilation = compileTagged(entity, """
+                @QueryModel(root = RawEntity.class)
+                public record RawCard(
+                        @PrimaryKey Long id,
+                        @Child(through = "good") List<String> good,
+                        @Child(through = "bad") List<String> bad) {}
+                """);
+
+        assertThat(compilation).failed();
+        assertThat(errors(compilation)).containsExactly(
+                "MQ3002: RawCard.bad: can't read the element type of the element collection 'bad'; declare it "
+                        + "generically or set @ElementCollection(targetClass)");
+    }
+
+    @Test
     void ac_proc_67_source_rooted_map_child_is_mq3406() {
         Compilation compilation = compileTagged("""
                 @com.rey.modelquery.annotations.SourceModel(root = TaggedEntity.class)

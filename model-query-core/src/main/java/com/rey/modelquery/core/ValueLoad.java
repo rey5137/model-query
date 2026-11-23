@@ -53,7 +53,8 @@ public final class ValueLoad<M, E> {
      * The statement, without the key match: rooted at the parent's entity, selecting the parent's key, then the value.
      *
      * @throws ModelQueryDefinitionException {@code MQ1713} when it joins a collection besides the element collection,
-     *     whose rows would repeat the values (D-247)
+     *     whose rows would repeat the values (D-247); {@code MQ1001} when the field's {@code elementType()} is not the
+     *     collection's element type (D-260)
      */
     public Statement build(CriteriaBuilder cb, RenderOptions options) {
         Objects.requireNonNull(cb, "cb");
@@ -72,6 +73,7 @@ public final class ValueLoad<M, E> {
                     + field.attribute() + "', which would repeat its values; reach the element collection through "
                     + "to-one associations only");
         }
+        checkType(this, "element", field.elementType(), values.getJavaType(), field.attribute());
         Expression<?> key = field.key().path(joins);
         query.multiselect(key, values);
         List<Order> order = new ArrayList<>();
@@ -80,10 +82,25 @@ public final class ValueLoad<M, E> {
             order.add(cb.asc(((ListJoin<?, ?>) values).index()));
         }
         if (field.ordersByValue()) {
-            order.add(cb.asc(values));
+            // An element can be NULL and vendors place NULL differently, so NULLs last on every vendor (D-261).
+            order.addAll(OrderField.render(options, cb, values, true, NullPrecedence.LAST, false));
         }
         query.orderBy(order);
         return new Statement(query, joins, key);
+    }
+
+    /**
+     * {@code MQ1001} when the {@code actual} type the join reports for {@code what} of the element collection
+     * {@code attribute} is not the {@code declared} one, boxed: a value of the other type would sit in the model's
+     * collection and fail in the caller's code (INV-3, D-260).
+     */
+    static void checkType(Object load, String what, Class<?> declared, Class<?> actual, String attribute) {
+        if (actual == null || !ColumnField.reads(declared, actual)) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1001, load + ": declared " + what + " type "
+                    + ColumnField.name(declared, actual) + ", but the element collection '" + attribute + "' has "
+                    + (actual == null ? "an unknown " + what + " type" : what + " type "
+                            + ColumnField.name(actual, declared)));
+        }
     }
 
     /** Adds the attribute of every plural join under {@code from} other than {@code values} to {@code found}. */

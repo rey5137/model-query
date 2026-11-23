@@ -1049,8 +1049,9 @@ and keys, INV-5 for bag rows, R-EXE-16 over an element-collection join); M39.1, 
 | M39.2 | `@ElementModel`: processor kind, generated columns on an engine-internal element table with no `ROOT` or `query()`, `MQ3407`, embeddable value children through `ChildField`; select audit hand-off for element-model rows | element-model AC-FCH and AC-PROC rows green on both lines |
 | M39.3 | Maps: `MapChildField`, `FetchPlan#map`, `key()`/`value()` statement, `MQ2609`, `MQ3408` (entity or embeddable key, entity value naming `@Child(through) List<…>`), element and map-key converter modelling in the processor (INV-3) | map AC-FCH rows green on Tier 1 and both lines |
 | M39.4 | Filters: a `@FilterColumn` path ending at an element collection, the table constant generated only for those (D-46 amended), the attribute-less `ColumnField` for a basic element, `exists` over it, R-EXE-16's "When" list; docs "Values and maps" section with JPA and Spring tabs; `CHANGELOG.md` 0.16.0 section | filter AC rows green on Tier 1 and both lines; docs build |
+| M39.5 | Map child queries (gate finding, D-263): `FetchPlan.map` takes a `MapChildQuery<K, V>` (the per-parent bound, plus `ChildQuery`'s filters, order and key groups when the value is an `@ElementModel`), `MapLoad` applies them; `QueryAssert.map` returns a `MapChildAssert` | map-query AC-FCH rows green on Tier 1 and both lines |
 
-M39.2 follows M39.1; M39.3 follows M39.2; M39.4 follows M39.1.
+M39.2 follows M39.1; M39.3 follows M39.2; M39.4 follows M39.1; M39.5 follows M39.3 and runs inside the gate's step 1.
 
 **Exit:** the M39 rows' criteria green on Tier 1 and both lines.
 
