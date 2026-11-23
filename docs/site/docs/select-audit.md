@@ -66,9 +66,9 @@ a non-API hand-off observer in `model-query-jpa` and shades Byte Buddy under a r
     }
 
     dependencies {
-        testImplementation(platform("io.github.rey5137:model-query-bom:0.15.0"))
+        testImplementation(platform("io.github.rey5137:model-query-bom:0.16.0"))
         testImplementation("io.github.rey5137:model-query-select-audit")
-        selectAuditAgent("io.github.rey5137:model-query-select-audit:0.15.0")
+        selectAuditAgent("io.github.rey5137:model-query-select-audit:0.16.0")
     }
 
     tasks.test {
