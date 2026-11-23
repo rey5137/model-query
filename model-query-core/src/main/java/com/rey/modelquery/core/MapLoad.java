@@ -130,14 +130,7 @@ public final class MapLoad<M, K, V> {
      * each key is its own explicit parameter, typed by the key column's mapping (R-FLT-08, D-177).
      */
     public Predicate keyIn(Statement statement, List<Object> keys) {
-        JoinContext joins = statement.joins();
-        if (!joins.renderOptions().inlinesValues()) {
-            return statement.key().in(keys);
-        }
-        ColumnField<?, ?, ?> column = field.key();
-        return statement.key().in(keys.stream()
-                .map(key -> ValueOperands.attributeOperand(joins, column, statement.key(), key, keyLabel()))
-                .toArray(Expression<?>[]::new));
+        return ValueLoad.keyMatch(statement.joins(), field.key(), statement.key(), keys, keyLabel());
     }
 
     /**

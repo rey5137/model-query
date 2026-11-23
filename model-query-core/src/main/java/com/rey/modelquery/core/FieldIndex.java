@@ -20,8 +20,8 @@ import java.util.Set;
  * <p>A select field's key is tier 1 of the rule {@link ModelQuery#orderedBy} uses (R-QRY-14): a column's property
  * path, else its attribute path; an expression's name; an aggregate's {@link AggregateField#named named} property,
  * else its name. A filter-only column is keyed by its attribute path, a join set by its join's property path and a
- * child, value child or map child by its name. A select key and a set key can be one string, because each is looked up by kind. Immutable, so
- * an index serves any number of concurrent callers (INV-9).
+ * child, value child or map child by its name. A select key and a set key can be one string, because each is looked
+ * up by kind. Immutable, so an index serves any number of concurrent callers (INV-9).
  *
  * @param <M> the model the fields belong to
  * @implSpec R-COL-23, R-COL-24, D-121, D-262

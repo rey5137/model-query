@@ -132,6 +132,32 @@ class ElementModelChildTest {
     }
 
     @TckTest
+    void ac_fch_36_a_field_claiming_an_element_collection_over_an_entity_collection_is_mq1713(TckDatabase db) {
+        var held = TableField.<TaggedCardEntity, TaggedCardEntity>join(QCardSpots.ROOT, "held", JoinType.INNER);
+        for (boolean ordered : new boolean[] {false, true}) {
+            ChildField<CardSpots, SpotRow> lying = new ChildField<>() {
+                public String name() { return "lyingElement"; }
+                public ColumnField<CardSpots, ?, ?> key() { return QCardSpots.ID; }
+                public Optional<ColumnField<SpotRow, ?, ?>> foreignKey() { return Optional.empty(); }
+                public Optional<TableField<?, ?>> through() { return Optional.of(held); }
+                public boolean isToMany() { return true; }
+                public boolean isElement() { return true; }
+                public boolean isOrderedElement() { return ordered; }
+                public ModelQuery.Builder<?, ?, SpotRow> query() { return QCardSpots.SPOTS.query(); }
+                public CardSpots with(CardSpots parent, List<SpotRow> children) { return parent; }
+            };
+            var plan = FetchPlan.of(QCardSpots.ALL).child(lying, SPOT);
+            var q = QCardSpots.query().where(f -> f.eq(QCardSpots.ID, -1L)).fetch(plan).build();
+            List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, TaggedCardEntity.class, executor ->
+                    assertThatThrownBy(() -> executor.list(q, Limit.unlimited()))
+                            .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                                    e -> assertThat(e.code()).isEqualTo(MqCode.MQ1713))
+                            .hasMessageContaining("the field says it is an element child")));
+            assertThat(sql).as("ordered=" + ordered).isEmpty();
+        }
+    }
+
+    @TckTest
     void ac_fch_37_rounds_and_child_statements_use_the_element_load(TckDatabase db) {
         var plan = FetchPlan.of(QCardSpots.ALL).child(QCardSpots.SPOTS, SPOT);
         var q = QCardSpots.query().orderBy(QCardSpots.ID.asc()).fetch(plan).build();

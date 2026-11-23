@@ -3373,8 +3373,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
 
     /** A value statement's own binds, before any key is added, as {@link #childOwnBinds} counts a child's. */
     private int valueOwnBinds(ValueLoad<?, ?> load, ValueLoad.Statement statement) {
-        return em.createQuery(statement.query()).getParameters().size() + statement.joins().repeatedExpressionBinds()
-                + (load.maxPerParent() > 0 ? 1 : 0);
+        return statementOwnBinds(statement.query(), statement.joins(), load.maxPerParent());
     }
 
     /**
@@ -3389,8 +3388,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
 
     /** A map statement's own binds, before any key is added, as {@link #childOwnBinds} counts a child's. */
     private int mapOwnBinds(MapLoad<?, ?, ?> load, MapLoad.Statement statement) {
-        return em.createQuery(statement.query()).getParameters().size() + statement.joins().repeatedExpressionBinds()
-                + (load.maxPerParent() > 0 ? 1 : 0);
+        return statementOwnBinds(statement.query(), statement.joins(), load.maxPerParent());
+    }
+
+    private int statementOwnBinds(CriteriaQuery<Tuple> query, JoinContext joins, int maxPerParent) {
+        return em.createQuery(query).getParameters().size() + joins.repeatedExpressionBinds()
+                + (maxPerParent > 0 ? 1 : 0);
     }
 
     /**
@@ -4251,7 +4254,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
                 values.computeIfAbsent(parent, k -> new ArrayList<>()).add((V) tuple.get(1));
             }
             if (load.maxPerParent() > 0) {
-                checkValueBound(load, roundKeys.size(), tuples.size() >= cap, read);
+                checkPerParentBound(load, load.maxPerParent(), "values", roundKeys.size(), tuples.size() >= cap,
+                        read);
             }
         }
         return values;
@@ -4275,11 +4279,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
     }
 
     /**
-     * {@code MQ2603} when a key of a round read more rows than {@code maxPerParent}, before a {@code Set} field
-     * collapses equal values, or the round read its cap of keys × n + 1 rows (R-FCH-11, D-247).
+     * {@code MQ2603} when a key of a round read more rows ({@code noun}) than {@code bound}, before a {@code Set} field
+     * collapses equal values, or the round read its cap of keys × n + 1 rows (R-FCH-11, D-247, D-248).
      */
-    private static void checkValueBound(ValueLoad<?, ?> load, int keys, boolean capped, Map<Object, Integer> read) {
-        int bound = load.maxPerParent();
+    private static void checkPerParentBound(Object load, int bound, String noun, int keys, boolean capped,
+            Map<Object, Integer> read) {
         Object most = null;
         for (Map.Entry<Object, Integer> entry : read.entrySet()) {
             if (most == null || entry.getValue() > read.get(most)) {
@@ -4288,7 +4292,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
         }
         if (most != null && read.get(most) > bound) {
             throw new ModelQueryExecutionException(MqCode.MQ2603, load + ": key " + most + " has " + read.get(most)
-                    + " values, more than maxPerParent(" + bound + "); raise the bound");
+                    + " " + noun + ", more than maxPerParent(" + bound + "); raise the bound");
         }
         if (capped) {
             throw new ModelQueryExecutionException(MqCode.MQ2603, load + ": a round of " + keys + " keys read its "
@@ -4406,7 +4410,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
                 parentMap.put(mapKey, mapVal);
             }
             if (load.maxPerParent() > 0) {
-                checkMapBound(load, roundKeys.size(), tuples.size() >= cap, read);
+                checkPerParentBound(load, load.maxPerParent(), "entries", roundKeys.size(), tuples.size() >= cap,
+                        read);
             }
         }
         if (load.field().isElementModel() && elementModels != null && !elementModels.isEmpty()) {
@@ -4430,28 +4435,6 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E>, Child
         }
         traceTimed(label, rows.size() + (rows.size() == 1 ? " row" : " rows"), start);
         return rows;
-    }
-
-    /**
-     * {@code MQ2603} when a key of a round read more entries than {@code maxPerParent}, or the round read its cap
-     * of keys × n + 1 rows (R-FCH-11, D-248).
-     */
-    private static void checkMapBound(MapLoad<?, ?, ?> load, int keys, boolean capped, Map<Object, Integer> read) {
-        int bound = load.maxPerParent();
-        Object most = null;
-        for (Map.Entry<Object, Integer> entry : read.entrySet()) {
-            if (most == null || entry.getValue() > read.get(most)) {
-                most = entry.getKey();
-            }
-        }
-        if (most != null && read.get(most) > bound) {
-            throw new ModelQueryExecutionException(MqCode.MQ2603, load + ": key " + most + " has " + read.get(most)
-                    + " entries, more than maxPerParent(" + bound + "); raise the bound");
-        }
-        if (capped) {
-            throw new ModelQueryExecutionException(MqCode.MQ2603, load + ": a round of " + keys + " keys read its "
-                    + "cap of " + keys + " x maxPerParent(" + bound + ") + 1 rows; raise the bound");
-        }
     }
 
     /**

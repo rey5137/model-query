@@ -118,13 +118,17 @@ public final class ValueLoad<M, E> {
      * each key is its own explicit parameter, typed by the key column's mapping (R-FLT-08, D-177).
      */
     public Predicate keyIn(Statement statement, List<Object> keys) {
-        JoinContext joins = statement.joins();
+        return keyMatch(statement.joins(), field.key(), statement.key(), keys, keyLabel());
+    }
+
+    /** The key match shared by the value and map loads: {@code key IN (keys)}, each key explicit under inline values. */
+    static Predicate keyMatch(JoinContext joins, ColumnField<?, ?, ?> column, Expression<?> key, List<Object> keys,
+            String label) {
         if (!joins.renderOptions().inlinesValues()) {
-            return statement.key().in(keys);
+            return key.in(keys);
         }
-        ColumnField<?, ?, ?> column = field.key();
-        return statement.key().in(keys.stream()
-                .map(key -> ValueOperands.attributeOperand(joins, column, statement.key(), key, keyLabel()))
+        return key.in(keys.stream()
+                .map(value -> ValueOperands.attributeOperand(joins, column, key, value, label))
                 .toArray(Expression<?>[]::new));
     }
 

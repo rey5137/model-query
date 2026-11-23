@@ -172,27 +172,14 @@ final class FetchFieldWriter {
     }
 
     /**
-     * The {@code ValueChildField} of the value child {@code field}, whose {@code through} path ends at an element
-     * collection: its owner is the path's to-one joins from the parent's {@code ROOT}, each {@code INNER}, and
-     * {@code with} copies the values into an unmodifiable {@code List}, or {@code LinkedHashSet} for a {@code Set},
-     * that keeps {@code null}s (R-FCH-19, D-247).
+     * The anonymous body every element collection child field shares: its parent {@code key}, its {@code owner} path,
+     * its name and the element collection's {@code attribute}.
      */
-    FieldSpec valueChildField(ModelDefinition model, ModelField field) {
-        ChildDefinition definition = field.child();
-        ChildKey.Through through = ChildKey.elementsOf(metamodel, model, field);
-        EntityAttribute.Elements elements = through.elements().elements();
+    private TypeSpec.Builder elementChildBody(ModelDefinition model, ModelField field, ChildKey.Through through,
+            TypeName type, ChildKey key) {
         ClassName modelName = ClassName.get(model.type());
-        TypeName element = TypeName.get(definition.model());
-        TypeName type = ParameterizedTypeName.get(VALUE_CHILD_FIELD, modelName, element);
-        ChildKey key = ChildKey.of(metamodel, types, model, ChildKey.valueKey(metamodel, model, definition));
-        MethodSpec.Builder with = method("with", modelName)
-                .addParameter(modelName, "parent")
-                .addParameter(ParameterizedTypeName.get(LIST, element), "values");
-        copy(model, field, definition.set()
-                ? CodeBlock.of("$T.unmodifiableSet(new $T<>(values))", Collections.class, LinkedHashSet.class)
-                : CodeBlock.of("$T.unmodifiableList(new $T<>(values))", Collections.class, ArrayList.class), with);
         TypeName table = ParameterizedTypeName.get(TABLE_FIELD, ANY, ANY);
-        TypeSpec body = TypeSpec.anonymousClassBuilder("")
+        return TypeSpec.anonymousClassBuilder("")
                 .addSuperinterface(type)
                 .addField(FieldSpec.builder(ParameterizedTypeName.get(COLUMN_FIELD, modelName, ANY, ANY), "key",
                                 Modifier.PRIVATE, Modifier.FINAL)
@@ -212,7 +199,30 @@ final class FetchFieldWriter {
                         .build())
                 .addMethod(method("attribute", ClassName.get(String.class))
                         .addStatement("return $S", through.elements().name())
-                        .build())
+                        .build());
+    }
+
+    /**
+     * The {@code ValueChildField} of the value child {@code field}, whose {@code through} path ends at an element
+     * collection: its owner is the path's to-one joins from the parent's {@code ROOT}, each {@code INNER}, and
+     * {@code with} copies the values into an unmodifiable {@code List}, or {@code LinkedHashSet} for a {@code Set},
+     * that keeps {@code null}s (R-FCH-19, D-247).
+     */
+    FieldSpec valueChildField(ModelDefinition model, ModelField field) {
+        ChildDefinition definition = field.child();
+        ChildKey.Through through = ChildKey.elementsOf(metamodel, model, field);
+        EntityAttribute.Elements elements = through.elements().elements();
+        ClassName modelName = ClassName.get(model.type());
+        TypeName element = TypeName.get(definition.model());
+        TypeName type = ParameterizedTypeName.get(VALUE_CHILD_FIELD, modelName, element);
+        ChildKey key = ChildKey.of(metamodel, types, model, ChildKey.valueKey(metamodel, model, definition));
+        MethodSpec.Builder with = method("with", modelName)
+                .addParameter(modelName, "parent")
+                .addParameter(ParameterizedTypeName.get(LIST, element), "values");
+        copy(model, field, definition.set()
+                ? CodeBlock.of("$T.unmodifiableSet(new $T<>(values))", Collections.class, LinkedHashSet.class)
+                : CodeBlock.of("$T.unmodifiableList(new $T<>(values))", Collections.class, ArrayList.class), with);
+        TypeSpec body = elementChildBody(model, field, through, type, key)
                 .addMethod(method("elementType", ParameterizedTypeName.get(CLASS, element))
                         .addStatement("return $T.class", element)
                         .build())
@@ -248,28 +258,7 @@ final class FetchFieldWriter {
                 .addParameter(ParameterizedTypeName.get(MAP, keyType, valueType), "entries");
         copy(model, field, CodeBlock.of("$T.unmodifiableMap(new $T<>(entries))",
                 Collections.class, LinkedHashMap.class), with);
-        TypeName table = ParameterizedTypeName.get(TABLE_FIELD, ANY, ANY);
-        TypeSpec.Builder body = TypeSpec.anonymousClassBuilder("")
-                .addSuperinterface(type)
-                .addField(FieldSpec.builder(ParameterizedTypeName.get(COLUMN_FIELD, modelName, ANY, ANY), "key",
-                                Modifier.PRIVATE, Modifier.FINAL)
-                        .initializer(keyColumn(model, key))
-                        .build())
-                .addField(FieldSpec.builder(table, "owner", Modifier.PRIVATE, Modifier.FINAL)
-                        .initializer(path(through))
-                        .build())
-                .addMethod(method("name", ClassName.get(String.class))
-                        .addStatement("return $S", field.name())
-                        .build())
-                .addMethod(method("key", ParameterizedTypeName.get(COLUMN_FIELD, modelName, ANY, ANY))
-                        .addStatement("return key")
-                        .build())
-                .addMethod(method("owner", table)
-                        .addStatement("return owner")
-                        .build())
-                .addMethod(method("attribute", ClassName.get(String.class))
-                        .addStatement("return $S", through.elements().name())
-                        .build())
+        TypeSpec.Builder body = elementChildBody(model, field, through, type, key)
                 .addMethod(method("keyType", ParameterizedTypeName.get(CLASS, keyType))
                         .addStatement("return $T.class", keyType)
                         .build())
