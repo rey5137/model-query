@@ -1,11 +1,11 @@
 package com.rey.modelquery.spike.rfc0019.benchmarks;
 
-import com.rey.modelquery.spike.rfc0019.LitePosDataset;
-import com.rey.modelquery.spike.rfc0019.LitePosEntities.Cashier;
-import com.rey.modelquery.spike.rfc0019.LitePosEntities.Sale;
-import com.rey.modelquery.spike.rfc0019.LitePosEntities.SaleLine;
-import com.rey.modelquery.spike.rfc0019.LitePosEntities.Store;
-import com.rey.modelquery.spike.rfc0019.LitePosEntities.Terminal;
+import com.rey.modelquery.spike.rfc0019.PosDataset;
+import com.rey.modelquery.spike.rfc0019.PosEntities.Cashier;
+import com.rey.modelquery.spike.rfc0019.PosEntities.Sale;
+import com.rey.modelquery.spike.rfc0019.PosEntities.SaleLine;
+import com.rey.modelquery.spike.rfc0019.PosEntities.Store;
+import com.rey.modelquery.spike.rfc0019.PosEntities.Terminal;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import java.sql.Connection;
@@ -67,7 +67,7 @@ public final class BenchmarkDatabase {
             pgContainer = pg;
             try (Connection conn = pgContainer.createConnection("")) {
                 createTables(conn, "POSTGRESQL");
-                LitePosDataset.seed(conn, true);
+                PosDataset.seed(conn, true);
                 try (Statement st = conn.createStatement()) {
                     st.execute("ANALYZE");
                 }
@@ -82,7 +82,7 @@ public final class BenchmarkDatabase {
             myContainer = my;
             try (Connection conn = myContainer.createConnection("")) {
                 createTables(conn, "MYSQL");
-                LitePosDataset.seed(conn, true);
+                PosDataset.seed(conn, true);
                 try (Statement st = conn.createStatement()) {
                     st.execute("ANALYZE TABLE store, terminal, cashier, sale, sale_line");
                 }
@@ -203,7 +203,7 @@ public final class BenchmarkDatabase {
                         + "product_sku VARCHAR(100) NOT NULL, quantity DECIMAL(10,3) NOT NULL, "
                         + "unit_price DECIMAL(10,2) NOT NULL, line_total DECIMAL(12,2) NOT NULL)");
 
-                // Indexes for LitePOS schema
+                // Indexes for POS schema
                 st.execute("CREATE INDEX IF NOT EXISTS idx_sale_store_time ON sale(store_id, sale_time)");
                 st.execute("CREATE INDEX IF NOT EXISTS idx_sale_terminal ON sale(terminal_id)");
                 st.execute("CREATE INDEX IF NOT EXISTS idx_sale_cashier ON sale(cashier_id)");
@@ -229,7 +229,7 @@ public final class BenchmarkDatabase {
                         + "product_sku VARCHAR(100) NOT NULL, quantity DECIMAL(10,3) NOT NULL, "
                         + "unit_price DECIMAL(10,2) NOT NULL, line_total DECIMAL(12,2) NOT NULL)");
 
-                // Indexes for LitePOS schema (MySQL)
+                // Indexes for POS schema (MySQL)
                 st.execute("CREATE INDEX idx_sale_store_time ON sale(store_id, sale_time)");
                 st.execute("CREATE INDEX idx_sale_terminal ON sale(terminal_id)");
                 st.execute("CREATE INDEX idx_sale_cashier ON sale(cashier_id)");

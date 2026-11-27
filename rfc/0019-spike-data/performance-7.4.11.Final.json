@@ -5,7 +5,7 @@
         "mode" : "avgt",
         "threads" : 16,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -268,7 +268,7 @@
         "mode" : "avgt",
         "threads" : 16,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -531,7 +531,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -794,7 +794,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -1057,7 +1057,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -1320,7 +1320,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -1583,7 +1583,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -1799,7 +1799,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -2044,7 +2044,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -2307,7 +2307,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -2552,7 +2552,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -2798,7 +2798,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -3045,7 +3045,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -3292,7 +3292,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -3537,7 +3537,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -3800,7 +3800,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -4063,7 +4063,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -4326,7 +4326,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -4589,7 +4589,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -4852,7 +4852,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -5115,7 +5115,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -5378,7 +5378,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -5633,7 +5633,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -5896,7 +5896,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -6159,7 +6159,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -6422,7 +6422,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -6685,7 +6685,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -6948,7 +6948,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -7211,7 +7211,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -7474,7 +7474,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -7733,7 +7733,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -7996,7 +7996,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -8246,7 +8246,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -8501,7 +8501,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -8760,7 +8760,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -9016,7 +9016,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -9267,7 +9267,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -9522,7 +9522,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -9785,7 +9785,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -10048,7 +10048,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -10311,7 +10311,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -10574,7 +10574,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -10837,7 +10837,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -11100,7 +11100,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -11363,7 +11363,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -11626,7 +11626,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -11889,7 +11889,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -12152,7 +12152,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -12415,7 +12415,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -12678,7 +12678,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -12941,7 +12941,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -13204,7 +13204,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",
@@ -13467,7 +13467,7 @@
         "mode" : "avgt",
         "threads" : 1,
         "forks" : 2,
-        "jvm" : "/Users/reypham/.sdkman/candidates/java/21.0.8-amzn/bin/java",
+        "jvm" : "$JAVA_HOME/bin/java",
         "jvmArgs" : [
             "-Dspike.pg.url=jdbc:postgresql://localhost:54441/test?reWriteBatchedInserts=true&loggerLevel=OFF",
             "-Dspike.pg.user=test",

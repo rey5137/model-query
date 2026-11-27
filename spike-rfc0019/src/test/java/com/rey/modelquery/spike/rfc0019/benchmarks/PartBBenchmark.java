@@ -8,12 +8,12 @@ import com.rey.modelquery.core.RenderOptions;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.jpa.SpikeListPath;
-import com.rey.modelquery.spike.rfc0019.LitePosEntities.Cashier;
-import com.rey.modelquery.spike.rfc0019.LitePosEntities.Sale;
-import com.rey.modelquery.spike.rfc0019.LitePosEntities.Store;
-import com.rey.modelquery.spike.rfc0019.LitePosEntities.Terminal;
-import com.rey.modelquery.spike.rfc0019.LitePosModels.FlatSaleProjection;
-import com.rey.modelquery.spike.rfc0019.LitePosQueries;
+import com.rey.modelquery.spike.rfc0019.PosEntities.Cashier;
+import com.rey.modelquery.spike.rfc0019.PosEntities.Sale;
+import com.rey.modelquery.spike.rfc0019.PosEntities.Store;
+import com.rey.modelquery.spike.rfc0019.PosEntities.Terminal;
+import com.rey.modelquery.spike.rfc0019.PosModels.FlatSaleProjection;
+import com.rey.modelquery.spike.rfc0019.PosQueries;
 import com.rey.modelquery.spike.rfc0019.SpikeRoutes;
 import com.rey.modelquery.spike.rfc0019.benchmarks.BenchmarkDatabase.StatementCapture;
 import com.zaxxer.hikari.HikariDataSource;
@@ -86,7 +86,7 @@ public class PartBBenchmark {
 
                 var executor = ModelQueryExecutor.create(em, Sale.class, ModelQueryConfig.defaults());
                 capture.clear();
-                executor.list(LitePosQueries.FLAT_QUERY, Limit.unlimited());
+                executor.list(PosQueries.FLAT_QUERY, Limit.unlimited());
                 flatSql = capture.last();
                 if (flatSql.isEmpty()) {
                     throw new IllegalStateException("flatSql empty");
@@ -96,7 +96,7 @@ public class PartBBenchmark {
             flatResolver = SpikeRoutes.flatResolver();
 
             CriteriaBuilder cb = sessions.getCriteriaBuilder();
-            builtFlat = LitePosQueries.FLAT_QUERY.buildQuery(cb, Phase.MODEL, renderOptions);
+            builtFlat = PosQueries.FLAT_QUERY.buildQuery(cb, Phase.MODEL, renderOptions);
 
             cqArray = cb.createQuery(Object[].class);
             Root<Sale> root = cqArray.from(Sale.class);
@@ -179,7 +179,7 @@ public class PartBBenchmark {
             em.getTransaction().begin();
             try {
                 List<FlatSaleProjection> res = SpikeRoutes.executeRb4List(
-                        em, LitePosQueries.FLAT_QUERY, Limit.unlimited(), ModelQueryConfig.defaults());
+                        em, PosQueries.FLAT_QUERY, Limit.unlimited(), ModelQueryConfig.defaults());
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -195,7 +195,7 @@ public class PartBBenchmark {
             em.getTransaction().begin();
             try {
                 List<FlatSaleProjection> res = state.pathCopy.withEntityManager(em)
-                        .listRb5(LitePosQueries.FLAT_QUERY, Limit.unlimited(), state.flatResolver);
+                        .listRb5(PosQueries.FLAT_QUERY, Limit.unlimited(), state.flatResolver);
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -211,7 +211,7 @@ public class PartBBenchmark {
             em.getTransaction().begin();
             try {
                 List<FlatSaleProjection> res = state.pathCopy.withEntityManager(em)
-                        .listRb6(LitePosQueries.FLAT_QUERY, Limit.unlimited(), state.flatResolver);
+                        .listRb6(PosQueries.FLAT_QUERY, Limit.unlimited(), state.flatResolver);
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -227,7 +227,7 @@ public class PartBBenchmark {
             em.getTransaction().begin();
             try {
                 long res = SpikeRoutes.executeRb7Stream(
-                        em, LitePosQueries.FLAT_QUERY, ModelQueryConfig.defaults(), Stream::count);
+                        em, PosQueries.FLAT_QUERY, ModelQueryConfig.defaults(), Stream::count);
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -243,7 +243,7 @@ public class PartBBenchmark {
             em.getTransaction().begin();
             try {
                 SpikeRoutes.executeRb7Export(
-                        em, LitePosQueries.FLAT_QUERY, ModelQueryConfig.defaults(), bh::consume);
+                        em, PosQueries.FLAT_QUERY, ModelQueryConfig.defaults(), bh::consume);
                 em.getTransaction().commit();
             } catch (Throwable t) {
                 if (em.getTransaction().isActive()) em.getTransaction().rollback();

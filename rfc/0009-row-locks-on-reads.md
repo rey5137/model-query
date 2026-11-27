@@ -21,7 +21,7 @@ widened or deferred is refused instead. All new API is `@Incubating`. Ships in 0
 
 ## Motivation
 
-LitePOS takes row locks in 11 classes (`litepos-gaps.md` rows 1 and 2): claiming a job (`SKIP LOCKED`), reserving
+The POS adopter takes row locks in 11 classes (`adopter-gaps.md` rows 1 and 2): claiming a job (`SKIP LOCKED`), reserving
 stock before a sale, and reading a parent before inserting children without blocking their foreign-key checks. Each
 of those reads is a query model everywhere else in the code base, but the lock forces it back to hand-written JPQL or
 native SQL, a second definition of the same projection that drifts from the model. The library already takes a lock
@@ -202,12 +202,12 @@ Source and binary compatible: a new type, one builder method, two `ModelQuery` m
 
 ## Alternatives
 
-- **Do nothing; hand-written JPQL for locked reads.** This is what LitePOS does today: a second definition per locked
+- **Do nothing; hand-written JPQL for locked reads.** This is what the POS adopter does today: a second definition per locked
   read.
 - **A per-call argument (`executor.first(em, q, RowLock)`).** It doubles every read signature on the executor and the
   repository. The lock belongs to the read's intent as much as its filter does, and `withLock` gives the same
   flexibility from one definition.
-- **`UPDATE` / `NO_KEY_UPDATE` / `SHARE` strengths** (as `litepos-gaps.md` sketched). On PostgreSQL, Hibernate renders
+- **`UPDATE` / `NO_KEY_UPDATE` / `SHARE` strengths** (as `adopter-gaps.md` sketched). On PostgreSQL, Hibernate renders
   `NO KEY UPDATE` for `PESSIMISTIC_WRITE` and offers no per-query true `FOR UPDATE`. `update()` would silently have
   been `NO KEY UPDATE`.
 - **Builder `skipLocked()`/`noWait()` chaining.** `skipLocked().noWait()` would need a runtime error; `Wait` as an

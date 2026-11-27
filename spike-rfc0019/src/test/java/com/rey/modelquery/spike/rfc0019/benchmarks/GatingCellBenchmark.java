@@ -5,9 +5,9 @@ import com.rey.modelquery.core.Phase;
 import com.rey.modelquery.core.RenderOptions;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.SpikeListPath;
-import com.rey.modelquery.spike.rfc0019.LitePosEntities.Sale;
-import com.rey.modelquery.spike.rfc0019.LitePosModels.TodaySaleModel;
-import com.rey.modelquery.spike.rfc0019.LitePosQueries;
+import com.rey.modelquery.spike.rfc0019.PosEntities.Sale;
+import com.rey.modelquery.spike.rfc0019.PosModels.TodaySaleModel;
+import com.rey.modelquery.spike.rfc0019.PosQueries;
 import com.rey.modelquery.spike.rfc0019.SealedBuildCache;
 import com.zaxxer.hikari.HikariDataSource;
 import jakarta.persistence.EntityManager;
@@ -63,7 +63,7 @@ public class GatingCellBenchmark {
                 renderOptions = path.renderOptions();
                 buildScope = path.buildScope();
                 // Pre-populate the cache entry so all 16 threads hit the cache
-                buildScope.getOrBuild(em, LitePosQueries.TODAY_QUERY, "LIST", null, null, renderOptions);
+                buildScope.getOrBuild(em, PosQueries.TODAY_QUERY, "LIST", null, null, renderOptions);
             }
         }
 
@@ -95,7 +95,7 @@ public class GatingCellBenchmark {
     @Benchmark
     @SuppressWarnings({"unchecked", "rawtypes"})
     public Query gating_freshBuild(GatingBenchmarkState benchState, GatingThreadState threadState) {
-        BuiltQuery<TodaySaleModel> built = LitePosQueries.TODAY_QUERY.buildQuery(
+        BuiltQuery<TodaySaleModel> built = PosQueries.TODAY_QUERY.buildQuery(
                 threadState.em.getCriteriaBuilder(), Phase.MODEL, benchState.renderOptions);
         TypedQuery<Tuple> q = threadState.em.createQuery(built.query());
         if (built.joins() != null) {
@@ -111,7 +111,7 @@ public class GatingCellBenchmark {
     @SuppressWarnings({"unchecked", "rawtypes"})
     public Query gating_buildCache(GatingBenchmarkState benchState, GatingThreadState threadState) {
         SealedBuildCache.CacheEntry<TodaySaleModel> entry = benchState.buildScope.getOrBuild(
-                threadState.em, LitePosQueries.TODAY_QUERY, "LIST", null, null, benchState.renderOptions);
+                threadState.em, PosQueries.TODAY_QUERY, "LIST", null, null, benchState.renderOptions);
         TypedQuery<Tuple> q = threadState.em.createQuery((CriteriaQuery<Tuple>) entry.criteriaQuery());
         if (entry.builtQuery().joins() != null) {
             entry.builtQuery().joins().statementParameters().forEach((p, v) -> {

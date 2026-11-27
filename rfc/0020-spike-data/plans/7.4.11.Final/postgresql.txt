@@ -940,7 +940,7 @@ Nested Loop Semi Join  (cost=269.93..12419.37 rows=55 width=8) (actual time=0.30
 Planning Time: 0.015 ms
 Execution Time: 41.563 ms
 
-### POSTGRESQL | B/litepos day | B.1/litepos/day/pattern | no index
+### POSTGRESQL | B/pos day | B.1/pos/day/pattern | no index
 -- select s1_0.business_date,(array_agg(i1_0.name order by sl1_0.qty desc,sl1_0.id))[1] from sale_line sl1_0 join sale s1_0 on s1_0.id=sl1_0.sale_id join item i1_0 on i1_0.id=sl1_0.item_id group by 1 order by 1
 GroupAggregate  (cost=12702.98..13378.35 rows=30 width=36) (actual time=83.595..93.013 rows=30 loops=1)
   Group Key: s1_0.business_date
@@ -972,7 +972,7 @@ Planning:
 Planning Time: 0.114 ms
 Execution Time: 93.304 ms
 
-### POSTGRESQL | B/litepos day | B.2/litepos/day | no index
+### POSTGRESQL | B/pos day | B.2/pos/day | no index
 -- with cte0 (mq_key,mq_name,mq_rank) as (select s1_0.business_date,i1_0.name,row_number() over(partition by s1_0.business_date order by sl1_0.qty desc,sl1_0.id) from sale_line sl1_0 join sale s1_0 on s1_0.id=sl1_0.sale_id join item i1_0 on i1_0.id=sl1_0.item_id),cte1 (mq_key,mq_name) as (select cte01_0.mq_key,cte01_0.mq_name from cte0 cte01_0 where cte01_0.mq_rank=?) select bd1_0.business_date,var_1_11_0.mq_name from business_day bd1_0 left join cte1 var_1_11_0 on var_1_11_0.mq_key=bd1_0.business_date where var_1_11_0.mq_key is not null order by bd1_0.id || 1
 Sort  (cost=15885.21..15886.34 rows=450 width=21) (actual time=58.629..58.632 rows=30 loops=1)
   Sort Key: bd1_0.id
@@ -1020,7 +1020,7 @@ Planning:
 Planning Time: 0.220 ms
 Execution Time: 58.884 ms
 
-### POSTGRESQL | B/litepos category | B.1/litepos/category/pattern | no index
+### POSTGRESQL | B/pos category | B.1/pos/category/pattern | no index
 -- select i1_0.category,(array_agg(i1_0.name order by sl1_0.qty desc,sl1_0.id))[1] from sale_line sl1_0 join item i1_0 on i1_0.id=sl1_0.item_id group by 1 order by 1
 GroupAggregate  (cost=11151.69..11826.82 rows=10 width=35) (actual time=94.380..107.638 rows=10 loops=1)
   Group Key: i1_0.category
@@ -1044,7 +1044,7 @@ Planning:
 Planning Time: 0.109 ms
 Execution Time: 107.830 ms
 
-### POSTGRESQL | B/litepos category | B.2/litepos/category | no index
+### POSTGRESQL | B/pos category | B.2/pos/category | no index
 -- with cte0 (mq_key,mq_name,mq_rank) as (select i1_0.category,i1_0.name,row_number() over(partition by i1_0.category order by sl1_0.qty desc,sl1_0.id) from sale_line sl1_0 join item i1_0 on i1_0.id=sl1_0.item_id),cte1 (mq_key,mq_name) as (select cte01_0.mq_key,cte01_0.mq_name from cte0 cte01_0 where cte01_0.mq_rank=?) select cte11_0.mq_key,cte11_0.mq_name from cte1 cte11_0 order by 1 || 1
 Subquery Scan on cte01_0  (cost=11151.69..14301.69 rows=450 width=12) (actual time=78.826..88.824 rows=10 loops=1)
   Filter: (cte01_0.mq_rank = '1'::bigint)

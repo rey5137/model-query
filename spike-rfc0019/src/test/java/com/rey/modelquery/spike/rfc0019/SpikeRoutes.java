@@ -10,8 +10,8 @@ import com.rey.modelquery.core.RenderOptions;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.jpa.SpikeListPath;
-import com.rey.modelquery.spike.rfc0019.LitePosModels.FlatSaleProjection;
-import com.rey.modelquery.spike.rfc0019.LitePosModels.TodaySaleModel;
+import com.rey.modelquery.spike.rfc0019.PosModels.FlatSaleProjection;
+import com.rey.modelquery.spike.rfc0019.PosModels.TodaySaleModel;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.TypedQuery;
@@ -42,7 +42,7 @@ public final class SpikeRoutes {
                 rs.getTimestamp(3) != null ? rs.getTimestamp(3).toInstant() : null,
                 rs.getString(4),
                 rs.getBigDecimal(5),
-                LitePosEntities.SaleStatus.valueOf(rs.getString(6))
+                PosEntities.SaleStatus.valueOf(rs.getString(6))
         );
         Object[] converted = new Object[params.length];
         for (int i = 0; i < params.length; i++) {
@@ -158,7 +158,7 @@ public final class SpikeRoutes {
             RenderOptions options
     ) {
         return HqlProviderRoute.listToday(
-                em, LitePosDataset.TODAY_START, LitePosDataset.TODAY_END, 1L, options);
+                em, PosDataset.TODAY_START, PosDataset.TODAY_END, 1L, options);
     }
 
     /** RA.6: Native SQL string through createNativeQuery with prebuilt query (Nm2). */
@@ -170,7 +170,7 @@ public final class SpikeRoutes {
             Instant end,
             Long storeId
     ) {
-        return SpikeListPath.of(em, LitePosEntities.Sale.class, ModelQueryConfig.defaults())
+        return SpikeListPath.of(em, PosEntities.Sale.class, ModelQueryConfig.defaults())
                 .listRa6Native(sql, built, start, end, storeId);
     }
 
@@ -198,7 +198,7 @@ public final class SpikeRoutes {
                 rs.getLong(1),
                 rs.getString(2),
                 rs.getTimestamp(3) != null ? rs.getTimestamp(3).toInstant() : null,
-                LitePosEntities.SaleStatus.valueOf(rs.getString(4)),
+                PosEntities.SaleStatus.valueOf(rs.getString(4)),
                 rs.getBigDecimal(5),
                 rs.getBigDecimal(6),
                 rs.getBigDecimal(7),
@@ -232,7 +232,7 @@ public final class SpikeRoutes {
                     t.get("c0", Long.class),
                     t.get("c1", String.class),
                     t.get("c2", java.time.Instant.class),
-                    (LitePosEntities.SaleStatus) t.get("c3"),
+                    (PosEntities.SaleStatus) t.get("c3"),
                     t.get("c4", java.math.BigDecimal.class),
                     t.get("c5", java.math.BigDecimal.class),
                     t.get("c6", java.math.BigDecimal.class),
@@ -263,7 +263,7 @@ public final class SpikeRoutes {
                     (Long) t.get(0),
                     (String) t.get(1),
                     (java.time.Instant) t.get(2),
-                    (LitePosEntities.SaleStatus) t.get(3),
+                    (PosEntities.SaleStatus) t.get(3),
                     (java.math.BigDecimal) t.get(4),
                     (java.math.BigDecimal) t.get(5),
                     (java.math.BigDecimal) t.get(6),
@@ -294,7 +294,7 @@ public final class SpikeRoutes {
                     (Long) r[0],
                     (String) r[1],
                     (java.time.Instant) r[2],
-                    (LitePosEntities.SaleStatus) r[3],
+                    (PosEntities.SaleStatus) r[3],
                     (java.math.BigDecimal) r[4],
                     (java.math.BigDecimal) r[5],
                     (java.math.BigDecimal) r[6],
@@ -311,49 +311,49 @@ public final class SpikeRoutes {
     /** RB.4: Today's list (M1: runs on real executor.list). */
     public static List<FlatSaleProjection> executeRb4List(
             EntityManager em,
-            ModelQuery<LitePosEntities.Sale, ?, FlatSaleProjection> q,
+            ModelQuery<PosEntities.Sale, ?, FlatSaleProjection> q,
             Limit limit,
             ModelQueryConfig config
     ) {
-        return ModelQueryExecutor.create(em, LitePosEntities.Sale.class, config).list(q, limit);
+        return ModelQueryExecutor.create(em, PosEntities.Sale.class, config).list(q, limit);
     }
 
     public static IndexResolvedValueRow.IndexResolver flatResolver() {
         return IndexResolvedValueRow.resolver(List.of(
-                LitePosQueries.FLAT_ID, LitePosQueries.FLAT_RECEIPT, LitePosQueries.FLAT_TIME,
-                LitePosQueries.FLAT_STATUS, LitePosQueries.FLAT_TOTAL, LitePosQueries.FLAT_TAX,
-                LitePosQueries.FLAT_DISCOUNT, LitePosQueries.FLAT_NOTE, LitePosQueries.FLAT_STORE_ID,
-                LitePosQueries.FLAT_TERMINAL_ID, LitePosQueries.FLAT_CASHIER_ID,
-                LitePosQueries.FLAT_ITEM_COUNT
+                PosQueries.FLAT_ID, PosQueries.FLAT_RECEIPT, PosQueries.FLAT_TIME,
+                PosQueries.FLAT_STATUS, PosQueries.FLAT_TOTAL, PosQueries.FLAT_TAX,
+                PosQueries.FLAT_DISCOUNT, PosQueries.FLAT_NOTE, PosQueries.FLAT_STORE_ID,
+                PosQueries.FLAT_TERMINAL_ID, PosQueries.FLAT_CASHIER_ID,
+                PosQueries.FLAT_ITEM_COUNT
         ));
     }
 
     /** RB.5: List envelope with IndexResolvedValueRow. */
     public static List<FlatSaleProjection> executeRb5List(
             EntityManager em,
-            ModelQuery<LitePosEntities.Sale, ?, FlatSaleProjection> q,
+            ModelQuery<PosEntities.Sale, ?, FlatSaleProjection> q,
             Limit limit,
             RenderOptions options
     ) {
-        var path = SpikeListPath.of(em, LitePosEntities.Sale.class, ModelQueryConfig.defaults());
+        var path = SpikeListPath.of(em, PosEntities.Sale.class, ModelQueryConfig.defaults());
         return path.listRb5(q, limit, flatResolver());
     }
 
     /** RB.6: List envelope with FlatRowMapper. */
     public static List<FlatSaleProjection> executeRb6List(
             EntityManager em,
-            ModelQuery<LitePosEntities.Sale, ?, FlatSaleProjection> q,
+            ModelQuery<PosEntities.Sale, ?, FlatSaleProjection> q,
             Limit limit,
             RenderOptions options
     ) {
-        var path = SpikeListPath.of(em, LitePosEntities.Sale.class, ModelQueryConfig.defaults());
+        var path = SpikeListPath.of(em, PosEntities.Sale.class, ModelQueryConfig.defaults());
         return path.listRb6(q, limit, flatResolver());
     }
 
     /** RB.7: Stream with custom stream consumer. */
     public static long executeRb7Stream(
             EntityManager em,
-            ModelQuery<LitePosEntities.Sale, ?, FlatSaleProjection> q,
+            ModelQuery<PosEntities.Sale, ?, FlatSaleProjection> q,
             ModelQueryConfig config,
             Function<java.util.stream.Stream<FlatSaleProjection>, Long> streamConsumer
     ) {
@@ -364,7 +364,7 @@ public final class SpikeRoutes {
             started = true;
         }
         try {
-            var executor = ModelQueryExecutor.create(em, LitePosEntities.Sale.class, config);
+            var executor = ModelQueryExecutor.create(em, PosEntities.Sale.class, config);
             return executor.stream(q, Limit.unlimited(), streamConsumer);
         } finally {
             if (started && tx.isActive()) {
@@ -376,7 +376,7 @@ public final class SpikeRoutes {
     /** RB.7: Stream. */
     public static long executeRb7Stream(
             EntityManager em,
-            ModelQuery<LitePosEntities.Sale, ?, FlatSaleProjection> q,
+            ModelQuery<PosEntities.Sale, ?, FlatSaleProjection> q,
             ModelQueryConfig config
     ) {
         return executeRb7Stream(em, q, config, s -> s.limit(5).count());
@@ -385,11 +385,11 @@ public final class SpikeRoutes {
     /** RB.7: Export. */
     public static void executeRb7Export(
             EntityManager em,
-            ModelQuery<LitePosEntities.Sale, ?, FlatSaleProjection> q,
+            ModelQuery<PosEntities.Sale, ?, FlatSaleProjection> q,
             ModelQueryConfig config,
             Consumer<FlatSaleProjection> sink
     ) {
-        var executor = ModelQueryExecutor.create(em, LitePosEntities.Sale.class, config);
+        var executor = ModelQueryExecutor.create(em, PosEntities.Sale.class, config);
         executor.export(q, ExportOptions.defaults(), Function.identity(), sink);
     }
 }

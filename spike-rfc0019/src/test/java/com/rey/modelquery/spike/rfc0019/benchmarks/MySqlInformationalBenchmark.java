@@ -5,10 +5,10 @@ import com.rey.modelquery.core.RenderOptions;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.jpa.SpikeListPath;
-import com.rey.modelquery.spike.rfc0019.LitePosDataset;
-import com.rey.modelquery.spike.rfc0019.LitePosEntities.Sale;
-import com.rey.modelquery.spike.rfc0019.LitePosModels.TodaySaleModel;
-import com.rey.modelquery.spike.rfc0019.LitePosQueries;
+import com.rey.modelquery.spike.rfc0019.PosDataset;
+import com.rey.modelquery.spike.rfc0019.PosEntities.Sale;
+import com.rey.modelquery.spike.rfc0019.PosModels.TodaySaleModel;
+import com.rey.modelquery.spike.rfc0019.PosQueries;
 import com.rey.modelquery.spike.rfc0019.SpikeRoutes;
 import com.rey.modelquery.spike.rfc0019.benchmarks.BenchmarkDatabase.StatementCapture;
 import com.zaxxer.hikari.HikariDataSource;
@@ -72,7 +72,7 @@ public class MySqlInformationalBenchmark {
 
                 var executor = ModelQueryExecutor.create(em, Sale.class, ModelQueryConfig.defaults());
                 capture.clear();
-                executor.list(LitePosQueries.TODAY_QUERY, Limit.unlimited());
+                executor.list(PosQueries.TODAY_QUERY, Limit.unlimited());
                 todaySql = capture.last();
                 if (todaySql.isEmpty()) {
                     throw new IllegalStateException("todaySql empty on MySQL");
@@ -91,7 +91,7 @@ public class MySqlInformationalBenchmark {
     @Benchmark
     public List<TodaySaleModel> mysql_today_RA0_jdbc(MySqlState state) {
         return state.txTemplate.execute(status -> SpikeRoutes.executeRa0Today(
-                state.jdbc, state.todaySql, LitePosDataset.TODAY_START, LitePosDataset.TODAY_END, 1L));
+                state.jdbc, state.todaySql, PosDataset.TODAY_START, PosDataset.TODAY_END, 1L));
     }
 
     @Benchmark
@@ -100,7 +100,7 @@ public class MySqlInformationalBenchmark {
             em.getTransaction().begin();
             try {
                 List<TodaySaleModel> res = SpikeRoutes.executeRa1List(
-                        em, Sale.class, LitePosQueries.TODAY_QUERY, Limit.unlimited(), ModelQueryConfig.defaults());
+                        em, Sale.class, PosQueries.TODAY_QUERY, Limit.unlimited(), ModelQueryConfig.defaults());
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -116,7 +116,7 @@ public class MySqlInformationalBenchmark {
             em.getTransaction().begin();
             try {
                 List<TodaySaleModel> res = state.pathMySql.withEntityManager(em)
-                        .listRa3(LitePosQueries.TODAY_QUERY, Limit.unlimited());
+                        .listRa3(PosQueries.TODAY_QUERY, Limit.unlimited());
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -132,7 +132,7 @@ public class MySqlInformationalBenchmark {
             em.getTransaction().begin();
             try {
                 List<TodaySaleModel> res = state.pathMySql.withEntityManager(em).listRa5Today(
-                        LitePosDataset.TODAY_START, LitePosDataset.TODAY_END, 1L, state.renderOptions);
+                        PosDataset.TODAY_START, PosDataset.TODAY_END, 1L, state.renderOptions);
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {

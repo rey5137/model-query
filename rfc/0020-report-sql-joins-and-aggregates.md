@@ -1,6 +1,6 @@
 # RFC 0020 — Report SQL: joins to sources, ordered and filtered aggregates, exact averages, null-safe equality
 
-- **Status:** accepted (D-185), after the acceptance spike (`rfc/0020-spike-results.md`). Prompted by the LitePOS 0.10.0 report trial (gap items 3, 4, 5, 9 and 10); Part F by RFC 0019's
+- **Status:** accepted (D-185), after the acceptance spike (`rfc/0020-spike-results.md`). Prompted by the POS adopter's 0.10.0 report trial (gap items 3, 4, 5, 9 and 10); Part F by RFC 0019's
   spike (`rfc/0019-spike-results.md`, rule 2) and D-184's amendment.
 - **Affects:**
   - **`api/17`:** new R-SRC-21 (a model rooted at an entity joins a source on the source's full key) and R-SRC-22
@@ -36,7 +36,7 @@
 
 ## Summary
 
-Six independent parts close the report-SQL gaps LitePOS measured, in the feedback's order of impact, and one
+Six independent parts close the report-SQL gaps the POS adopter measured, in the feedback's order of impact, and one
 rendering cost RFC 0019's spike measured:
 
 - **A.** A model rooted at an entity joins a `@SourceModel`, grouped or not, on the source's full key, rendered as a
@@ -54,7 +54,7 @@ Every part is covered on every target, H2 included: it renders, or it is refused
 
 ## Motivation
 
-LitePOS ported 25 hand-written report methods (Hibernate 7, PostgreSQL 16). 17 could be expressed; 4 were too slow
+The POS adopter ported 25 hand-written report methods (Hibernate 7, PostgreSQL 16). 17 could be expressed; 4 were too slow
 and 7 could not be expressed. The gaps this RFC covers:
 
 - **No join to a source (item 3).** "Unreconciled days" joins each business day to its sales totals. In SQL it is a
@@ -469,7 +469,7 @@ A throwaway branch `spike/rfc-0020` with one test-source module `spike-rfc0020/`
 results, timings, plans) in `rfc/0020-spike-data/` with a README of reproduction commands. Production `src/main` and
 committed SQL snapshots stay unchanged.
 
-The dataset is LitePOS's shape: 365 business days, 30 days of sales at about 3k lines a day, a year of inventory
+The dataset is the POS adopter's shape: 365 business days, 30 days of sales at about 3k lines a day, a year of inventory
 movements, with and without an index on the sale's business-date column.
 
 1. **A.1 Plans first.** "Unreconciled days" as (a) two correlated sums, (b) a LEFT join to the grouped CTE, (c) a LEFT
@@ -486,7 +486,7 @@ movements, with and without an index on the sale's business-date column.
    NULL order key with `nullsLast()`, a converted value; a filtered `firstBy` whose first row in order fails the filter
    (H2 and PostgreSQL, native `FILTER` against the CASE form); what Hibernate's MySQL dialect does with `arrayAgg`
    (expected to fail, recorded). **B.2** the ranked-source route on all three vendors, with A, compared with B.1's plan
-   on PostgreSQL, against LitePOS's two blocked methods.
+   on PostgreSQL, against the POS adopter's two blocked methods.
 4. **C.1 Filter.** `count`, `sum`, `avg` with a `JpaPredicate`, `min`/`max` via `functionAggregate`, `countDistinct`
    with a filter, and the engine's CASE form: rendered SQL per vendor (FILTER or CASE), equal rows, result types.
    **C.2** a filter over an optional to-one path with NULL foreign keys, beside an unfiltered grouped total (no row

@@ -9,22 +9,22 @@ import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.SortSpec;
 import com.rey.modelquery.core.TableField;
-import com.rey.modelquery.spike.rfc0019.LitePosEntities.Cashier;
-import com.rey.modelquery.spike.rfc0019.LitePosEntities.Sale;
-import com.rey.modelquery.spike.rfc0019.LitePosEntities.SaleStatus;
-import com.rey.modelquery.spike.rfc0019.LitePosEntities.Store;
-import com.rey.modelquery.spike.rfc0019.LitePosEntities.Terminal;
-import com.rey.modelquery.spike.rfc0019.LitePosModels.FlatSaleProjection;
-import com.rey.modelquery.spike.rfc0019.LitePosModels.GroupedCountModel;
-import com.rey.modelquery.spike.rfc0019.LitePosModels.SaleSummaryModel;
-import com.rey.modelquery.spike.rfc0019.LitePosModels.TodaySaleModel;
+import com.rey.modelquery.spike.rfc0019.PosEntities.Cashier;
+import com.rey.modelquery.spike.rfc0019.PosEntities.Sale;
+import com.rey.modelquery.spike.rfc0019.PosEntities.SaleStatus;
+import com.rey.modelquery.spike.rfc0019.PosEntities.Store;
+import com.rey.modelquery.spike.rfc0019.PosEntities.Terminal;
+import com.rey.modelquery.spike.rfc0019.PosModels.FlatSaleProjection;
+import com.rey.modelquery.spike.rfc0019.PosModels.GroupedCountModel;
+import com.rey.modelquery.spike.rfc0019.PosModels.SaleSummaryModel;
+import com.rey.modelquery.spike.rfc0019.PosModels.TodaySaleModel;
 import jakarta.persistence.criteria.JoinType;
 import java.math.BigDecimal;
 import java.time.Instant;
 
-public final class LitePosQueries {
+public final class PosQueries {
 
-    private LitePosQueries() {}
+    private PosQueries() {}
 
     // Roots and Joins
     public static final TableField<Sale, Sale> ROOT = TableField.root(Sale.class);
@@ -61,7 +61,7 @@ public final class LitePosQueries {
             .select(SelectSet.of(TODAY_ID, TODAY_RECEIPT, TODAY_TIME, TODAY_STORE_NAME, TODAY_TOTAL, TODAY_STATUS))
             .primaryKey(PrimaryKey.of(TODAY_ID))
             .where(f -> f
-                    .between(TODAY_TIME, LitePosDataset.TODAY_START, LitePosDataset.TODAY_END)
+                    .between(TODAY_TIME, PosDataset.TODAY_START, PosDataset.TODAY_END)
                     .eq(TODAY_STORE_ID, 1L)
             )
             .build();

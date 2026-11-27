@@ -20,7 +20,7 @@
 
 ## Summary
 
-Two costs that LitePOS measured on Spring Boot 3, Hibernate 7 and PostgreSQL 16. Part A lets a fixed-shape query be
+Two costs that the POS adopter measured on Spring Boot 3, Hibernate 7 and PostgreSQL 16. Part A lets a fixed-shape query be
 built and translated once and bound per call: a definition marked `compiled()` declares its per-request values as
 `QueryParam`s, a call binds them with `with(param, value)`, and the executor reuses one cached entry per
 definition and statement variant. Part B makes the path from a JDBC row to a model cheaper for every query, flat
@@ -29,13 +29,13 @@ and each has kill criteria that shrink or drop it.
 
 **Outcome (D-184).** On PostgreSQL the executor adds tens of microseconds over `JdbcClient` running the same SQL,
 and our build takes about 3 µs, so there is no per-call 1–3 ms for Part A to save on the spike's dataset: no route
-meets its ship condition and rule 2 holds on both lines; LitePOS's 1–3 ms was not reproduced. On the 86k-row flat read, model-query's own mapping is 78–90% of the gap to
+meets its ship condition and rule 2 holds on both lines; the POS adopter's 1–3 ms was not reproduced. On the 86k-row flat read, model-query's own mapping is 78–90% of the gap to
 JDBC, and P-B.2's flat-row `mapAll` closes almost all of it (194 → 92 ms on 6.6, 203 → 108 ms on 7.4); P-B.1 and
 P-B.3 miss their thresholds. The sections below keep the design the spike tested; §Design marks what ships.
 
 ## Motivation
 
-LitePOS (`model-query-feedback.md`, "Measurements" and gaps 1 and 2), medians of 7 alternating runs, repeated once:
+The POS adopter (its feedback's measurements and gaps 1 and 2), medians of 7 alternating runs, repeated once:
 
 | Query shape | SQL ms | model-query ms | Note |
 |---|---|---|---|
@@ -77,7 +77,7 @@ module may import `org.hibernate` (it is not `jpa`).
 - **Databases:** PostgreSQL 16 (`postgres:16-alpine`), the reporting user's setup, for every timing and every rule;
   MySQL 8.0.31 for RA.1 and the chosen route on the "today" read only, as information (no rule reads it); H2 for
   functional cells only.
-- **Dataset:** a LitePOS-shaped schema (`store`, `terminal`, `cashier`, `sale`, `sale_line`) seeded deterministically:
+- **Dataset:** a POS-shaped schema (`store`, `terminal`, `cashier`, `sale`, `sale_line`) seeded deterministically:
   365 days, about 86k `sale` rows, 3–6 lines per sale. Fixed queries: a "today" read (about 50 rows, one join, two
   filters), a by-key `one`, an offset `page` with `COUNT`, the 365-day grouped count (the "variances" read), and the
   flat 86k projection (12 columns: `Long`, `String`, `Instant`, `BigDecimal`, one enum through a converter) read by
@@ -223,7 +223,7 @@ List<SaleRow> rows = executor.list(TODAY.with(STORE, storeId).with(FROM, startOf
 - `QueryParam` is immutable and **equal by identity**, and `build()` refuses two different parameters with one name
   (`MQ1210`). Equality by name would let two unrelated constants bind each other. Overloads take it in `eq`, `ne`,
   `lt`, `le`, `gt`, `ge`, `between`, `like`, `likeIgnoreCase` and `eqIgnoreCase`, on `Filters` and `Having`;
-  `Expr.param(QueryParam<C>)` takes it where `Expr.value` takes a value (R-COL-26), which also covers LitePOS gap 8 (a
+  `Expr.param(QueryParam<C>)` takes it where `Expr.value` takes a value (R-COL-26), which also covers adopter gap 8 (a
   per-request time zone). `op`, `fullTextMatch` and `range` take no `QueryParam` in v1 (lifting that later is
   compatible).
 - `of` maps a primitive class to its wrapper, so `QueryParam.of("n", long.class)` is a `QueryParam<Long>` with

@@ -1,12 +1,12 @@
 package com.rey.modelquery.spike.rfc0019;
 
-import com.rey.modelquery.spike.rfc0019.LitePosEntities.SaleStatus;
+import com.rey.modelquery.spike.rfc0019.PosEntities.SaleStatus;
 import java.math.BigDecimal;
 import java.time.Instant;
 
-public final class LitePosModels {
+public final class PosModels {
 
-    private LitePosModels() {}
+    private PosModels() {}
 
     /** The "today" read model (about 50 rows, 1 join, 2 filters). */
     public record TodaySaleModel(

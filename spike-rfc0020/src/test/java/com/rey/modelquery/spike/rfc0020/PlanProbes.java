@@ -313,8 +313,8 @@ final class PlanProbes {
     /** B.2 (ranked source) against B.1 (array_agg first-by), on the statements the functional cells kept. */
     private void b() {
         for (String by : List.of("day", "category")) {
-            time("B/litepos " + by, "no index", kept(List.of("B.1/litepos/" + by + "/arrayGet",
-                    "B.1/litepos/" + by + "/pattern", "B.2/litepos/" + by), "B/litepos " + by), null);
+            time("B/pos " + by, "no index", kept(List.of("B.1/pos/" + by + "/arrayGet",
+                    "B.1/pos/" + by + "/pattern", "B.2/pos/" + by), "B/pos " + by), null);
         }
     }
 

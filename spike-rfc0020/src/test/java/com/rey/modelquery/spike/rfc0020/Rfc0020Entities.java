@@ -17,7 +17,7 @@ import java.time.LocalDate;
 import java.util.Objects;
 
 /**
- * LitePOS's report shape (RFC 0020 §Spike plan): business days, sales and their lines, items, customers, inventory
+ * The POS adopter's report shape (RFC 0020 §Spike plan): business days, sales and their lines, items, customers, inventory
  * movements, plus small exact-value tables for the null-safe (E.1), average (D.1) and rounding (D.2) cells and a
  * composite-id table for F.1, and the first-by table for B.1/B.2. Public fields, field access; the spike reads them through Criteria paths only.
  */

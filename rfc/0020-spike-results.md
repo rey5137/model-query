@@ -118,8 +118,8 @@ and one or two in the `where` (T `POSTGRESQL | A.1/page of 20 | a correlated` pl
 ### Part B — `firstBy` works on PostgreSQL and H2 only through a pattern; `arrayGet` is not the rendering
 
 - **`arrayAgg` + `arrayGet`.** PostgreSQL: `array_agg(…)[?]` without parentheses, a syntax error, on both lines and
-  in HQL `array_get` too (F `POSTGRESQL | B.1/first-by|B.1/hql|B.1/litepos | …`). H2 runs it as `case when
-  array_length(array_agg(…))>=? then array_agg(…)[?] end`, the aggregate twice (F `H2 | B.1/litepos | …arrayGet…`);
+  in HQL `array_get` too (F `POSTGRESQL | B.1/first-by|B.1/hql|B.1/pos | …`). H2 runs it as `case when
+  array_length(array_agg(…))>=? then array_agg(…)[?] end`, the aggregate twice (F `H2 | B.1/pos | …arrayGet…`);
   values are right, and the converted `tag` reads `Tag.HIGH` (F `H2 | B.1/first-by | criteria + appended id (SQM):
   converted tag`). MySQL: `arrayAgg` throws `NullPointerException` in SQM (F `MYSQL | B.1/* `), as expected.
 - **`arrayAgg` takes one `JpaOrder`**; the appended id needed the internal SQM ordering, which worked on both lines.
@@ -134,7 +134,7 @@ and one or two in the `where` (T `POSTGRESQL | A.1/page of 20 | a correlated` pl
   `H`.
 - **CASE form** returns NULL when the first row in order fails the filter (F `H2|POSTGRESQL | B.1/filtered | CASE
   form…`, FAIL), as the RFC predicts, so the `MQ4014` refusal of a CASE-filtered `firstBy` stands.
-- **B.2 vs B.1 (T `* | B/litepos day|category`), 6.6 / 7.4.** PostgreSQL: the ranked source beats the pattern, 44.6 /
+- **B.2 vs B.1 (T `* | B/pos day|category`), 6.6 / 7.4.** PostgreSQL: the ranked source beats the pattern, 44.6 /
   42.3 vs 81.3 / 78.1 ms per day and 77.2 / 77.6 vs 99.9 / 98.0 ms per category (both plans a hash join into
   `WindowAgg` or `GroupAggregate` with a sort spilling to temp). MySQL runs only B.2: 111 / 110 ms per day, 112 / 113
   per category. H2: B.2 per category (source as root) 74 / 62 ms, but B.2 per day (source LEFT-joined to

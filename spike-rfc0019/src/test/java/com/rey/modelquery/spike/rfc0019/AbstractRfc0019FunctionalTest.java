@@ -12,15 +12,15 @@ import com.rey.modelquery.core.Slice;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.jpa.SpikeListPath;
-import com.rey.modelquery.spike.rfc0019.LitePosEntities.Cashier;
-import com.rey.modelquery.spike.rfc0019.LitePosEntities.Sale;
-import com.rey.modelquery.spike.rfc0019.LitePosEntities.SaleLine;
-import com.rey.modelquery.spike.rfc0019.LitePosEntities.Store;
-import com.rey.modelquery.spike.rfc0019.LitePosEntities.Terminal;
-import com.rey.modelquery.spike.rfc0019.LitePosModels.FlatSaleProjection;
-import com.rey.modelquery.spike.rfc0019.LitePosModels.GroupedCountModel;
-import com.rey.modelquery.spike.rfc0019.LitePosModels.SaleSummaryModel;
-import com.rey.modelquery.spike.rfc0019.LitePosModels.TodaySaleModel;
+import com.rey.modelquery.spike.rfc0019.PosEntities.Cashier;
+import com.rey.modelquery.spike.rfc0019.PosEntities.Sale;
+import com.rey.modelquery.spike.rfc0019.PosEntities.SaleLine;
+import com.rey.modelquery.spike.rfc0019.PosEntities.Store;
+import com.rey.modelquery.spike.rfc0019.PosEntities.Terminal;
+import com.rey.modelquery.spike.rfc0019.PosModels.FlatSaleProjection;
+import com.rey.modelquery.spike.rfc0019.PosModels.GroupedCountModel;
+import com.rey.modelquery.spike.rfc0019.PosModels.SaleSummaryModel;
+import com.rey.modelquery.spike.rfc0019.PosModels.TodaySaleModel;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Parameter;
 import jakarta.persistence.Tuple;
@@ -64,11 +64,11 @@ public abstract class AbstractRfc0019FunctionalTest {
     @BeforeAll
     void init() throws Exception {
         harness = new SpikeHarness(vendor);
-        sessions = harness.factory("litepos",
+        sessions = harness.factory("pos",
                 Map.of("hibernate.generate_statistics", "true"),
                 Store.class, Terminal.class, Cashier.class, Sale.class, SaleLine.class);
         try (Connection conn = harness.dataSource().getConnection()) {
-            LitePosDataset.seed(conn, false);
+            PosDataset.seed(conn, false);
         }
     }
 
@@ -97,13 +97,13 @@ public abstract class AbstractRfc0019FunctionalTest {
             try (EntityManager em = sessions.createEntityManager()) {
                 var executor = ModelQueryExecutor.create(em, Sale.class, ModelQueryConfig.defaults());
                 harness.clearStatements();
-                List<TodaySaleModel> execRows = executor.list(LitePosQueries.TODAY_QUERY, Limit.unlimited());
+                List<TodaySaleModel> execRows = executor.list(PosQueries.TODAY_QUERY, Limit.unlimited());
                 String execSql = harness.lastSql();
                 int execStatements = harness.statements().size();
 
                 harness.clearStatements();
                 var path = SpikeListPath.of(em, Sale.class, ModelQueryConfig.defaults());
-                List<TodaySaleModel> pathRows = path.listRa1(LitePosQueries.TODAY_QUERY, Limit.unlimited());
+                List<TodaySaleModel> pathRows = path.listRa1(PosQueries.TODAY_QUERY, Limit.unlimited());
                 String pathSql = harness.lastSql();
                 int pathStatements = harness.statements().size();
 
@@ -126,7 +126,7 @@ public abstract class AbstractRfc0019FunctionalTest {
                 harness.clearStatements();
                 var executor = ModelQueryExecutor.create(em, Sale.class, ModelQueryConfig.defaults());
                 options = renderOptions(em);
-                ra1Rows = executor.list(LitePosQueries.TODAY_QUERY, Limit.unlimited());
+                ra1Rows = executor.list(PosQueries.TODAY_QUERY, Limit.unlimited());
                 ra1Sql = harness.lastSql();
             }
 
@@ -138,7 +138,7 @@ public abstract class AbstractRfc0019FunctionalTest {
             String ra3Sql;
             try (EntityManager em = sessions.createEntityManager()) {
                 harness.clearStatements();
-                ra3Rows = SpikeRoutes.executeRa3List(em, LitePosQueries.TODAY_QUERY, Limit.unlimited(), options);
+                ra3Rows = SpikeRoutes.executeRa3List(em, PosQueries.TODAY_QUERY, Limit.unlimited(), options);
                 ra3Sql = harness.lastSql();
             }
             assertThat(ra3Rows).isEqualTo(ra1Rows);
@@ -177,7 +177,7 @@ public abstract class AbstractRfc0019FunctionalTest {
                     try (EntityManager em = noPlanFactory.createEntityManager()) {
                         harness.clearStatements();
                         var executor = ModelQueryExecutor.create(em, Sale.class, ModelQueryConfig.defaults());
-                        ra1Rows = executor.list(LitePosQueries.TODAY_QUERY, Limit.unlimited());
+                        ra1Rows = executor.list(PosQueries.TODAY_QUERY, Limit.unlimited());
                         ra1Sql = harness.lastSql();
                         assertThat(ra1Rows).hasSize(50);
                         assertNoLiteralsAndExactlyThreeBinds(ra1Sql, "RA.1 " + mode);
@@ -187,7 +187,7 @@ public abstract class AbstractRfc0019FunctionalTest {
                         harness.clearStatements();
                         RenderOptions opts = renderOptions(em);
                         List<TodaySaleModel> ra3Rows =
-                                SpikeRoutes.executeRa3List(em, LitePosQueries.TODAY_QUERY, Limit.unlimited(), opts);
+                                SpikeRoutes.executeRa3List(em, PosQueries.TODAY_QUERY, Limit.unlimited(), opts);
                         String ra3Sql = harness.lastSql();
                         assertThat(ra3Rows).isEqualTo(ra1Rows);
                         assertThat(ra3Sql).isEqualTo(ra1Sql);
@@ -220,14 +220,14 @@ public abstract class AbstractRfc0019FunctionalTest {
                         try (EntityManager em = planFactory.createEntityManager()) {
                             harness.clearStatements();
                             var executor = ModelQueryExecutor.create(em, Sale.class, ModelQueryConfig.defaults());
-                            ra1Rows = executor.list(LitePosQueries.TODAY_QUERY, Limit.unlimited());
+                            ra1Rows = executor.list(PosQueries.TODAY_QUERY, Limit.unlimited());
                             ra1Sql = harness.lastSql();
                         }
 
                         try (EntityManager em = planFactory.createEntityManager()) {
                             harness.clearStatements();
                             List<TodaySaleModel> ra4Rows = SpikeRoutes.executeRa4List(
-                                    em, Sale.class, LitePosQueries.TODAY_QUERY, Limit.unlimited(),
+                                    em, Sale.class, PosQueries.TODAY_QUERY, Limit.unlimited(),
                                     ModelQueryConfig.defaults());
                             String ra4Sql = harness.lastSql();
                             assertThat(ra4Rows).isEqualTo(ra1Rows);
@@ -239,7 +239,7 @@ public abstract class AbstractRfc0019FunctionalTest {
                             harness.clearStatements();
                             RenderOptions opts = renderOptions(em);
                             List<TodaySaleModel> ra4bRows = SpikeRoutes.executeRa4bList(
-                                    em, LitePosQueries.TODAY_QUERY, Limit.unlimited(), opts);
+                                    em, PosQueries.TODAY_QUERY, Limit.unlimited(), opts);
                             String ra4bSql = harness.lastSql();
                             assertThat(ra4bRows).isEqualTo(ra1Rows);
                             assertThat(ra4bSql).isEqualTo(ra1Sql);
@@ -282,7 +282,7 @@ public abstract class AbstractRfc0019FunctionalTest {
 
                 RenderOptions opts = renderOptions(em1);
                 List<TodaySaleModel> fallbackRows =
-                        SpikeRoutes.executeRa3List(em1, LitePosQueries.TODAY_QUERY, Limit.unlimited(), opts);
+                        SpikeRoutes.executeRa3List(em1, PosQueries.TODAY_QUERY, Limit.unlimited(), opts);
                 assertThat(fallbackRows).hasSize(50);
 
                 return "em1=" + em1Copies + ", em2=" + em2Copies + ", fallbackRows=" + fallbackRows.size();
@@ -301,7 +301,7 @@ public abstract class AbstractRfc0019FunctionalTest {
             }
             for (int i = 0; i < calls; i++) {
                 try (EntityManager em = sessions.createEntityManager()) {
-                    SpikeRoutes.executeRa3List(em, LitePosQueries.TODAY_QUERY, Limit.unlimited(), opts);
+                    SpikeRoutes.executeRa3List(em, PosQueries.TODAY_QUERY, Limit.unlimited(), opts);
                 }
             }
             assertThat(SealedBuildCache.hits()).isEqualTo(calls - 1);
@@ -315,10 +315,10 @@ public abstract class AbstractRfc0019FunctionalTest {
         harness.cell("A.3/oneKey", "oneRa3 carries key as parameter expression and clears order", () -> {
             try (EntityManager em = sessions.createEntityManager()) {
                 var path = SpikeListPath.of(em, Sale.class, ModelQueryConfig.defaults());
-                SaleSummaryModel found = path.oneRa3(LitePosQueries.ONE_QUERY, 500L).orElseThrow();
+                SaleSummaryModel found = path.oneRa3(PosQueries.ONE_QUERY, 500L).orElseThrow();
                 assertThat(found.id()).isEqualTo(500L);
 
-                Optional<SaleSummaryModel> missing = path.oneRa3(LitePosQueries.ONE_QUERY, 999999L);
+                Optional<SaleSummaryModel> missing = path.oneRa3(PosQueries.ONE_QUERY, 999999L);
                 assertThat(missing).isEmpty();
 
                 return "found id=" + found.id() + ", missing=" + missing.isPresent();
@@ -333,7 +333,7 @@ public abstract class AbstractRfc0019FunctionalTest {
             RenderOptions opts;
             try (EntityManager em = sessions.createEntityManager()) {
                 opts = renderOptions(em).withInlinesValues(true);
-                scope.getOrBuild(em, LitePosQueries.TODAY_QUERY, "LIST", opts);
+                scope.getOrBuild(em, PosQueries.TODAY_QUERY, "LIST", opts);
             }
 
             int threadCount = 16;
@@ -351,7 +351,7 @@ public abstract class AbstractRfc0019FunctionalTest {
                         for (int iter = 0; iter < 10; iter++) {
                             // Run on RA.3 SealedBuildCache entry with targetStoreId bound
                             var entry = scope.getOrBuild(
-                                    em, LitePosQueries.TODAY_QUERY, "LIST", opts);
+                                    em, PosQueries.TODAY_QUERY, "LIST", opts);
                             if (entry == null) {
                                 return false;
                             }
@@ -373,7 +373,7 @@ public abstract class AbstractRfc0019FunctionalTest {
 
                             // Run on RA.5 HQL provider route with targetStoreId
                             List<TodaySaleModel> ra5Rows = HqlProviderRoute.listToday(
-                                    em, LitePosDataset.TODAY_START, LitePosDataset.TODAY_END,
+                                    em, PosDataset.TODAY_START, PosDataset.TODAY_END,
                                     targetStoreId, opts);
 
                             if (ra3Rows.size() != ra5Rows.size()) {
@@ -425,9 +425,9 @@ public abstract class AbstractRfc0019FunctionalTest {
 
                 // 1. SealedBuildCache entry (RA.3)
                 List<TodaySaleModel> ra3Session1 =
-                        SpikeRoutes.executeRa3List(em1, LitePosQueries.TODAY_QUERY, Limit.unlimited(), opts);
+                        SpikeRoutes.executeRa3List(em1, PosQueries.TODAY_QUERY, Limit.unlimited(), opts);
                 List<TodaySaleModel> ra3Session2 =
-                        SpikeRoutes.executeRa3List(em2, LitePosQueries.TODAY_QUERY, Limit.unlimited(), opts);
+                        SpikeRoutes.executeRa3List(em2, PosQueries.TODAY_QUERY, Limit.unlimited(), opts);
 
                 assertThat(ra3Session1).hasSize(50);
                 assertThat(ra3Session2).isEmpty();
@@ -441,9 +441,9 @@ public abstract class AbstractRfc0019FunctionalTest {
                 // 3. RA.4b on 7.4
                 if (SpikeHarness.HIB.startsWith("7.")) {
                     List<TodaySaleModel> ra4bSession1 =
-                            SpikeRoutes.executeRa4bList(em1, LitePosQueries.TODAY_QUERY, Limit.unlimited(), opts);
+                            SpikeRoutes.executeRa4bList(em1, PosQueries.TODAY_QUERY, Limit.unlimited(), opts);
                     List<TodaySaleModel> ra4bSession2 =
-                            SpikeRoutes.executeRa4bList(em2, LitePosQueries.TODAY_QUERY, Limit.unlimited(), opts);
+                            SpikeRoutes.executeRa4bList(em2, PosQueries.TODAY_QUERY, Limit.unlimited(), opts);
                     assertThat(ra4bSession1).hasSize(50);
                     assertThat(ra4bSession2).isEmpty();
                 }
@@ -463,7 +463,7 @@ public abstract class AbstractRfc0019FunctionalTest {
                         Store.class, Terminal.class, Cashier.class, Sale.class, SaleLine.class);
                 try (EntityManager em = sf.createEntityManager()) {
                     RenderOptions opts = renderOptions(em);
-                    SealedBuildCache.getOrBuild(em, LitePosQueries.TODAY_QUERY, "LIST", opts);
+                    SealedBuildCache.getOrBuild(em, PosQueries.TODAY_QUERY, "LIST", opts);
                 }
                 refs.add(new WeakReference<>(sf));
                 sf.close();
@@ -495,9 +495,9 @@ public abstract class AbstractRfc0019FunctionalTest {
                 RenderOptions opts;
                 try (EntityManager em = freshFactory.createEntityManager()) {
                     opts = renderOptions(em);
-                    SpikeRoutes.executeRa1List(em, Sale.class, LitePosQueries.TODAY_QUERY, Limit.unlimited(),
+                    SpikeRoutes.executeRa1List(em, Sale.class, PosQueries.TODAY_QUERY, Limit.unlimited(),
                             ModelQueryConfig.defaults());
-                    SpikeRoutes.executeRa3List(em, LitePosQueries.TODAY_QUERY, Limit.unlimited(), opts);
+                    SpikeRoutes.executeRa3List(em, PosQueries.TODAY_QUERY, Limit.unlimited(), opts);
                     SpikeRoutes.executeRa5Today(em, opts);
                 }
 
@@ -536,12 +536,12 @@ public abstract class AbstractRfc0019FunctionalTest {
                     RenderOptions opts;
                     try (EntityManager em = freshFactory.createEntityManager()) {
                         opts = renderOptions(em);
-                        SpikeRoutes.executeRa4hList(em, LitePosQueries.TODAY_QUERY, Limit.unlimited(), opts);
+                        SpikeRoutes.executeRa4hList(em, PosQueries.TODAY_QUERY, Limit.unlimited(), opts);
                     }
                     stats.clear();
                     try (EntityManager em = freshFactory.createEntityManager()) {
-                        SpikeRoutes.executeRa4hList(em, LitePosQueries.TODAY_QUERY, Limit.unlimited(), opts);
-                        SpikeRoutes.executeRa4hList(em, LitePosQueries.TODAY_QUERY, Limit.unlimited(), opts);
+                        SpikeRoutes.executeRa4hList(em, PosQueries.TODAY_QUERY, Limit.unlimited(), opts);
+                        SpikeRoutes.executeRa4hList(em, PosQueries.TODAY_QUERY, Limit.unlimited(), opts);
                     }
                     long hits = stats.getQueryPlanCacheHitCount();
                     long misses = stats.getQueryPlanCacheMissCount();
@@ -569,7 +569,7 @@ public abstract class AbstractRfc0019FunctionalTest {
                 options = renderOptions(em);
                 harness.clearStatements();
                 ra1Rows = ModelQueryExecutor.create(em, Sale.class, ModelQueryConfig.defaults())
-                        .list(LitePosQueries.GROUPED_QUERY, Limit.unlimited());
+                        .list(PosQueries.GROUPED_QUERY, Limit.unlimited());
                 ra1 = lastStatement();
             }
             List<GroupedCountModel> ra5Rows;
@@ -577,7 +577,7 @@ public abstract class AbstractRfc0019FunctionalTest {
             try (EntityManager em = sessions.createEntityManager()) {
                 harness.clearStatements();
                 ra5Rows = SpikeListPath.of(em, Sale.class, ModelQueryConfig.defaults())
-                        .groupedRa5(LitePosQueries.GROUPED_QUERY, options);
+                        .groupedRa5(PosQueries.GROUPED_QUERY, options);
                 ra5 = lastStatement();
             }
             assertThat(ra5Rows).isEqualTo(ra1Rows);
@@ -604,7 +604,7 @@ public abstract class AbstractRfc0019FunctionalTest {
                 try (EntityManager em = sessions.createEntityManager()) {
                     harness.clearStatements();
                     ra1Rows = ModelQueryExecutor.create(em, Sale.class, ModelQueryConfig.defaults())
-                            .list(LitePosQueries.TODAY_QUERY, Limit.unlimited());
+                            .list(PosQueries.TODAY_QUERY, Limit.unlimited());
                     ra1Sql = harness.lastSql();
                 }
                 List<TodaySaleModel> ra4Rows;
@@ -613,11 +613,11 @@ public abstract class AbstractRfc0019FunctionalTest {
                 String ra4bSql;
                 try (EntityManager em = planCacheFactory.createEntityManager()) {
                     harness.clearStatements();
-                    ra4Rows = SpikeRoutes.executeRa4List(em, Sale.class, LitePosQueries.TODAY_QUERY,
+                    ra4Rows = SpikeRoutes.executeRa4List(em, Sale.class, PosQueries.TODAY_QUERY,
                             Limit.unlimited(), ModelQueryConfig.defaults());
                     ra4Sql = harness.lastSql();
                     harness.clearStatements();
-                    ra4bRows = SpikeRoutes.executeRa4bList(em, LitePosQueries.TODAY_QUERY, Limit.unlimited(),
+                    ra4bRows = SpikeRoutes.executeRa4bList(em, PosQueries.TODAY_QUERY, Limit.unlimited(),
                             renderOptions(em));
                     ra4bSql = harness.lastSql();
                 }
@@ -631,11 +631,11 @@ public abstract class AbstractRfc0019FunctionalTest {
             // The A.4/stats cell below counts RA.4b; rule 1 is about RA.4 (the executor unchanged), so count it too.
             Statistics stats = planCacheFactory.getStatistics();
             try (EntityManager em = planCacheFactory.createEntityManager()) {
-                SpikeRoutes.executeRa4List(em, Sale.class, LitePosQueries.TODAY_QUERY, Limit.unlimited(),
+                SpikeRoutes.executeRa4List(em, Sale.class, PosQueries.TODAY_QUERY, Limit.unlimited(),
                         ModelQueryConfig.defaults());
                 stats.clear();
                 for (int i = 0; i < 100; i++) {
-                    SpikeRoutes.executeRa4List(em, Sale.class, LitePosQueries.TODAY_QUERY, Limit.unlimited(),
+                    SpikeRoutes.executeRa4List(em, Sale.class, PosQueries.TODAY_QUERY, Limit.unlimited(),
                             ModelQueryConfig.defaults());
                 }
             }
@@ -665,12 +665,12 @@ public abstract class AbstractRfc0019FunctionalTest {
                 RenderOptions opts;
                 try (EntityManager em = planCacheFactory.createEntityManager()) {
                     opts = renderOptions(em);
-                    SpikeRoutes.executeRa4bList(em, LitePosQueries.TODAY_QUERY, Limit.unlimited(), opts);
+                    SpikeRoutes.executeRa4bList(em, PosQueries.TODAY_QUERY, Limit.unlimited(), opts);
                 }
                 stats.clear();
                 try (EntityManager em = planCacheFactory.createEntityManager()) {
                     for (int i = 0; i < 100; i++) {
-                        SpikeRoutes.executeRa4bList(em, LitePosQueries.TODAY_QUERY, Limit.unlimited(), opts);
+                        SpikeRoutes.executeRa4bList(em, PosQueries.TODAY_QUERY, Limit.unlimited(), opts);
                     }
                 }
                 long hits = stats.getQueryPlanCacheHitCount();
@@ -724,40 +724,40 @@ public abstract class AbstractRfc0019FunctionalTest {
                 // ---- Part A Routes ----
                 // RA.1
                 List<TodaySaleModel> ra1 = SpikeRoutes.executeRa1List(
-                        em, Sale.class, LitePosQueries.TODAY_QUERY, Limit.unlimited(), ModelQueryConfig.defaults());
+                        em, Sale.class, PosQueries.TODAY_QUERY, Limit.unlimited(), ModelQueryConfig.defaults());
                 assertThat(ra1).hasSize(50);
                 String loggedSql = harness.lastSql();
 
                 // RA.0: JdbcClient baseline
                 JdbcClient jdbc = JdbcClient.create(harness.dataSource());
                 List<TodaySaleModel> ra0 = SpikeRoutes.executeRa0Today(
-                        jdbc, loggedSql, LitePosDataset.TODAY_START, LitePosDataset.TODAY_END, 1L);
+                        jdbc, loggedSql, PosDataset.TODAY_START, PosDataset.TODAY_END, 1L);
                 assertThat(ra0).hasSize(50);
 
                 // RA.2: buildQuery alone
-                BuiltQuery<TodaySaleModel> ra2 = SpikeRoutes.executeRa2Build(em, LitePosQueries.TODAY_QUERY, options);
+                BuiltQuery<TodaySaleModel> ra2 = SpikeRoutes.executeRa2Build(em, PosQueries.TODAY_QUERY, options);
                 assertThat(ra2).isNotNull();
 
                 // RA.3: SealedBuildCache
                 List<TodaySaleModel> ra3 = SpikeRoutes.executeRa3List(
-                        em, LitePosQueries.TODAY_QUERY, Limit.unlimited(), options);
+                        em, PosQueries.TODAY_QUERY, Limit.unlimited(), options);
                 assertThat(ra3).isEqualTo(ra1);
 
                 // RA.4 & RA.4b (7.4 only with plan cache enabled)
                 if (SpikeHarness.HIB.startsWith("7.")) {
-                    SessionFactory planCacheFactory = harness.factory("litepos_plan_cache",
+                    SessionFactory planCacheFactory = harness.factory("pos_plan_cache",
                             Map.of("hibernate.criteria.plan_cache_enabled", "true",
                                     "hibernate.generate_statistics", "true",
                                     "hibernate.hbm2ddl.auto", "none"),
                             Store.class, Terminal.class, Cashier.class, Sale.class, SaleLine.class);
                     try (EntityManager emPlan = planCacheFactory.createEntityManager()) {
                         List<TodaySaleModel> ra4 = SpikeRoutes.executeRa4List(
-                                emPlan, Sale.class, LitePosQueries.TODAY_QUERY, Limit.unlimited(),
+                                emPlan, Sale.class, PosQueries.TODAY_QUERY, Limit.unlimited(),
                                 ModelQueryConfig.defaults());
                         assertThat(ra4).isEqualTo(ra1);
 
                         List<TodaySaleModel> ra4b = SpikeRoutes.executeRa4bList(
-                                emPlan, LitePosQueries.TODAY_QUERY, Limit.unlimited(), options);
+                                emPlan, PosQueries.TODAY_QUERY, Limit.unlimited(), options);
                         assertThat(ra4b).isEqualTo(ra1);
                     } finally {
                         planCacheFactory.close();
@@ -773,49 +773,49 @@ public abstract class AbstractRfc0019FunctionalTest {
 
                 // RA.6: Native SQL string mapped through SpikeListPath (Item 7)
                 List<TodaySaleModel> ra6 = SpikeRoutes.executeRa6Today(
-                        em, loggedSql, LitePosDataset.TODAY_START, LitePosDataset.TODAY_END, 1L, options);
+                        em, loggedSql, PosDataset.TODAY_START, PosDataset.TODAY_END, 1L, options);
                 assertThat(ra6).isEqualTo(ra1);
 
                 // Fixed queries and other read shapes on RA.1, RA.3 and RA.5 (one, page, grouped) (M2)
-                SaleSummaryModel one = executor.one(LitePosQueries.ONE_QUERY, 1L).orElseThrow();
+                SaleSummaryModel one = executor.one(PosQueries.ONE_QUERY, 1L).orElseThrow();
                 assertThat(one.id()).isEqualTo(1L);
 
                 Slice<SaleSummaryModel> page = executor.page(
-                        LitePosQueries.PAGE_QUERY, PageSpec.of(0, 20), CountMode.COUNT);
+                        PosQueries.PAGE_QUERY, PageSpec.of(0, 20), CountMode.COUNT);
                 assertThat(page.content()).hasSize(20);
                 assertThat(page.total()).isPresent();
 
-                List<GroupedCountModel> grouped = executor.list(LitePosQueries.GROUPED_QUERY, Limit.unlimited());
+                List<GroupedCountModel> grouped = executor.list(PosQueries.GROUPED_QUERY, Limit.unlimited());
                 assertThat(grouped).isNotEmpty();
 
                 // RA.3 on one, page, grouped
-                SaleSummaryModel ra3One = path.oneRa3(LitePosQueries.ONE_QUERY, 1L).orElseThrow();
+                SaleSummaryModel ra3One = path.oneRa3(PosQueries.ONE_QUERY, 1L).orElseThrow();
                 assertThat(ra3One).isEqualTo(one);
 
                 Slice<SaleSummaryModel> ra3Page = path.pageRa3(
-                        LitePosQueries.PAGE_QUERY, PageSpec.of(0, 20), CountMode.COUNT);
+                        PosQueries.PAGE_QUERY, PageSpec.of(0, 20), CountMode.COUNT);
                 assertThat(ra3Page.content()).isEqualTo(page.content());
                 assertThat(ra3Page.total()).isEqualTo(page.total());
 
-                List<GroupedCountModel> ra3Grouped = path.listRa3(LitePosQueries.GROUPED_QUERY, Limit.unlimited());
+                List<GroupedCountModel> ra3Grouped = path.listRa3(PosQueries.GROUPED_QUERY, Limit.unlimited());
                 assertThat(ra3Grouped).isEqualTo(grouped);
 
                 // RA.5 on one, page, grouped (M2: inside SpikeListPath)
-                SaleSummaryModel ra5One = path.oneRa5(LitePosQueries.ONE_QUERY, 1L, options).orElseThrow();
+                SaleSummaryModel ra5One = path.oneRa5(PosQueries.ONE_QUERY, 1L, options).orElseThrow();
                 assertThat(ra5One).isEqualTo(one);
 
                 Slice<SaleSummaryModel> ra5Page = path.pageRa5(
-                        LitePosQueries.PAGE_QUERY, PageSpec.of(0, 20), CountMode.COUNT, options);
+                        PosQueries.PAGE_QUERY, PageSpec.of(0, 20), CountMode.COUNT, options);
                 assertThat(ra5Page.content()).isEqualTo(page.content());
                 assertThat(ra5Page.total()).isEqualTo(page.total());
 
-                List<GroupedCountModel> ra5Grouped = path.groupedRa5(LitePosQueries.GROUPED_QUERY, options);
+                List<GroupedCountModel> ra5Grouped = path.groupedRa5(PosQueries.GROUPED_QUERY, options);
                 assertThat(ra5Grouped).isEqualTo(grouped);
 
                 // ---- Part B Routes ----
                 // RB.4: today's list
                 List<FlatSaleProjection> rb4 = SpikeRoutes.executeRb4List(
-                        em, LitePosQueries.FLAT_QUERY, Limit.of(50), ModelQueryConfig.defaults());
+                        em, PosQueries.FLAT_QUERY, Limit.of(50), ModelQueryConfig.defaults());
                 assertThat(rb4).hasSize(50);
                 String flatSql = harness.lastSql();
 
@@ -824,7 +824,7 @@ public abstract class AbstractRfc0019FunctionalTest {
                 assertThat(rb0).hasSize(50);
 
                 BuiltQuery<FlatSaleProjection> builtFlat =
-                        LitePosQueries.FLAT_QUERY.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, options);
+                        PosQueries.FLAT_QUERY.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, options);
 
                 // RB.1: Tuple.get(String)
                 List<FlatSaleProjection> rb1 = SpikeRoutes.executeRb1TupleString(em, builtFlat.query(), 50);
@@ -852,22 +852,22 @@ public abstract class AbstractRfc0019FunctionalTest {
 
                 // RB.5: IndexResolvedValueRow inside list envelope
                 List<FlatSaleProjection> rb5 = SpikeRoutes.executeRb5List(
-                        em, LitePosQueries.FLAT_QUERY, Limit.of(50), options);
+                        em, PosQueries.FLAT_QUERY, Limit.of(50), options);
                 assertThat(rb5).isEqualTo(rb4);
 
                 // RB.6: FlatRowMapper inside list envelope
                 List<FlatSaleProjection> rb6 = SpikeRoutes.executeRb6List(
-                        em, LitePosQueries.FLAT_QUERY, Limit.of(50), options);
+                        em, PosQueries.FLAT_QUERY, Limit.of(50), options);
                 assertThat(rb6).isEqualTo(rb4);
 
                 // RB.7: Stream & Export
                 long streamed = SpikeRoutes.executeRb7Stream(
-                        em, LitePosQueries.FLAT_QUERY, ModelQueryConfig.defaults());
+                        em, PosQueries.FLAT_QUERY, ModelQueryConfig.defaults());
                 assertThat(streamed).isEqualTo(5);
 
                 List<FlatSaleProjection> exported = new ArrayList<>();
                 SpikeRoutes.executeRb7Export(
-                        em, LitePosQueries.FLAT_QUERY, ModelQueryConfig.defaults(), exported::add);
+                        em, PosQueries.FLAT_QUERY, ModelQueryConfig.defaults(), exported::add);
                 assertThat(exported).hasSize(800);
 
                 return "all Part A (RA.0-RA.6) and Part B (RB.0-RB.7) routes executed successfully";

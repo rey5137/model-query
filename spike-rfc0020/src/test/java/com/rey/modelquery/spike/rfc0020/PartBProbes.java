@@ -39,7 +39,7 @@ import org.hibernate.query.sqm.tree.select.SqmSortSpecification;
  * expression with the id appended to its {@code within group} order through the SQM tree, and HQL; over
  * {@code rank_row} (ties, a NULL key, a NULL value, a converted value, a filter the first row fails). B.2 is the
  * ranked-source route ({@code row_number} in a CTE, a CTE over it on rank 1, joined as Part A) on every vendor. Both
- * run against two proxies of LitePOS's blocked methods: the top item per business day and per category.
+ * run against two proxies of the POS adopter's blocked methods: the top item per business day and per category.
  */
 final class PartBProbes {
 
@@ -82,9 +82,9 @@ final class PartBProbes {
         hql(h, sf);
         caseForm(h, sf);
         ranked(h, sf);
-        litePos(h, sf, "arrayGet", false);
-        litePos(h, sf, "pattern (?1)[1]", true);
-        litePosRanked(h, sf);
+        pos(h, sf, "arrayGet", false);
+        pos(h, sf, "pattern (?1)[1]", true);
+        posRanked(h, sf);
     }
 
     private static void crafted(SpikeHarness h, SessionFactory sf, String route, Route form, boolean exact) {
@@ -178,28 +178,28 @@ final class PartBProbes {
     }
 
     /**
-     * Proxies of LitePOS's two blocked methods, {@code (array_agg(name order by qty desc))[1]}: the top item per
+     * Proxies of the POS adopter's two blocked methods, {@code (array_agg(name order by qty desc))[1]}: the top item per
      * business day (B.1 grouped; B.2 joined to {@code business_day}) and per category (B.1 grouped; B.2 as root).
      */
-    private static void litePos(SpikeHarness h, SessionFactory sf, String route, boolean pattern) {
+    private static void pos(SpikeHarness h, SessionFactory sf, String route, boolean pattern) {
         Map<Object, String>[] expected = expected(h);
-        h.cell("B.1/litepos", "top item per day, " + route + " + appended id", () -> {
+        h.cell("B.1/pos", "top item per day, " + route + " + appended id", () -> {
             Map<Object, Object> got = lines(sf, false, (cb, l, by) -> topItem(cb, l, pattern));
-            h.keep("B.1/litepos/day/" + (pattern ? "pattern" : "arrayGet"));
+            h.keep("B.1/pos/day/" + (pattern ? "pattern" : "arrayGet"));
             expect(got.equals(expected[0]), "differs from the JDBC reference");
             return "days=" + got.size() + ", equal to the JDBC reference";
         });
-        h.cell("B.1/litepos", "top item per category, " + route + " + appended id", () -> {
+        h.cell("B.1/pos", "top item per category, " + route + " + appended id", () -> {
             Map<Object, Object> got = lines(sf, true, (cb, l, by) -> topItem(cb, l, pattern));
-            h.keep("B.1/litepos/category/" + (pattern ? "pattern" : "arrayGet"));
+            h.keep("B.1/pos/category/" + (pattern ? "pattern" : "arrayGet"));
             expect(got.equals(expected[1]), "differs from the JDBC reference");
             return "categories=" + got.size() + ", equal to the JDBC reference";
         });
     }
 
-    private static void litePosRanked(SpikeHarness h, SessionFactory sf) {
+    private static void posRanked(SpikeHarness h, SessionFactory sf) {
         Map<Object, String>[] expected = expected(h);
-        h.cell("B.2/litepos", "top item per day, ranked source LEFT-joined to business_day", () -> {
+        h.cell("B.2/pos", "top item per day, ranked source LEFT-joined to business_day", () -> {
             Map<Object, Object> got = inEm(sf, em -> {
                 HibernateCriteriaBuilder cb = (HibernateCriteriaBuilder) em.getCriteriaBuilder();
                 JpaCriteriaQuery<Tuple> q = cb.createTupleQuery();
@@ -213,11 +213,11 @@ final class PartBProbes {
                 em.createQuery(q).getResultList().forEach(t -> out.put(t.get(0), t.get(1)));
                 return out;
             });
-            h.keep("B.2/litepos/day");
+            h.keep("B.2/pos/day");
             expect(got.equals(expected[0]), "differs from the JDBC reference");
             return "days=" + got.size() + ", equal to the JDBC reference";
         });
-        h.cell("B.2/litepos", "top item per category, ranked source as root", () -> {
+        h.cell("B.2/pos", "top item per category, ranked source as root", () -> {
             Map<Object, Object> got = inEm(sf, em -> {
                 HibernateCriteriaBuilder cb = (HibernateCriteriaBuilder) em.getCriteriaBuilder();
                 JpaCriteriaQuery<Tuple> q = cb.createTupleQuery();
@@ -227,7 +227,7 @@ final class PartBProbes {
                 em.createQuery(q).getResultList().forEach(t -> out.put(t.get(0), t.get(1)));
                 return out;
             });
-            h.keep("B.2/litepos/category");
+            h.keep("B.2/pos/category");
             expect(got.equals(expected[1]), "differs from the JDBC reference");
             return "categories=" + got.size() + ", equal to the JDBC reference";
         });
@@ -278,7 +278,7 @@ final class PartBProbes {
         return top.with(body);
     }
 
-    /** The JDBC reference for both LitePOS proxies: the max qty, then the smallest line id, per day and category. */
+    /** The JDBC reference for both POS proxies: the max qty, then the smallest line id, per day and category. */
     @SuppressWarnings("unchecked")
     private static Map<Object, String>[] expected(SpikeHarness h) {
         Map<Object, String>[] out = new Map[] {new HashMap<>(), new HashMap<>()};

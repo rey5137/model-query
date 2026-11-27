@@ -1,6 +1,6 @@
 package com.rey.modelquery.spike.rfc0019;
 
-import com.rey.modelquery.spike.rfc0019.LitePosEntities.SaleStatus;
+import com.rey.modelquery.spike.rfc0019.PosEntities.SaleStatus;
 import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -12,13 +12,13 @@ import java.util.Calendar;
 import java.util.Random;
 import java.util.TimeZone;
 
-public final class LitePosDataset {
+public final class PosDataset {
 
     public static final Instant BASE_TIME = Instant.parse("2025-01-01T00:00:00Z");
     public static final Instant TODAY_START = BASE_TIME.plus(364, ChronoUnit.DAYS);
     public static final Instant TODAY_END = BASE_TIME.plus(365, ChronoUnit.DAYS);
 
-    private LitePosDataset() {}
+    private PosDataset() {}
 
     public static void seed(Connection conn, boolean full) throws SQLException {
         conn.setAutoCommit(false);

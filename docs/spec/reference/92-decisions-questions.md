@@ -2798,7 +2798,7 @@ It keeps its name: both answer in the same third-person verb form ("the provider
 inlines values"), and the method is `@Incubating`, so a later rename stays a marked breaking change.
 → `vendor/40` R-VND-27, D-177.
 
-**D-183 — Immutable builders carry a package-private `@CheckReturnValue` (2026-10-22).** LitePOS reported an
+**D-183 — Immutable builders carry a package-private `@CheckReturnValue` (2026-10-22).** The POS adopter reported an
 ignored `select(...)` result that compiled and failed only at run time (`MQ1202`). `core` gains a package-private
 `CheckReturnValue` annotation (class retention, type target) on the types whose methods return a new immutable
 value: `ModelQuery` (and its `Builder`), `SourceQuery`, `FetchPlan`, `ChildQuery`, `SelectSet`, `ModelInsert`,
@@ -2815,7 +2815,7 @@ H2, PostgreSQL 16 and MySQL 8.0.31 (informational).
 
 **Part A, not adopted (rule 2, "Neither").** On PostgreSQL, today's executor adds about 0.03 ms (median) over
 `JdbcClient` running the same SQL on the "today" read, and `buildQuery` takes about 3 µs, so no route saves the
-1–3 ms LitePOS reported. Neither the sealed build cache nor the HQL provider route (RA.5) has a saving whose
+1–3 ms the POS adopter reported. Neither the sealed build cache nor the HQL provider route (RA.5) has a saving whose
 one-sided 99.9% lower bound is at least 0 on every read cell. RA.5's one large saving, on the grouped read, beats
 JDBC itself because it renders `count(*)` where model-query renders `count(s1_0.id)`, so it is a rendering
 difference, not overhead removed. On 7.4, `hibernate.criteria.plan_cache_enabled` got 0 hits in 100 calls both for

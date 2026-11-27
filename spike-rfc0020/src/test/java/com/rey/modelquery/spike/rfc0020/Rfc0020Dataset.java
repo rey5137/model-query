@@ -11,7 +11,7 @@ import java.time.LocalDate;
 import java.util.Random;
 
 /**
- * LitePOS's shape (RFC 0020 §Spike plan): 365 business days, sales on the last 30 of them at 1,000 sales and 3,000
+ * The POS adopter's shape (RFC 0020 §Spike plan): 365 business days, sales on the last 30 of them at 1,000 sales and 3,000
  * lines a day, a year of inventory movements (200 a day), deterministic (seeded {@link Random}). The sale's
  * business-date column has no index here; the plan cells add and drop {@value #SALE_DATE_INDEX}.
  */

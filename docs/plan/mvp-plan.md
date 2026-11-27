@@ -408,11 +408,11 @@ user can push the `v0.8.0` tag.
 
 ## 17. M17 — Docs for what already works
 
-Spec: `docs/plan/litepos-gaps.md` §1 and §3 (M17), `api/10` (new `AC-COL` rows from AC-COL-29), `api/13` (new
+Spec: `docs/plan/adopter-gaps.md` §1 and §3 (M17), `api/10` (new `AC-COL` rows from AC-COL-29), `api/13` (new
 `AC-AGG` rows from AC-AGG-16), `api/14` (new `AC-WRT` rows from AC-WRT-41), CC-DOC-01 (every runnable snippet gets the
 Plain JPA and Spring tabs). Runs before the freeze, M34 (D-193), then M35 (D-197), then M36 (D-204), then M37 (D-213), then M38 (D-222), then M39 (D-231), then M40 (D-250), which stays last. No API change; ships in 0.9.0 with M18–M22 (the
 docs site still publishes from `main` as it merges). Model: none; the M17.1 cases may each fail, and a failing case is recorded as a gap
-in `litepos-gaps.md` and left out of M17.2's docs rather than fixed here.
+in `adopter-gaps.md` and left out of M17.2's docs rather than fixed here.
 
 | Slice | Contents | Done when |
 |---|---|---|
@@ -474,13 +474,13 @@ the design was reviewed by `architect-review` before D-129; none at a slice. Eve
 | M20.2 | `insertReturning` (plain and upsert, including H2 over `MERGE`); `ConflictUpdate.setExpression` with `ConflictExpression`; the counter-upsert TCK case on PostgreSQL and H2; R-WRT-51 (MariaDB rows wait for its profile, D-81) | TCK green on Tier 1 for AC-WRT-43 and AC-WRT-44; SQL snapshots show `… RETURNING next_value` on PostgreSQL |
 | M20.3 | `onConstraint(name)` (stage without `where`) and the arbiter predicate `onConflict(cols).where(…)` rendered with literals through the translated-SQL path; R-WRT-34 amended; `MQ1804` widened; R-WRT-52 | TCK green on PostgreSQL for AC-WRT-45 against a partial unique index; refusals on H2 and MySQL; snapshot shows `on conflict (sku) where status<>'CLOSED'` |
 | M20.4 | `Expr.nextval` in a select only (profile fact `sequences()`, provider renderer through a `JoinContext` hook, `MQ1509`; write positions are M20.5, D-130); repository returning writes (`integration/50`); docs: returning writes, conflict extensions and `nextval` in `queries.md`/recipes, a "claim the next job" recipe (D-131): a locked key read, then `updateReturning` over `whereKeys` on PostgreSQL and H2 7.x, or `update` then `byKeys` on MySQL, in one transaction, stability page lists the D-129 incubating members, `delivery/61`, `[Unreleased]` CHANGELOG entry. Both tabs (CC-DOC-01); R-COL-28, AC-WRT-47 | AC-COL-33 green on Tier 1; AC-WRT-47 green on Tier 1 (two concurrent workers claim disjoint rows; H2 on 6.6 `MQ4010`); `spring` tests green; `mkdocs build --strict` green; every snippet traceable to a green test |
-| M20.5 | `setExpression(column, ExpressionField)` at the update, conflict, insert-values and insert-select sites (D-130), restricted to column-free bind-free expressions (new `MQ1613`); per-row `InsertSupport.insertValues` default with computed factories; MQ1509 before any statement on a write; spike first: `HibernateCriteriaBuilder.sql` inside DML `VALUES`/`SET` on 6.6 and 7.4 and H2 `FINAL TABLE` over `MERGE` with `NEXT VALUE FOR`; R-WRT-53; LitePOS row 8 counter upsert with a sequence value | AC-WRT-46 green on Tier 1 on both Hibernate lines; refusals for MQ1509/MQ1613/MQ1609/MQ1610/MQ1802/MQ1804/MQ1809 tested; MySQL MQ1509 with zero statements executed |
+| M20.5 | `setExpression(column, ExpressionField)` at the update, conflict, insert-values and insert-select sites (D-130), restricted to column-free bind-free expressions (new `MQ1613`); per-row `InsertSupport.insertValues` default with computed factories; MQ1509 before any statement on a write; spike first: `HibernateCriteriaBuilder.sql` inside DML `VALUES`/`SET` on 6.6 and 7.4 and H2 `FINAL TABLE` over `MERGE` with `NEXT VALUE FOR`; R-WRT-53; adopter row 8 counter upsert with a sequence value | AC-WRT-46 green on Tier 1 on both Hibernate lines; refusals for MQ1509/MQ1613/MQ1609/MQ1610/MQ1802/MQ1804/MQ1809 tested; MySQL MQ1509 with zero statements executed |
 
 **Exit:** the M20 rows' criteria green on Tier 1 and nothing new frozen.
 
 ## 21. M21 — Generated-code nullness
 
-Spec: `docs/plan/litepos-gaps.md` (F4), D-135, `processor/30` (new R-PROC-32, the `modelquery.jspecify` option),
+Spec: `docs/plan/adopter-gaps.md` (F4), D-135, `processor/30` (new R-PROC-32, the `modelquery.jspecify` option),
 `processor/31` (new R-GEN-36, where the generated code carries JSpecify annotations), `processor/32` (new `MQ3027`),
 `reference/90`, `docs/site` (`models.md` processor options, NullAway setup), `delivery/61`. New rows are AC-PROC-27,
 AC-GEN-31 and AC-GEN-32; ids R-PROC-28..31, R-GEN-35, `MQ3023`..`MQ3026`, AC-PROC-23..26 and AC-GEN-30 stay reserved
@@ -505,7 +505,7 @@ compile classpath is `MQ3027`. Default off: output with the option unset is byte
 
 ## 22. M22 — Scalar foreign key
 
-Spec: `docs/plan/litepos-gaps.md` (F2), Q-14, D-136, `api/10` (new R-COL-29, a to-one read by its id), `api/14`
+Spec: `docs/plan/adopter-gaps.md` (F2), Q-14, D-136, `api/10` (new R-COL-29, a to-one read by its id), `api/14`
 (R-WRT-48 amended), `jpa` `ProviderSupport` (the foreign-key fact), `reference/90` (`MQ1004`), `processor/30`
 (new R-PROC-33; R-PROC-26 amended), `processor/31` (R-GEN-19, R-GEN-21 amended), `processor/32` (new `MQ3028`; `MQ3002`
 and `MQ3016` messages), `reference/90`, `docs/site`, `delivery/61`. New rows are AC-COL-34, AC-COL-35, AC-PROC-28 and

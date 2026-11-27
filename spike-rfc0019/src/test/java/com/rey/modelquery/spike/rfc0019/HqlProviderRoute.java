@@ -9,9 +9,9 @@ import com.rey.modelquery.core.RenderOptions;
 import com.rey.modelquery.core.Slice;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.SpikeListPath;
-import com.rey.modelquery.spike.rfc0019.LitePosModels.GroupedCountModel;
-import com.rey.modelquery.spike.rfc0019.LitePosModels.SaleSummaryModel;
-import com.rey.modelquery.spike.rfc0019.LitePosModels.TodaySaleModel;
+import com.rey.modelquery.spike.rfc0019.PosModels.GroupedCountModel;
+import com.rey.modelquery.spike.rfc0019.PosModels.SaleSummaryModel;
+import com.rey.modelquery.spike.rfc0019.PosModels.TodaySaleModel;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.criteria.CriteriaQuery;
@@ -153,8 +153,8 @@ public final class HqlProviderRoute {
                     .replaceFirst(":(__param_\\d+|null)", ":p1")
                     .replaceFirst(":(__param_\\d+|null)", ":p2");
         }
-        return hql.replaceFirst("'?" + LitePosDataset.TODAY_START + "'?", ":p0")
-                .replaceFirst("'?" + LitePosDataset.TODAY_END + "'?", ":p1")
+        return hql.replaceFirst("'?" + PosDataset.TODAY_START + "'?", ":p0")
+                .replaceFirst("'?" + PosDataset.TODAY_END + "'?", ":p1")
                 .replaceAll("=\\s*1\\b", "= :p2");
     }
 
@@ -216,7 +216,7 @@ public final class HqlProviderRoute {
             Long storeId,
             RenderOptions options
     ) {
-        var path = SpikeListPath.of(em, LitePosEntities.Sale.class, ModelQueryConfig.defaults());
+        var path = SpikeListPath.of(em, PosEntities.Sale.class, ModelQueryConfig.defaults());
         return path.listRa5Today(start, end, storeId, options);
     }
 
@@ -227,13 +227,13 @@ public final class HqlProviderRoute {
             Long storeId,
             RenderOptions options
     ) {
-        var path = SpikeListPath.of(em, LitePosEntities.Sale.class, ModelQueryConfig.defaults());
+        var path = SpikeListPath.of(em, PosEntities.Sale.class, ModelQueryConfig.defaults());
         return path.listRa5TodayOrdered(start, end, storeId, options);
     }
 
     public static SaleSummaryModel one(EntityManager em, Long id, RenderOptions options) {
-        var path = SpikeListPath.of(em, LitePosEntities.Sale.class, ModelQueryConfig.defaults());
-        return path.oneRa5(LitePosQueries.ONE_QUERY, id, options).orElse(null);
+        var path = SpikeListPath.of(em, PosEntities.Sale.class, ModelQueryConfig.defaults());
+        return path.oneRa5(PosQueries.ONE_QUERY, id, options).orElse(null);
     }
 
     public static List<SaleSummaryModel> page(
@@ -242,9 +242,9 @@ public final class HqlProviderRoute {
             int pageSize,
             RenderOptions options
     ) {
-        var path = SpikeListPath.of(em, LitePosEntities.Sale.class, ModelQueryConfig.defaults());
+        var path = SpikeListPath.of(em, PosEntities.Sale.class, ModelQueryConfig.defaults());
         Slice<SaleSummaryModel> slice = path.pageRa5(
-                LitePosQueries.PAGE_QUERY, PageSpec.of(pageNumber, pageSize), CountMode.COUNT, options);
+                PosQueries.PAGE_QUERY, PageSpec.of(pageNumber, pageSize), CountMode.COUNT, options);
         return slice.content();
     }
 
@@ -254,14 +254,14 @@ public final class HqlProviderRoute {
             int maxResults,
             RenderOptions options
     ) {
-        var path = SpikeListPath.of(em, LitePosEntities.Sale.class, ModelQueryConfig.defaults());
+        var path = SpikeListPath.of(em, PosEntities.Sale.class, ModelQueryConfig.defaults());
         Slice<SaleSummaryModel> slice = path.pageRa5(
-                LitePosQueries.PAGE_QUERY, PageSpec.ofOffset(offset, maxResults), CountMode.COUNT, options);
+                PosQueries.PAGE_QUERY, PageSpec.ofOffset(offset, maxResults), CountMode.COUNT, options);
         return slice.content();
     }
 
     public static List<GroupedCountModel> grouped(EntityManager em, RenderOptions options) {
-        var path = SpikeListPath.of(em, LitePosEntities.Sale.class, ModelQueryConfig.defaults());
-        return path.groupedRa5(LitePosQueries.GROUPED_QUERY, options);
+        var path = SpikeListPath.of(em, PosEntities.Sale.class, ModelQueryConfig.defaults());
+        return path.groupedRa5(PosQueries.GROUPED_QUERY, options);
     }
 }

@@ -23,7 +23,7 @@ API is `@Incubating`. Ships in 0.9.0.
 
 ## Motivation
 
-LitePOS has 13 call sites that write and read back in one statement (`litepos-gaps.md` row 3, part of 4): claiming a
+The POS adopter has 13 call sites that write and read back in one statement (`adopter-gaps.md` row 3, part of 4): claiming a
 job (`UPDATE … SET status = 'RUNNING' … RETURNING *`), deleting expired sessions and logging what went, and a counter
 upsert (`INSERT … ON CONFLICT (key) DO UPDATE SET next_value = t.next_value + 1 RETURNING next_value`). Rows 5 and 8
 add a partial-unique-index upsert (`ON CONFLICT (sku) WHERE status <> 'CLOSED'`) and a sequence-backed default. Each is
@@ -202,7 +202,7 @@ the feature stays `@Incubating` until then.
   changes statement count and locking silently (R-VND-10). Shipped instead as a recipe built from M18's lock,
   `whereKeys` and `byKeys`, which is also the MySQL claim-a-job answer.
 - **A `SelectSet` parameter.** R-WRT-48.
-- **Do nothing.** LitePOS keeps 13 native statements.
+- **Do nothing.** The POS adopter keeps 13 native statements.
 
 ## Unresolved questions
 
@@ -212,5 +212,5 @@ the feature stays `@Incubating` until then.
 - Q-15 (not blocking): whether an explicit opt-in MySQL emulation is ever wanted.
 - Q-16 (not blocking): a single-statement claim on PostgreSQL (a CTE that locks then updates), and a typed
   `nextval(String, Class<C>)`.
-- Decided at acceptance: `Expr.nextval` stays in M20 (LitePOS row 8 needs it with the counter upsert), and
+- Decided at acceptance: `Expr.nextval` stays in M20 (adopter row 8 needs it with the counter upsert), and
   `onConstraint` amends R-WRT-34.

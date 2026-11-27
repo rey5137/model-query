@@ -904,7 +904,7 @@ WHERE EXISTS(    SELECT
 ORDER BY 1
 /* index sorted */
 
-### H2 | B/litepos day | B.1/litepos/day/arrayGet | no index
+### H2 | B/pos day | B.1/pos/day/arrayGet | no index
 -- select s1_0.business_date c0,case when array_length(array_agg(i1_0.name order by sl1_0.qty desc,sl1_0.id))>=? then array_agg(i1_0.name order by sl1_0.qty desc,sl1_0.id)[?] end c1 from sale_line sl1_0 join sale s1_0 on s1_0.id=sl1_0.sale_id join item i1_0 on i1_0.id=sl1_0.item_id group by c0 order by 1 || 1, 1
 SELECT
     "S1_0"."BUSINESS_DATE" AS "C0",
@@ -924,7 +924,7 @@ WHERE ("I1_0"."ID" = "SL1_0"."ITEM_ID")
 GROUP BY "S1_0"."BUSINESS_DATE"
 ORDER BY 1
 
-### H2 | B/litepos day | B.1/litepos/day/pattern | no index
+### H2 | B/pos day | B.1/pos/day/pattern | no index
 -- select s1_0.business_date c0,(array_agg(i1_0.name order by sl1_0.qty desc,sl1_0.id))[1] c1 from sale_line sl1_0 join sale s1_0 on s1_0.id=sl1_0.sale_id join item i1_0 on i1_0.id=sl1_0.item_id group by c0 order by 1
 SELECT
     "S1_0"."BUSINESS_DATE" AS "C0",
@@ -944,7 +944,7 @@ WHERE ("I1_0"."ID" = "SL1_0"."ITEM_ID")
 GROUP BY "S1_0"."BUSINESS_DATE"
 ORDER BY 1
 
-### H2 | B/litepos day | B.2/litepos/day | no index
+### H2 | B/pos day | B.2/pos/day | no index
 -- select bd1_0.business_date,var_1_11_0.mq_name from business_day bd1_0 left join (select cte01_0.mq_key,cte01_0.mq_name from (select s1_0.business_date,i1_0.name,row_number() over(partition by s1_0.business_date order by sl1_0.qty desc,sl1_0.id) from sale_line sl1_0 join sale s1_0 on s1_0.id=sl1_0.sale_id join item i1_0 on i1_0.id=sl1_0.item_id) cte01_0(mq_key,mq_name,mq_rank) where cte01_0.mq_rank=?) var_1_11_0(mq_key,mq_name) on var_1_11_0.mq_key=bd1_0.business_date where var_1_11_0.mq_key is not null order by bd1_0.id || 1
 SELECT
     "BD1_0"."BUSINESS_DATE",
@@ -1014,7 +1014,7 @@ WHERE "VAR_1_11_0"."MQ_KEY" IS NOT NULL
 ORDER BY "BD1_0"."ID"
 /* index sorted */
 
-### H2 | B/litepos category | B.1/litepos/category/arrayGet | no index
+### H2 | B/pos category | B.1/pos/category/arrayGet | no index
 -- select i1_0.category c0,case when array_length(array_agg(i1_0.name order by sl1_0.qty desc,sl1_0.id))>=? then array_agg(i1_0.name order by sl1_0.qty desc,sl1_0.id)[?] end c1 from sale_line sl1_0 join item i1_0 on i1_0.id=sl1_0.item_id group by c0 order by 1 || 1, 1
 SELECT
     "I1_0"."CATEGORY" AS "C0",
@@ -1028,7 +1028,7 @@ WHERE "I1_0"."ID" = "SL1_0"."ITEM_ID"
 GROUP BY "I1_0"."CATEGORY"
 ORDER BY 1
 
-### H2 | B/litepos category | B.1/litepos/category/pattern | no index
+### H2 | B/pos category | B.1/pos/category/pattern | no index
 -- select i1_0.category c0,(array_agg(i1_0.name order by sl1_0.qty desc,sl1_0.id))[1] c1 from sale_line sl1_0 join item i1_0 on i1_0.id=sl1_0.item_id group by c0 order by 1
 SELECT
     "I1_0"."CATEGORY" AS "C0",
@@ -1042,7 +1042,7 @@ WHERE "I1_0"."ID" = "SL1_0"."ITEM_ID"
 GROUP BY "I1_0"."CATEGORY"
 ORDER BY 1
 
-### H2 | B/litepos category | B.2/litepos/category | no index
+### H2 | B/pos category | B.2/pos/category | no index
 -- select cte11_0.mq_key,cte11_0.mq_name from (select cte01_0.mq_key,cte01_0.mq_name from (select i1_0.category,i1_0.name,row_number() over(partition by i1_0.category order by sl1_0.qty desc,sl1_0.id) from sale_line sl1_0 join item i1_0 on i1_0.id=sl1_0.item_id) cte01_0(mq_key,mq_name,mq_rank) where cte01_0.mq_rank=?) cte11_0(mq_key,mq_name) order by 1 || 1
 SELECT
     "CTE11_0"."MQ_KEY",

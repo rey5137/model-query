@@ -18,9 +18,9 @@ import org.hibernate.annotations.Filter;
 import org.hibernate.annotations.FilterDef;
 import org.hibernate.annotations.ParamDef;
 
-public final class LitePosEntities {
+public final class PosEntities {
 
-    private LitePosEntities() {}
+    private PosEntities() {}
 
     public enum SaleStatus {
         COMPLETED,

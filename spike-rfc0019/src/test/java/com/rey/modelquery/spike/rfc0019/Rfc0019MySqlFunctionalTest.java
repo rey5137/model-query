@@ -8,12 +8,12 @@ import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.jpa.SpikeListPath;
 import com.rey.modelquery.jpa.vendor.VendorResolver;
-import com.rey.modelquery.spike.rfc0019.LitePosEntities.Cashier;
-import com.rey.modelquery.spike.rfc0019.LitePosEntities.Sale;
-import com.rey.modelquery.spike.rfc0019.LitePosEntities.SaleLine;
-import com.rey.modelquery.spike.rfc0019.LitePosEntities.Store;
-import com.rey.modelquery.spike.rfc0019.LitePosEntities.Terminal;
-import com.rey.modelquery.spike.rfc0019.LitePosModels.TodaySaleModel;
+import com.rey.modelquery.spike.rfc0019.PosEntities.Cashier;
+import com.rey.modelquery.spike.rfc0019.PosEntities.Sale;
+import com.rey.modelquery.spike.rfc0019.PosEntities.SaleLine;
+import com.rey.modelquery.spike.rfc0019.PosEntities.Store;
+import com.rey.modelquery.spike.rfc0019.PosEntities.Terminal;
+import com.rey.modelquery.spike.rfc0019.PosModels.TodaySaleModel;
 import jakarta.persistence.EntityManager;
 import java.sql.Connection;
 import java.util.List;
@@ -33,11 +33,11 @@ public class Rfc0019MySqlFunctionalTest {
     @BeforeAll
     void init() throws Exception {
         harness = new SpikeHarness("MYSQL");
-        sessions = harness.factory("litepos_mysql",
+        sessions = harness.factory("pos_mysql",
                 Map.of("hibernate.generate_statistics", "true"),
                 Store.class, Terminal.class, Cashier.class, Sale.class, SaleLine.class);
         try (Connection conn = harness.dataSource().getConnection()) {
-            LitePosDataset.seed(conn, false);
+            PosDataset.seed(conn, false);
         }
     }
 
@@ -65,7 +65,7 @@ public class Rfc0019MySqlFunctionalTest {
                 harness.clearStatements();
                 var executor = ModelQueryExecutor.create(em, Sale.class, ModelQueryConfig.defaults());
                 options = renderOptions(em);
-                ra1Rows = executor.list(LitePosQueries.TODAY_QUERY, Limit.unlimited());
+                ra1Rows = executor.list(PosQueries.TODAY_QUERY, Limit.unlimited());
                 ra1Sql = harness.lastSql();
             }
 
@@ -77,7 +77,7 @@ public class Rfc0019MySqlFunctionalTest {
             try (EntityManager em = sessions.createEntityManager()) {
                 harness.clearStatements();
                 ra3Rows = SpikeRoutes.executeRa3List(
-                        em, LitePosQueries.TODAY_QUERY, Limit.unlimited(), options);
+                        em, PosQueries.TODAY_QUERY, Limit.unlimited(), options);
             }
             assertThat(ra3Rows).isEqualTo(ra1Rows);
 

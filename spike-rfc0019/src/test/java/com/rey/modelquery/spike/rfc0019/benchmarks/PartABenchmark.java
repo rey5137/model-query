@@ -10,13 +10,13 @@ import com.rey.modelquery.core.Slice;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.jpa.SpikeListPath;
-import com.rey.modelquery.spike.rfc0019.LitePosDataset;
-import com.rey.modelquery.spike.rfc0019.LitePosEntities.Sale;
-import com.rey.modelquery.spike.rfc0019.LitePosEntities.SaleStatus;
-import com.rey.modelquery.spike.rfc0019.LitePosModels.GroupedCountModel;
-import com.rey.modelquery.spike.rfc0019.LitePosModels.SaleSummaryModel;
-import com.rey.modelquery.spike.rfc0019.LitePosModels.TodaySaleModel;
-import com.rey.modelquery.spike.rfc0019.LitePosQueries;
+import com.rey.modelquery.spike.rfc0019.PosDataset;
+import com.rey.modelquery.spike.rfc0019.PosEntities.Sale;
+import com.rey.modelquery.spike.rfc0019.PosEntities.SaleStatus;
+import com.rey.modelquery.spike.rfc0019.PosModels.GroupedCountModel;
+import com.rey.modelquery.spike.rfc0019.PosModels.SaleSummaryModel;
+import com.rey.modelquery.spike.rfc0019.PosModels.TodaySaleModel;
+import com.rey.modelquery.spike.rfc0019.PosQueries;
 import com.rey.modelquery.spike.rfc0019.SpikeHarness;
 import com.rey.modelquery.spike.rfc0019.SpikeRoutes;
 import com.rey.modelquery.spike.rfc0019.benchmarks.BenchmarkDatabase.StatementCapture;
@@ -110,17 +110,17 @@ public class PartABenchmark {
 
                 // Capture exact SQL statements logged by Hibernate RA.1
                 capture.clear();
-                executor.list(LitePosQueries.TODAY_QUERY, Limit.unlimited());
+                executor.list(PosQueries.TODAY_QUERY, Limit.unlimited());
                 todaySql = capture.last();
                 if (todaySql.isEmpty()) throw new IllegalStateException("todaySql empty");
 
                 capture.clear();
-                executor.one(LitePosQueries.ONE_QUERY, 1L);
+                executor.one(PosQueries.ONE_QUERY, 1L);
                 oneSql = capture.last();
                 if (oneSql.isEmpty()) throw new IllegalStateException("oneSql empty");
 
                 capture.clear();
-                executor.page(LitePosQueries.PAGE_QUERY, PageSpec.of(0, 20), CountMode.COUNT);
+                executor.page(PosQueries.PAGE_QUERY, PageSpec.of(0, 20), CountMode.COUNT);
                 for (String s : capture.captured()) {
                     if (s.toLowerCase(Locale.ROOT).contains("count")) {
                         pageCountSql = s;
@@ -136,12 +136,12 @@ public class PartABenchmark {
                 }
 
                 capture.clear();
-                executor.list(LitePosQueries.GROUPED_QUERY, Limit.unlimited());
+                executor.list(PosQueries.GROUPED_QUERY, Limit.unlimited());
                 groupedSql = capture.last();
                 if (groupedSql.isEmpty()) throw new IllegalStateException("groupedSql empty");
 
                 capture.clear();
-                executor.list(LitePosQueries.ORDERED_BY_QUERY, Limit.unlimited());
+                executor.list(PosQueries.ORDERED_BY_QUERY, Limit.unlimited());
                 orderedBySql = capture.last();
                 if (orderedBySql.isEmpty()) throw new IllegalStateException("orderedBySql empty");
             }
@@ -174,7 +174,7 @@ public class PartABenchmark {
     @Benchmark
     public List<TodaySaleModel> today_RA0_jdbc(PartAState state) {
         return state.txTemplate.execute(status -> SpikeRoutes.executeRa0Today(
-                state.jdbc, state.todaySql, LitePosDataset.TODAY_START, LitePosDataset.TODAY_END, 1L));
+                state.jdbc, state.todaySql, PosDataset.TODAY_START, PosDataset.TODAY_END, 1L));
     }
 
     @Benchmark
@@ -183,7 +183,7 @@ public class PartABenchmark {
             em.getTransaction().begin();
             try {
                 List<TodaySaleModel> res = SpikeRoutes.executeRa1List(
-                        em, Sale.class, LitePosQueries.TODAY_QUERY, Limit.unlimited(), ModelQueryConfig.defaults());
+                        em, Sale.class, PosQueries.TODAY_QUERY, Limit.unlimited(), ModelQueryConfig.defaults());
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -195,7 +195,7 @@ public class PartABenchmark {
 
     @Benchmark
     public BuiltQuery<TodaySaleModel> today_RA2_buildOnly(PartAState state) {
-        return LitePosQueries.TODAY_QUERY.buildQuery(
+        return PosQueries.TODAY_QUERY.buildQuery(
                 state.sessions.getCriteriaBuilder(), Phase.MODEL, state.renderOptions);
     }
 
@@ -205,7 +205,7 @@ public class PartABenchmark {
             em.getTransaction().begin();
             try {
                 List<TodaySaleModel> res = state.pathCopy.withEntityManager(em)
-                        .listRa3(LitePosQueries.TODAY_QUERY, Limit.unlimited());
+                        .listRa3(PosQueries.TODAY_QUERY, Limit.unlimited());
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -221,7 +221,7 @@ public class PartABenchmark {
             em.getTransaction().begin();
             try {
                 List<TodaySaleModel> res = state.pathNoCopy.withEntityManager(em)
-                        .listRa3(LitePosQueries.TODAY_QUERY, Limit.unlimited());
+                        .listRa3(PosQueries.TODAY_QUERY, Limit.unlimited());
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -237,7 +237,7 @@ public class PartABenchmark {
             em.getTransaction().begin();
             try {
                 List<TodaySaleModel> res = SpikeRoutes.executeRa4List(
-                        em, Sale.class, LitePosQueries.TODAY_QUERY, Limit.unlimited(), ModelQueryConfig.defaults());
+                        em, Sale.class, PosQueries.TODAY_QUERY, Limit.unlimited(), ModelQueryConfig.defaults());
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -253,7 +253,7 @@ public class PartABenchmark {
             em.getTransaction().begin();
             try {
                 List<TodaySaleModel> res = state.pathPlan.withEntityManager(em)
-                        .listRa3(LitePosQueries.TODAY_QUERY, Limit.unlimited());
+                        .listRa3(PosQueries.TODAY_QUERY, Limit.unlimited());
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -269,7 +269,7 @@ public class PartABenchmark {
             em.getTransaction().begin();
             try {
                 List<TodaySaleModel> res = state.pathCopy.withEntityManager(em).listRa5Today(
-                        LitePosDataset.TODAY_START, LitePosDataset.TODAY_END, 1L, state.renderOptions);
+                        PosDataset.TODAY_START, PosDataset.TODAY_END, 1L, state.renderOptions);
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -286,7 +286,7 @@ public class PartABenchmark {
             try {
                 List<TodaySaleModel> res = state.pathCopy.withEntityManager(em)
                         .listRa6Native(state.todaySql, state.prebuiltToday,
-                                LitePosDataset.TODAY_START, LitePosDataset.TODAY_END, 1L);
+                                PosDataset.TODAY_START, PosDataset.TODAY_END, 1L);
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -317,7 +317,7 @@ public class PartABenchmark {
             em.getTransaction().begin();
             try {
                 var executor = ModelQueryExecutor.create(em, Sale.class, ModelQueryConfig.defaults());
-                Optional<SaleSummaryModel> res = executor.one(LitePosQueries.ONE_QUERY, 1L);
+                Optional<SaleSummaryModel> res = executor.one(PosQueries.ONE_QUERY, 1L);
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -329,7 +329,7 @@ public class PartABenchmark {
 
     @Benchmark
     public BuiltQuery<SaleSummaryModel> one_RA2_buildOnly(PartAState state) {
-        return LitePosQueries.ONE_QUERY.buildQuery(
+        return PosQueries.ONE_QUERY.buildQuery(
                 state.sessions.getCriteriaBuilder(), Phase.MODEL, state.renderOptions);
     }
 
@@ -339,7 +339,7 @@ public class PartABenchmark {
             em.getTransaction().begin();
             try {
                 Optional<SaleSummaryModel> res = state.pathCopy.withEntityManager(em)
-                        .oneRa3(LitePosQueries.ONE_QUERY, 1L);
+                        .oneRa3(PosQueries.ONE_QUERY, 1L);
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -355,7 +355,7 @@ public class PartABenchmark {
             em.getTransaction().begin();
             try {
                 Optional<SaleSummaryModel> res = state.pathNoCopy.withEntityManager(em)
-                        .oneRa3(LitePosQueries.ONE_QUERY, 1L);
+                        .oneRa3(PosQueries.ONE_QUERY, 1L);
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -371,7 +371,7 @@ public class PartABenchmark {
             em.getTransaction().begin();
             try {
                 var executor = ModelQueryExecutor.create(em, Sale.class, ModelQueryConfig.defaults());
-                Optional<SaleSummaryModel> res = executor.one(LitePosQueries.ONE_QUERY, 1L);
+                Optional<SaleSummaryModel> res = executor.one(PosQueries.ONE_QUERY, 1L);
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -387,7 +387,7 @@ public class PartABenchmark {
             em.getTransaction().begin();
             try {
                 Optional<SaleSummaryModel> res = state.pathPlan.withEntityManager(em)
-                        .oneRa3(LitePosQueries.ONE_QUERY, 1L);
+                        .oneRa3(PosQueries.ONE_QUERY, 1L);
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -403,7 +403,7 @@ public class PartABenchmark {
             em.getTransaction().begin();
             try {
                 Optional<SaleSummaryModel> res = state.pathCopy.withEntityManager(em)
-                        .oneRa5(LitePosQueries.ONE_QUERY, 1L, state.renderOptions);
+                        .oneRa5(PosQueries.ONE_QUERY, 1L, state.renderOptions);
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -442,7 +442,7 @@ public class PartABenchmark {
             try {
                 var executor = ModelQueryExecutor.create(em, Sale.class, ModelQueryConfig.defaults());
                 Slice<SaleSummaryModel> res = executor.page(
-                        LitePosQueries.PAGE_QUERY, PageSpec.of(0, 20), CountMode.COUNT);
+                        PosQueries.PAGE_QUERY, PageSpec.of(0, 20), CountMode.COUNT);
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -454,7 +454,7 @@ public class PartABenchmark {
 
     @Benchmark
     public BuiltQuery<SaleSummaryModel> page_RA2_buildOnly(PartAState state) {
-        return LitePosQueries.PAGE_QUERY.buildQuery(
+        return PosQueries.PAGE_QUERY.buildQuery(
                 state.sessions.getCriteriaBuilder(), Phase.MODEL, state.renderOptions);
     }
 
@@ -464,7 +464,7 @@ public class PartABenchmark {
             em.getTransaction().begin();
             try {
                 Slice<SaleSummaryModel> res = state.pathCopy.withEntityManager(em)
-                        .pageRa3(LitePosQueries.PAGE_QUERY, PageSpec.of(0, 20), CountMode.COUNT);
+                        .pageRa3(PosQueries.PAGE_QUERY, PageSpec.of(0, 20), CountMode.COUNT);
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -480,7 +480,7 @@ public class PartABenchmark {
             em.getTransaction().begin();
             try {
                 Slice<SaleSummaryModel> res = state.pathNoCopy.withEntityManager(em)
-                        .pageRa3(LitePosQueries.PAGE_QUERY, PageSpec.of(0, 20), CountMode.COUNT);
+                        .pageRa3(PosQueries.PAGE_QUERY, PageSpec.of(0, 20), CountMode.COUNT);
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -497,7 +497,7 @@ public class PartABenchmark {
             try {
                 var executor = ModelQueryExecutor.create(em, Sale.class, ModelQueryConfig.defaults());
                 Slice<SaleSummaryModel> res = executor.page(
-                        LitePosQueries.PAGE_QUERY, PageSpec.of(0, 20), CountMode.COUNT);
+                        PosQueries.PAGE_QUERY, PageSpec.of(0, 20), CountMode.COUNT);
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -513,7 +513,7 @@ public class PartABenchmark {
             em.getTransaction().begin();
             try {
                 Slice<SaleSummaryModel> res = state.pathPlan.withEntityManager(em)
-                        .pageRa3(LitePosQueries.PAGE_QUERY, PageSpec.of(0, 20), CountMode.COUNT);
+                        .pageRa3(PosQueries.PAGE_QUERY, PageSpec.of(0, 20), CountMode.COUNT);
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -529,7 +529,7 @@ public class PartABenchmark {
             em.getTransaction().begin();
             try {
                 Slice<SaleSummaryModel> res = state.pathCopy.withEntityManager(em)
-                        .pageRa5(LitePosQueries.PAGE_QUERY, PageSpec.of(0, 20),
+                        .pageRa5(PosQueries.PAGE_QUERY, PageSpec.of(0, 20),
                                 CountMode.COUNT, state.renderOptions);
                 em.getTransaction().commit();
                 return res;
@@ -558,7 +558,7 @@ public class PartABenchmark {
             em.getTransaction().begin();
             try {
                 var executor = ModelQueryExecutor.create(em, Sale.class, ModelQueryConfig.defaults());
-                List<GroupedCountModel> res = executor.list(LitePosQueries.GROUPED_QUERY, Limit.unlimited());
+                List<GroupedCountModel> res = executor.list(PosQueries.GROUPED_QUERY, Limit.unlimited());
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -570,7 +570,7 @@ public class PartABenchmark {
 
     @Benchmark
     public BuiltQuery<GroupedCountModel> grouped_RA2_buildOnly(PartAState state) {
-        return LitePosQueries.GROUPED_QUERY.buildQuery(
+        return PosQueries.GROUPED_QUERY.buildQuery(
                 state.sessions.getCriteriaBuilder(), Phase.MODEL, state.renderOptions);
     }
 
@@ -580,7 +580,7 @@ public class PartABenchmark {
             em.getTransaction().begin();
             try {
                 List<GroupedCountModel> res = state.pathCopy.withEntityManager(em)
-                        .listRa3(LitePosQueries.GROUPED_QUERY, Limit.unlimited());
+                        .listRa3(PosQueries.GROUPED_QUERY, Limit.unlimited());
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -596,7 +596,7 @@ public class PartABenchmark {
             em.getTransaction().begin();
             try {
                 List<GroupedCountModel> res = state.pathNoCopy.withEntityManager(em)
-                        .listRa3(LitePosQueries.GROUPED_QUERY, Limit.unlimited());
+                        .listRa3(PosQueries.GROUPED_QUERY, Limit.unlimited());
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -612,7 +612,7 @@ public class PartABenchmark {
             em.getTransaction().begin();
             try {
                 var executor = ModelQueryExecutor.create(em, Sale.class, ModelQueryConfig.defaults());
-                List<GroupedCountModel> res = executor.list(LitePosQueries.GROUPED_QUERY, Limit.unlimited());
+                List<GroupedCountModel> res = executor.list(PosQueries.GROUPED_QUERY, Limit.unlimited());
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -628,7 +628,7 @@ public class PartABenchmark {
             em.getTransaction().begin();
             try {
                 List<GroupedCountModel> res = state.pathPlan.withEntityManager(em)
-                        .listRa3(LitePosQueries.GROUPED_QUERY, Limit.unlimited());
+                        .listRa3(PosQueries.GROUPED_QUERY, Limit.unlimited());
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -644,7 +644,7 @@ public class PartABenchmark {
             em.getTransaction().begin();
             try {
                 List<GroupedCountModel> res = state.pathCopy.withEntityManager(em)
-                        .groupedRa5(LitePosQueries.GROUPED_QUERY, state.renderOptions);
+                        .groupedRa5(PosQueries.GROUPED_QUERY, state.renderOptions);
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -661,7 +661,7 @@ public class PartABenchmark {
     @Benchmark
     public List<TodaySaleModel> orderedBy_RA0_jdbc(PartAState state) {
         return state.txTemplate.execute(status -> SpikeRoutes.executeRa0Today(
-                state.jdbc, state.orderedBySql, LitePosDataset.TODAY_START, LitePosDataset.TODAY_END, 1L));
+                state.jdbc, state.orderedBySql, PosDataset.TODAY_START, PosDataset.TODAY_END, 1L));
     }
 
     @Benchmark
@@ -670,7 +670,7 @@ public class PartABenchmark {
             em.getTransaction().begin();
             try {
                 var executor = ModelQueryExecutor.create(em, Sale.class, ModelQueryConfig.defaults());
-                List<TodaySaleModel> res = executor.list(LitePosQueries.ORDERED_BY_QUERY, Limit.unlimited());
+                List<TodaySaleModel> res = executor.list(PosQueries.ORDERED_BY_QUERY, Limit.unlimited());
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -682,7 +682,7 @@ public class PartABenchmark {
 
     @Benchmark
     public BuiltQuery<TodaySaleModel> orderedBy_RA2_buildOnly(PartAState state) {
-        return LitePosQueries.ORDERED_BY_QUERY.buildQuery(
+        return PosQueries.ORDERED_BY_QUERY.buildQuery(
                 state.sessions.getCriteriaBuilder(), Phase.MODEL, state.renderOptions);
     }
 
@@ -692,7 +692,7 @@ public class PartABenchmark {
             em.getTransaction().begin();
             try {
                 List<TodaySaleModel> res = state.pathCopy.withEntityManager(em)
-                        .listRa3(LitePosQueries.ORDERED_BY_QUERY, Limit.unlimited());
+                        .listRa3(PosQueries.ORDERED_BY_QUERY, Limit.unlimited());
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -708,7 +708,7 @@ public class PartABenchmark {
             em.getTransaction().begin();
             try {
                 List<TodaySaleModel> res = state.pathNoCopy.withEntityManager(em)
-                        .listRa3(LitePosQueries.ORDERED_BY_QUERY, Limit.unlimited());
+                        .listRa3(PosQueries.ORDERED_BY_QUERY, Limit.unlimited());
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -724,7 +724,7 @@ public class PartABenchmark {
             em.getTransaction().begin();
             try {
                 var executor = ModelQueryExecutor.create(em, Sale.class, ModelQueryConfig.defaults());
-                List<TodaySaleModel> res = executor.list(LitePosQueries.ORDERED_BY_QUERY, Limit.unlimited());
+                List<TodaySaleModel> res = executor.list(PosQueries.ORDERED_BY_QUERY, Limit.unlimited());
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -740,7 +740,7 @@ public class PartABenchmark {
             em.getTransaction().begin();
             try {
                 List<TodaySaleModel> res = state.pathPlan.withEntityManager(em)
-                        .listRa3(LitePosQueries.ORDERED_BY_QUERY, Limit.unlimited());
+                        .listRa3(PosQueries.ORDERED_BY_QUERY, Limit.unlimited());
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {
@@ -756,7 +756,7 @@ public class PartABenchmark {
             em.getTransaction().begin();
             try {
                 List<TodaySaleModel> res = state.pathCopy.withEntityManager(em).listRa5TodayOrdered(
-                        LitePosDataset.TODAY_START, LitePosDataset.TODAY_END, 1L, state.renderOptions);
+                        PosDataset.TODAY_START, PosDataset.TODAY_END, 1L, state.renderOptions);
                 em.getTransaction().commit();
                 return res;
             } catch (Throwable t) {

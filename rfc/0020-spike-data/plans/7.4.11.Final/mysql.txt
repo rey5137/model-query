@@ -433,7 +433,7 @@
         -> Covering index lookup on s1_0 using ix_sale_promo_code (promo_code=p1_0.`code`)  (cost=35972 rows=537) (actual time=0.00441..0.00441 rows=0.75 loops=80)
 
 
-### MYSQL | B/litepos day | B.2/litepos/day | no index
+### MYSQL | B/pos day | B.2/pos/day | no index
 -- with cte0 (mq_key,mq_name,mq_rank) as (select s1_0.business_date,i1_0.name,row_number() over(partition by s1_0.business_date order by sl1_0.qty desc,sl1_0.id) from sale_line sl1_0 join sale s1_0 on s1_0.id=sl1_0.sale_id join item i1_0 on i1_0.id=sl1_0.item_id),cte1 (mq_key,mq_name) as (select cte01_0.mq_key,cte01_0.mq_name from cte0 cte01_0 where cte01_0.mq_rank=?) select bd1_0.business_date,var_1_11_0.mq_name from business_day bd1_0 left join cte1 var_1_11_0 on var_1_11_0.mq_key=bd1_0.business_date where var_1_11_0.mq_key is not null order by bd1_0.id || 1
 -> Sort: bd1_0.id  (actual time=151..151 rows=30 loops=1)
     -> Stream results  (cost=13251 rows=8982) (actual time=143..151 rows=30 loops=1)
@@ -452,7 +452,7 @@
             -> Single-row covering index lookup on bd1_0 using UKsb3xlbb0mtis49u0nut0i1j5p (business_date=cte01_0.mq_key)  (cost=0.25 rows=1) (actual time=0.00164..0.00166 rows=1 loops=30)
 
 
-### MYSQL | B/litepos category | B.2/litepos/category | no index
+### MYSQL | B/pos category | B.2/pos/category | no index
 -- with cte0 (mq_key,mq_name,mq_rank) as (select i1_0.category,i1_0.name,row_number() over(partition by i1_0.category order by sl1_0.qty desc,sl1_0.id) from sale_line sl1_0 join item i1_0 on i1_0.id=sl1_0.item_id),cte1 (mq_key,mq_name) as (select cte01_0.mq_key,cte01_0.mq_name from cte0 cte01_0 where cte01_0.mq_rank=?) select cte11_0.mq_key,cte11_0.mq_name from cte1 cte11_0 order by 1 || 1
 -> Sort: mq_key  (cost=3.6..3.6 rows=0) (actual time=147..147 rows=10 loops=1)
     -> Index lookup on cte01_0 using <auto_key0> (mq_rank=1)  (cost=0.35..3.5 rows=10) (actual time=147..147 rows=10 loops=1)

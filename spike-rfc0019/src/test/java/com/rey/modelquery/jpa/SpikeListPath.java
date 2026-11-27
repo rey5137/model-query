@@ -25,10 +25,10 @@ import com.rey.modelquery.jpa.spi.LockSupport;
 import com.rey.modelquery.jpa.vendor.ResolvedVendor;
 import com.rey.modelquery.spike.rfc0019.FlatRowMapper;
 import com.rey.modelquery.spike.rfc0019.HqlProviderRoute;
-import com.rey.modelquery.spike.rfc0019.LitePosDataset;
-import com.rey.modelquery.spike.rfc0019.LitePosEntities;
-import com.rey.modelquery.spike.rfc0019.LitePosQueries;
-import com.rey.modelquery.spike.rfc0019.LitePosModels.TodaySaleModel;
+import com.rey.modelquery.spike.rfc0019.PosDataset;
+import com.rey.modelquery.spike.rfc0019.PosEntities;
+import com.rey.modelquery.spike.rfc0019.PosQueries;
+import com.rey.modelquery.spike.rfc0019.PosModels.TodaySaleModel;
 import com.rey.modelquery.spike.rfc0019.SealedBuildCache;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
@@ -535,9 +535,9 @@ public final class SpikeListPath<E> {
             Long storeId,
             RenderOptions options
     ) {
-        var entry = ctx.hqlScope().getOrBuild(em, LitePosQueries.TODAY_QUERY, "TODAY", options);
+        var entry = ctx.hqlScope().getOrBuild(em, PosQueries.TODAY_QUERY, "TODAY", options);
         Map<String, Object> params = Map.of("p0", start, "p1", end, "p2", storeId);
-        return listRa5(LitePosQueries.TODAY_QUERY, Limit.unlimited(), entry.hql(), entry.builtQuery(), params);
+        return listRa5(PosQueries.TODAY_QUERY, Limit.unlimited(), entry.hql(), entry.builtQuery(), params);
     }
 
     /** RA.5 Today Ordered. */
@@ -547,9 +547,9 @@ public final class SpikeListPath<E> {
             Long storeId,
             RenderOptions options
     ) {
-        var entry = ctx.hqlScope().getOrBuild(em, LitePosQueries.ORDERED_BY_QUERY, "ORDERED", options);
+        var entry = ctx.hqlScope().getOrBuild(em, PosQueries.ORDERED_BY_QUERY, "ORDERED", options);
         Map<String, Object> params = Map.of("p0", start, "p1", end, "p2", storeId);
-        return listRa5(LitePosQueries.ORDERED_BY_QUERY, Limit.unlimited(), entry.hql(), entry.builtQuery(), params);
+        return listRa5(PosQueries.ORDERED_BY_QUERY, Limit.unlimited(), entry.hql(), entry.builtQuery(), params);
     }
 
     /** RA.5 One by key (M2). */
@@ -652,7 +652,7 @@ public final class SpikeListPath<E> {
                         // Hibernate 6+ returns a native TIMESTAMP as LocalDateTime; the spike runs in UTC.
                         if (val instanceof java.time.LocalDateTime ldt) return ldt.toInstant(java.time.ZoneOffset.UTC);
                         if (val instanceof String s) {
-                            for (LitePosEntities.SaleStatus st : LitePosEntities.SaleStatus.values()) {
+                            for (PosEntities.SaleStatus st : PosEntities.SaleStatus.values()) {
                                 if (st.name().equals(s)) return st;
                             }
                         }
@@ -677,7 +677,7 @@ public final class SpikeListPath<E> {
 
     public static BuiltQuery<TodaySaleModel> prebuiltToday(EntityManager em, RenderOptions options) {
         return PREBUILT_TODAY.computeIfAbsent(options, opts ->
-                LitePosQueries.TODAY_QUERY.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, opts));
+                PosQueries.TODAY_QUERY.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, opts));
     }
 
     /** RA.6: Native SQL string mapped through row path with prebuilt query (Nm2). */
@@ -698,7 +698,7 @@ public final class SpikeListPath<E> {
         for (Tuple t : tuples) {
             loaded.add(loaded(built, nativeTuple(t)));
         }
-        return models(LitePosQueries.TODAY_QUERY, loaded);
+        return models(PosQueries.TODAY_QUERY, loaded);
     }
 
     /** RA.6: Native SQL string mapped through row path (Item 7, Nm2). */
