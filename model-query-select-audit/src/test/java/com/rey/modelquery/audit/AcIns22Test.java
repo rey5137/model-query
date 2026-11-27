@@ -19,7 +19,6 @@ import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import jakarta.persistence.EntityManager;
 import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -137,19 +136,56 @@ class AcIns22Test extends AuditTestBase {
         }
     }
 
+    @Test
+    void ac_ins_22_a_recorded_live_call_is_still_audited() {
+        ReadEvents.clear();
+        try (EntityManager em = sessions.createEntityManager()) {
+            ModelQueryExecutor<AuditOrderEntity> executor = orderExecutor(em);
+            ModelQuery<AuditOrderEntity, Long, AuditOrderView> query = QAuditOrderView.query()
+                    .select(QAuditOrderView.ALL)
+                    .where(f -> f.eq(QAuditOrderView.ID, 1L))
+                    .build();
+
+            // CallRecorder.wrap's decorator sits between the application and the executor (D-264): its frames
+            // are portability frames, but the call is the application's own, so the unread columns are reported.
+            AuditOrderView order = AuditCaller.executorCall(() -> inFrame(
+                    "com.rey.modelquery.portability.internal.ExecutorHandler",
+                    () -> inFrame("com.rey.modelquery.portability.CallRecorder$Recording",
+                            () -> executor.one(query))))
+                    .orElseThrow();
+            assertThat(order.id()).isEqualTo(1L);
+
+            String report = SelectAuditReport.render();
+            assertThat(report).contains("UNREAD COLUMNS (warning)");
+            assertThat(report).contains("AuditOrderView.total, AuditOrderView.notes");
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> T inFrame(String className, Supplier<T> supplier) {
+        try {
+            return (T) frameClass(className).getMethod("run", Supplier.class).invoke(null, supplier);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     private static void runInPortabilityFrame(Supplier<?> supplier) throws Exception {
+        inFrame("com.rey.modelquery.portability.SimulatedPortabilityReplay", supplier);
+    }
+
+    private static Class<?> frameClass(String className) {
         int modifiers = java.lang.reflect.Modifier.PUBLIC | java.lang.reflect.Modifier.STATIC;
         Class<?> replayClass = new ByteBuddy()
                 .subclass(Object.class)
-                .name("com.rey.modelquery.portability.SimulatedPortabilityReplay")
+                .name(className)
                 .defineMethod("run", Object.class, modifiers)
                 .withParameters(Supplier.class)
                 .intercept(MethodDelegation.to(ReplayDelegate.class))
                 .make()
                 .load(AcIns22Test.class.getClassLoader(), ClassLoadingStrategy.Default.WRAPPER)
                 .getLoaded();
-        Method run = replayClass.getMethod("run", Supplier.class);
-        run.invoke(null, supplier);
+        return replayClass;
     }
 
     @Test

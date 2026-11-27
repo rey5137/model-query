@@ -3619,6 +3619,14 @@ key filter, and D-248's unspecified map order remains. `QueryAssert.map` returns
 their API. Engine seams use the new query. → `api/15` R-FCH-20, AC-FCH-47, AC-FCH-48, `api/16` R-INS-06,
 `reference/90` MQ1714.
 
+**D-264 — A recorded live call is audited (0.16.0 fix, 2026-11-27).** The select audit skips a call whose stack holds a
+`com.rey.modelquery.portability` frame, as a replay or dry run, except the frames of a live recorded call:
+`CallRecorder` and its nested classes and `internal.ExecutorHandler`. A `CallRecorder.wrap` decorator runs the
+application's own query, so with the recorder and the agent in one suite an unread column is still reported; before,
+every recorded call was taken for a replay and the report came back clean. Rejected: a thread-local replay flag
+(`select-audit` sees `jpa` only, INV-7, so the flag would need a new `jpa` seam); skipping only `PortabilityCheck` frames
+(a new replay path outside it would be audited by accident). → `api/16` R-INS-18, AC-INS-22.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

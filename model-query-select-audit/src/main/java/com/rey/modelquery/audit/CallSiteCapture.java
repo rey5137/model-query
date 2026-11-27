@@ -14,6 +14,17 @@ final class CallSiteCapture {
 
     private static final String LIBRARY = "com.rey.modelquery.";
 
+    private static final String PORTABILITY = LIBRARY + "portability.";
+
+    /**
+     * Portability frames of a live recorded call ({@code CallRecorder.wrap}'s decorator and the proxy rules it
+     * extends): they run the application's own query, so they do not mark a replay.
+     */
+    private static final List<String> RECORDING_FRAMES = List.of(
+            PORTABILITY + "CallRecorder",
+            PORTABILITY + "internal.ExecutorHandler"
+    );
+
     private static final List<String> NOT_CALL_SITES = List.of(
             LIBRARY,
             "org.springframework.",
@@ -38,13 +49,14 @@ final class CallSiteCapture {
     }
 
     /**
-     * Captures the call site and outermost executor method. Returns {@code null} if the stack contains
-     * {@code com.rey.modelquery.portability} or no valid call site could be found.
+     * Captures the call site and outermost executor method. Returns {@code null} if the stack holds a
+     * {@code com.rey.modelquery.portability} frame other than a recording one (a replay or dry run) or no valid call
+     * site could be found.
      */
     static Site capture() {
         List<StackWalker.StackFrame> frames = WALKER.walk(s -> s.toList());
         for (StackWalker.StackFrame frame : frames) {
-            if (frame.getClassName().startsWith("com.rey.modelquery.portability.")) {
+            if (isReplayFrame(frame.getClassName())) {
                 return null;
             }
         }
@@ -71,6 +83,18 @@ final class CallSiteCapture {
             }
         }
         return null;
+    }
+
+    private static boolean isReplayFrame(String className) {
+        if (!className.startsWith(PORTABILITY)) {
+            return false;
+        }
+        for (String recording : RECORDING_FRAMES) {
+            if (className.equals(recording) || className.startsWith(recording + "$")) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static Site findCallSite(List<StackWalker.StackFrame> frames, int startSearch, String method,

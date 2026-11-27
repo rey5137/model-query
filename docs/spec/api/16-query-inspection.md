@@ -428,7 +428,9 @@ one field per call and uses the no-op call scope without other hand-off work, so
   scope to other threads through `Scope.enter()`, which restores the worker's previous context when closed.
   Closing the call scope releases all call state even on failure (D-235). Generated Q frames are recognised by
   runtime `fields(): FieldIndex` structure, never by class name. Calls
-  whose stack contains `com.rey.modelquery.portability` (a `PortabilityCheck` replay, R-INS-15) are not tagged.
+  whose stack contains a `com.rey.modelquery.portability` frame (a `PortabilityCheck` replay, R-INS-15) are not
+  tagged, except the frames of a live recorded call (`CallRecorder` and its nested classes, `internal.ExecutorHandler`):
+  a `CallRecorder.wrap` decorator runs the application's own query, which is audited (D-264).
 - **Which properties are selected.** The observer reads `Q<M>.fields()` (D-121, R-GEN-32), which holds every field
   the mapper reads keyed by property path (`join.field` at any depth) and every child, so scoped join constants
   resolve by path (AC-GEN-42). It finds `Q<M>` through `MAPPER`'s nest host (the `Q::map` method reference is a hidden

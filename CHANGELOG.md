@@ -55,6 +55,12 @@ and map children through `@Child(through)`, and filters through an element colle
 - User guide: [Values and maps](docs/site/docs/fetch-plans.md#values-and-maps) in the fetch-plans page, with JPA and
   Spring tabs, and the value and map assertions in [Testing](docs/site/docs/testing.md).
 
+### Fixed
+
+- The select audit reported nothing when a `CallRecorder.wrap` decorator recorded the same calls: every recorded live
+  call was taken for a portability replay because `CallRecorder` frames were on the stack, so unread columns and
+  unselected reads went unreported. Only replay and dry-run frames now skip a call; a recorded call is audited (D-264).
+
 ## [0.15.0] - 2026-11-18
 
 0.15.0 covers milestone M38 (RFC 0026, D-228 to D-244): a test-scope Java agent (`model-query-select-audit`) that fails
