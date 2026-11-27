@@ -63,6 +63,11 @@ final class ReadTransformer {
 
     private ReadTransformer() {}
 
+    /** The engine types holding the seams; a session-open attach needs them still unloaded (D-265). */
+    static Set<String> seamTypeNames() {
+        return Set.copyOf(SEAMS.values());
+    }
+
     /** The live set of seam types seen, for a test that drives the failure path. */
     static Set<String> seamTypesSeen() {
         return SEAM_TYPES_SEEN;

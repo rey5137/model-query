@@ -44,6 +44,11 @@ public final class SelectAuditReport {
     @Incubating
     public static final String RUN_PROPERTY = "modelquery.selectAudit.run";
 
+    /** The note that heads the summary when the session attached the agent itself (D-265). */
+    static final String RUNTIME_ATTACH_NOTE = "agent attached at session open: JDK 21 warns about a dynamically loaded "
+            + "agent (JEP 451) and a later JDK may refuse it; pass -javaagent, or -XX:+EnableDynamicAgentLoading to "
+            + "keep the attach";
+
     private SelectAuditReport() {}
 
     /** Renders the current JVM's recorded audit events as a report string. */
@@ -519,7 +524,8 @@ public final class SelectAuditReport {
                 .mapToLong(e -> e.requested.stream().filter(p -> !e.read.contains(p)).count())
                 .sum();
         return "select-audit report written to " + file + " (" + snap.unselected.size() + " unselected, "
-                + snap.serializer.size() + " serializer warnings, " + unreadCount + " unread columns)";
+                + snap.serializer.size() + " serializer warnings, " + unreadCount + " unread columns)"
+                + (AuditAgent.attachedAtRuntime() ? "; " + RUNTIME_ATTACH_NOTE : "");
     }
 
     private static String shortReader(String location) {

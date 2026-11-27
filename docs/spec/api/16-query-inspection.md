@@ -513,17 +513,31 @@ how many older files it skipped; a fork or file with an unknown run is never ski
 classes are `AuditAgent`, `AuditObserver`, `AuditLauncherSessionListener`, `ReadAccess` (not API: called by injected
 code), `UnselectedColumnRead` and `SelectAuditReport`, and a TCK test holds the list (D-243).
 
-**R-INS-22** *(D-228, D-230, `@Incubating`)* **The select-audit module and agent setup.** `model-query-select-audit`
-depends on `model-query-jpa` at its exact version and Byte Buddy, shaded and relocated into the agent jar so it never
-clashes with a user's dependencies. No production module depends on it; the TCK has a test-only ordering
-dependency excluded from its test runtime (D-230). The jar is its own agent, packaged with
-`Premain-Class`, `Agent-Class` and `Can-Retransform-Classes: true`. It attaches at JVM startup via `-javaagent:`, never
-by self-attach at run time: a late attach after the first executor call leaves the audit off for that class loader
-(D-242).
+**R-INS-22** *(D-228, D-230, D-265, `@Incubating`)* **The select-audit module and agent setup.**
+`model-query-select-audit` depends on `model-query-jpa` at its exact version and Byte Buddy (with its agent attacher),
+shaded and relocated into the agent jar so it never clashes with a user's dependencies. No production module depends
+on it; the TCK has a test-only ordering dependency excluded from its test runtime (D-230). The jar is its own agent,
+packaged with `Premain-Class`, `Agent-Class` and `Can-Retransform-Classes: true`, and carries no module descriptor.
+It attaches at JVM startup via `-javaagent:`, or, with none given, the JUnit session attaches it when it opens, before
+discovery and the first executor call (D-265). An attach after the first executor call would leave the audit off for
+that class loader (D-242), so nothing attaches later.
 
-- **Missing agent fails the test session.** With the jar on the classpath and no agent attached, the module's JUnit
-  `LauncherSessionListener` fails the JUnit session when it opens, naming the `-javaagent:` argument to add to
-  `argLine`. Outside a JUnit session (e.g. if the jar is on the runtime classpath by mistake), the observer is inactive
+- **Settings.** `modelquery.selectAudit.attach` (`auto`, the default, or `startup`) and
+  `modelquery.selectAudit.missingAgent` (`fail`, the default, `warn` or `off`) are read when the session opens, from a
+  system property (a blank one counts as unset), else from `junit-platform.properties` on the class path; another
+  value fails the session naming the allowed ones, with or without an agent.
+- **Self-attach.** With `attach=auto` and no agent, the module's JUnit `LauncherSessionListener` attaches its own jar
+  through Byte Buddy's attacher (in process when the JVM allows it, else an external attach process), with
+  `System.err` pointed at the process's stderr for the JDK's JEP 451 warning. Models loaded before it are never
+  retransformed (D-232) and are reported under `MODELS NOT OBSERVED`. The listener logs, and the report summary
+  ends with, a note that the agent was attached at session open and that `-javaagent` or
+  `-XX:+EnableDynamicAgentLoading` avoids the JDK's warning.
+- **Missing agent.** With no agent after that step (`attach=startup`, classes not loaded from the jar or not by the
+  system class loader, checked before attaching, an attach refused, or engine seam types already loaded when the
+  agent started, so their hooks are missing), `missingAgent=fail` fails the JUnit session
+  when it opens, naming the reason, the `-javaagent:` argument to add to `argLine` and the setting; `warn` logs one
+  warning and runs the session unaudited; `off` attaches nothing and runs it unaudited without a warning. An agent
+  that started too late stays inactive, writes no report, and a later session in the JVM does not attach again. Outside a JUnit session (e.g. if the jar is on the runtime classpath by mistake), the observer is inactive
   (`HandOffObserver.active()`, D-242): it logs one warning, `installed()` is the no-op default, the executor keeps no
   rows for it, and production code never throws. No `MQ` error code: the failure is a test-session failure.
 - **JPA default is a no-op.** On the classpath with no observer registered, `jpa` defaults to a no-op observer that
@@ -556,5 +570,7 @@ by self-attach at run time: a late attach after the first executor call leaves t
 | AC-INS-21 | A Jackson serialization (plain, Blackbird and Afterburner) of a partial model warns and does not fail; an `ignore`d reader never fails, and its reads of selected columns count (R-INS-19, R-INS-20, D-240). |
 | AC-INS-22 | The report lists unread selected columns per call site and select set, names the real test methods and counts them (two `@Test` methods read "across 2 tests"), excludes engine-added keys and portability replays, and two forks' files merge to the union (R-INS-21). |
 | AC-INS-23 | Every `ModelQueryExecutor` method returning models, enumerated by reflection, tags its result; a `stream` call and a call through an application decorator get the application's call site; a read on an unjoined pool thread is labelled; a caller inside `com.rey.modelquery.*` is its own call site, not a JUnit frame (R-INS-18, R-INS-20, D-237, D-240). |
-| AC-INS-24 | The jar without the agent fails the JUnit session when it opens; outside JUnit it logs once and changes no SQL and no result; the `jpa` default changes neither; without the agent `HandOffObserver.installed()` is the no-op default, outside JUnit and in the TCK, which has the audit jar on its class path (R-INS-18, R-INS-22, D-228, D-230, D-242). |
+| AC-INS-24 | With `attach=startup`, the jar without the agent fails the JUnit session when it opens; outside JUnit it logs once and changes no SQL and no result; the `jpa` default changes neither; without the agent `HandOffObserver.installed()` is the no-op default, outside JUnit and in the TCK, which has the audit jar on its class path (R-INS-18, R-INS-22, D-228, D-230, D-242, D-265). |
 | AC-INS-25 | `values(field)` and `map(field)` pass for a value child (`List` and `Set`) and a map child the plan loads and assert their `maxPerParent` bounded and unbounded; a failure names the load (`the values of OrderView.tags`, `the map of OrderView.labels`) and its bound, keeps the query's description, and a field the plan doesn't load, or a query with no plan, fails naming the children, values and maps the plan loads (R-INS-06, D-257, D-263). Tested by `ValueChildAssertTest.ac_ins_25_*` and `MapChildAssertTest.ac_ins_25_*`. |
+| AC-INS-26 | With no `-javaagent` and the default `attach=auto`, the JUnit session attaches the agent from the jar when it opens, and an unread selected column is reported (R-INS-22, D-265). Tested by `SelfAttachRun.ac_ins_26_*` in its own Failsafe execution. |
+| AC-INS-27 | `attach` defaults to `auto` and `missingAgent` to `fail`; a system property wins over `junit-platform.properties`; another value fails naming the allowed ones; with `attach=startup` and no agent, `missingAgent=warn` and `missingAgent=off` run the session unaudited instead of failing (R-INS-22, D-265). Tested by `AuditSettingsTest.ac_ins_27_*`, `MissingAgentWarnRun` and `MissingAgentOffRun`. |

@@ -33,6 +33,12 @@
             <version>${byte-buddy.version}</version>
         </dependency>
         <dependency>
+            <!-- shaded with byte-buddy: attaches the agent when a JUnit session opens without one (D-265) -->
+            <groupId>net.bytebuddy</groupId>
+            <artifactId>byte-buddy-agent</artifactId>
+            <version>${byte-buddy.version}</version>
+        </dependency>
+        <dependency>
             <groupId>org.junit.platform</groupId>
             <artifactId>junit-platform-launcher</artifactId>
             <version>${junit.version}</version>
@@ -187,6 +193,7 @@
                             <artifactSet>
                                 <includes>
                                     <include>net.bytebuddy:byte-buddy</include>
+                                    <include>net.bytebuddy:byte-buddy-agent</include>
                                 </includes>
                             </artifactSet>
                             <relocations>
@@ -200,6 +207,17 @@
                                     <artifact>net.bytebuddy:byte-buddy</artifact>
                                     <excludes>
                                         <exclude>META-INF/MANIFEST.MF</exclude>
+                                        <!-- else the agent jar reads as module net.bytebuddy on a module path -->
+                                        <exclude>META-INF/versions/9/module-info.class</exclude>
+                                    </excludes>
+                                </filter>
+                                <filter>
+                                    <artifact>net.bytebuddy:byte-buddy-agent</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/MANIFEST.MF</exclude>
+                                        <exclude>META-INF/LICENSE</exclude>
+                                        <exclude>META-INF/NOTICE</exclude>
+                                        <exclude>META-INF/versions/9/module-info.class</exclude>
                                     </excludes>
                                 </filter>
                             </filters>
@@ -257,6 +275,59 @@
                                 -javaagent:${org.jacoco:org.jacoco.agent:jar:runtime}=output=none
                                 -javaagent:${org.mockito:mockito-core:jar}
                             </argLine>
+                        </configuration>
+                    </execution>
+                    <!-- No -javaagent below: the session attaches the agent itself, or follows missingAgent (D-265). -->
+                    <execution>
+                        <id>self-attach</id>
+                        <goals><goal>integration-test</goal><goal>verify</goal></goals>
+                        <configuration>
+                            <test>SelfAttachRun</test>
+                            <classesDirectory>${audit.jar}</classesDirectory>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>self-attach-in-process</id>
+                        <goals><goal>integration-test</goal><goal>verify</goal></goals>
+                        <configuration>
+                            <test>SelfAttachRun</test>
+                            <classesDirectory>${audit.jar}</classesDirectory>
+                            <argLine>-Djdk.attach.allowAttachSelf=true</argLine>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <!-- attach=auto fails (classes not from a jar), so missingAgent=warn decides -->
+                        <id>failed-attach-warn</id>
+                        <goals><goal>integration-test</goal><goal>verify</goal></goals>
+                        <configuration>
+                            <test>MissingAgentWarnRun</test>
+                            <classesDirectory>${project.build.outputDirectory}</classesDirectory>
+                            <systemPropertyVariables>
+                                <modelquery.selectAudit.missingAgent>warn</modelquery.selectAudit.missingAgent>
+                            </systemPropertyVariables>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>missing-agent-warn</id>
+                        <goals><goal>integration-test</goal><goal>verify</goal></goals>
+                        <configuration>
+                            <test>MissingAgentWarnRun</test>
+                            <classesDirectory>${audit.jar}</classesDirectory>
+                            <systemPropertyVariables>
+                                <modelquery.selectAudit.attach>startup</modelquery.selectAudit.attach>
+                                <modelquery.selectAudit.missingAgent>warn</modelquery.selectAudit.missingAgent>
+                            </systemPropertyVariables>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>missing-agent-off</id>
+                        <goals><goal>integration-test</goal><goal>verify</goal></goals>
+                        <configuration>
+                            <test>MissingAgentOffRun</test>
+                            <classesDirectory>${audit.jar}</classesDirectory>
+                            <systemPropertyVariables>
+                                <modelquery.selectAudit.missingAgent>off</modelquery.selectAudit.missingAgent>
+                            </systemPropertyVariables>
                         </configuration>
                     </execution>
                 </executions>

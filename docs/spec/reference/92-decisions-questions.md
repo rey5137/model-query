@@ -3627,6 +3627,24 @@ every recorded call was taken for a replay and the report came back clean. Rejec
 (`select-audit` sees `jpa` only, INV-7, so the flag would need a new `jpa` seam); skipping only `PortabilityCheck` frames
 (a new replay path outside it would be audited by accident). → `api/16` R-INS-18, AC-INS-22.
 
+**D-265 — The JUnit session attaches the select-audit agent itself; a missing agent is a setting (0.16.0, 2026-11-27,
+user decision).** Amends D-230 and D-242. With no `-javaagent`, `AuditLauncherSessionListener` attaches the audit jar
+when the session opens (`modelquery.selectAudit.attach=auto`, the default), through Byte Buddy's attacher, shaded
+with Byte Buddy. The session opens before discovery, Spring startup and the first executor call, so D-242's late
+attach cannot happen; models already loaded are not retransformed (D-232) and show under `MODELS NOT OBSERVED`.
+`attach=startup` keeps the startup-only rule. With still no agent, `modelquery.selectAudit.missingAgent` decides:
+`fail` (the default, D-230's rule), `warn` (one warning, unaudited) or `off` (unaudited and silent, replacing
+`classpathDependencyExcludes` for an execution that is not audited). Both are read from a system property, else
+`junit-platform.properties`, and parsed even when an agent is attached. An attach is refused before it starts when the
+system class loader does not load these audit classes, and counts as missing when an engine seam type (D-241) was
+loaded before the agent, since its hooks are then absent and the report would be silently empty; such an agent stays
+inactive. The JDK's JEP 451 warning is printed to the process's stderr during the attach (a
+runner's captured `System.err` failing there aborts the agent), and the summary names `-javaagent` or
+`-XX:+EnableDynamicAgentLoading` to avoid it. The jar drops Byte Buddy's module descriptor, which made it read as
+module `net.bytebuddy` on a module path. Rejected: `warn` as the default (a run with no agent would pass with an empty
+report, the failure D-230 prevents); failing only under a recognised build tool (a guess from the environment).
+→ `api/16` R-INS-22, AC-INS-24, AC-INS-26, AC-INS-27.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

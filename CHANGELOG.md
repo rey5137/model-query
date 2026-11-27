@@ -7,8 +7,8 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 ## [0.16.0] - 2026-11-23
 
 0.16.0 covers milestone M39 (RFC 0027, D-245 to D-263): `@ElementCollection`s read as value children, element models
-and map children through `@Child(through)`, and filters through an element collection. Every API addition below is
-`@Incubating`.
+and map children through `@Child(through)`, and filters through an element collection, plus a select-audit setup
+without `-javaagent` (D-264, D-265). Every API addition below is `@Incubating`.
 
 ### Added (incubating)
 
@@ -55,11 +55,22 @@ and map children through `@Child(through)`, and filters through an element colle
 - User guide: [Values and maps](docs/site/docs/fetch-plans.md#values-and-maps) in the fetch-plans page, with JPA and
   Spring tabs, and the value and map assertions in [Testing](docs/site/docs/testing.md).
 
+- Select audit setup (R-INS-22, D-265): with no `-javaagent`, the JUnit session attaches the audit agent itself when it
+  opens, so the test-scope dependency is the whole setup, IDE runs included. JDK 21 prints its dynamic-agent warning
+  (JEP 451); the report summary names `-javaagent` or `-XX:+EnableDynamicAgentLoading` to avoid it.
+  `modelquery.selectAudit.attach=auto|startup` (default `auto`) and `modelquery.selectAudit.missingAgent=fail|warn|off`
+  (default `fail`), read from a system property or `junit-platform.properties`: `startup` keeps the startup-only rule,
+  `warn` runs a session with no agent unaudited after one warning, and `off` runs it unaudited silently, replacing
+  `classpathDependencyExcludes` for an execution that is not audited. See
+  [Select audit](docs/site/docs/select-audit.md#settings).
+
 ### Fixed
 
 - The select audit reported nothing when a `CallRecorder.wrap` decorator recorded the same calls: every recorded live
   call was taken for a portability replay because `CallRecorder` frames were on the stack, so unread columns and
   unselected reads went unreported. Only replay and dry-run frames now skip a call; a recorded call is audited (D-264).
+- The `model-query-select-audit` jar no longer carries Byte Buddy's `module-info.class`, which made it read as module
+  `net.bytebuddy` on a module path (D-265).
 
 ## [0.15.0] - 2026-11-18
 

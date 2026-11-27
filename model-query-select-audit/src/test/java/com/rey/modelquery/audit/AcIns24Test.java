@@ -14,8 +14,8 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 /**
- * AC-INS-24: The jar without the agent fails the JUnit session when it opens; outside JUnit it logs once and
- * changes no SQL and no result; the jpa default changes neither.
+ * AC-INS-24: With {@code attach=startup}, the jar without the agent fails the JUnit session when it opens; outside
+ * JUnit it logs once and changes no SQL and no result; the jpa default changes neither.
  */
 class AcIns24Test {
 
@@ -70,7 +70,9 @@ class AcIns24Test {
         Process process = null;
         try {
             var builder = new ProcessBuilder(java.nio.file.Path.of(System.getProperty("java.home"), "bin", "java")
-                    .toString(), "-Xmx128m", "-cp", classpath, main);
+                    .toString(), "-Xmx128m",
+                    // the startup rule: without it the session would attach the agent itself (D-265)
+                    "-D" + AuditSettings.ATTACH + "=startup", "-cp", classpath, main);
             builder.environment().clear();
             process = builder.redirectErrorStream(true).redirectOutput(log.toFile()).start();
             assertThat(process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS)).as("fork completed").isTrue();

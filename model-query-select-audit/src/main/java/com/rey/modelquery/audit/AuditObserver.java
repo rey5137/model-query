@@ -77,10 +77,12 @@ public final class AuditObserver implements HandOffObserver {
     @Override
     @Incubating
     public boolean active() {
-        if (AuditAgent.isInstalled()) {
+        if (AuditAgent.isInstalled() && !AuditAgent.disabled()) {
             return true;
         }
-        warnMissingAgent();
+        if (!AuditAgent.disabled()) {
+            warnMissingAgent();
+        }
         return false;
     }
 

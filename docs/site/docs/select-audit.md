@@ -18,21 +18,51 @@ joins and bytes without failing anything.
 
 ## Setup
 
-Add `model-query-select-audit` in test scope and attach its jar as a `-javaagent` at JVM startup. The module implements
-a non-API hand-off observer in `model-query-jpa` and shades Byte Buddy under a relocated package, so it must resolve at
-`model-query-jpa`'s exact version from `model-query-bom`.
+Add `model-query-select-audit` in test scope. That is the whole setup: when the JUnit session opens with no agent
+attached, the audit attaches its own jar to the test JVM, before test discovery, Spring startup and the first query.
+IDE runs work the same way. The module implements a non-API hand-off observer in `model-query-jpa` and shades Byte
+Buddy under a relocated package, so it must resolve at `model-query-jpa`'s exact version from `model-query-bom`.
 
 === "Maven"
 
     ```xml
-    <dependencies>
-        <dependency>
-            <groupId>io.github.rey5137</groupId>
-            <artifactId>model-query-select-audit</artifactId>
-            <scope>test</scope>
-        </dependency>
-    </dependencies>
+    <dependency>
+        <groupId>io.github.rey5137</groupId>
+        <artifactId>model-query-select-audit</artifactId>
+        <scope>test</scope>
+    </dependency>
+    ```
 
+=== "Gradle"
+
+    ```kotlin
+    dependencies {
+        testImplementation(platform("io.github.rey5137:model-query-bom:0.16.0"))
+        testImplementation("io.github.rey5137:model-query-select-audit")
+    }
+
+    tasks.test {
+        systemProperty(
+            "modelquery.selectAudit.dir",
+            layout.buildDirectory.dir("model-query").get().asFile.absolutePath
+        )
+    }
+    ```
+
+No Spring bean or test configuration is needed: `model-query-jpa` discovers the hand-off observer via `ServiceLoader`
+and JUnit Platform discovers the session listener automatically, so plain JPA tests, Spring tests, and repositories are
+audited alike.
+
+### Attaching at startup instead
+
+An agent loaded into a running JVM makes JDK 21 print `WARNING: A Java agent has been loaded dynamically` (JEP 451),
+and a later JDK may refuse it unless `-XX:+EnableDynamicAgentLoading` is set. The report summary says so when the
+audit attached itself. To avoid both, attach the jar at JVM startup, which also suits a CI build that wants the
+strict rule (`modelquery.selectAudit.attach=startup`, below):
+
+=== "Maven"
+
+    ```xml
     <build>
         <plugins>
             <!-- Populates ${io.github.rey5137:model-query-select-audit:jar} -->
@@ -66,31 +96,50 @@ a non-API hand-off observer in `model-query-jpa` and shades Byte Buddy under a r
     }
 
     dependencies {
-        testImplementation(platform("io.github.rey5137:model-query-bom:0.16.0"))
-        testImplementation("io.github.rey5137:model-query-select-audit")
         selectAuditAgent("io.github.rey5137:model-query-select-audit:0.16.0")
     }
 
     tasks.test {
-        systemProperty(
-            "modelquery.selectAudit.dir",
-            layout.buildDirectory.dir("model-query").get().asFile.absolutePath
-        )
         jvmArgumentProviders.add(CommandLineArgumentProvider {
             listOf("-javaagent:${selectAuditAgent.singleFile.absolutePath}")
         })
     }
     ```
 
-No Spring bean or test configuration is needed: `model-query-jpa` discovers the hand-off observer via `ServiceLoader`
-and JUnit Platform discovers the session listener automatically, so plain JPA tests, Spring tests, and repositories are
-audited alike.
+### Settings
 
-- **Startup `-javaagent` required.** Model classes are recognised from their class-file annotations and hooked as they
-  load (and JDK 21+ warns on dynamic agent loading under JEP 451). With the jar on the test classpath and no
-  `-javaagent` attached, the JUnit `LauncherSessionListener` fails the test session immediately when it opens, naming
-  the `argLine` to add, so a test suite never passes silently unaudited. The agent must be attached at JVM start: a
-  late attach, after the first query ran, leaves the audit off for that class loader.
+Both are read when the JUnit session opens, from a system property, else from `junit-platform.properties` on the
+test class path (so one file in `src/test/resources` covers Maven, Gradle and IDE runs):
+
+| Setting | Values | Default |
+|---|---|---|
+| `modelquery.selectAudit.attach` | `auto`: attach the jar when the session opens with no agent; `startup`: only a `-javaagent` counts | `auto` |
+| `modelquery.selectAudit.missingAgent` | what a session with no agent does: `fail` the session, `warn` once and run unaudited, or `off` (run unaudited, no warning, nothing attached) | `fail` |
+
+- **No agent fails the session by default.** If there is still no agent (`attach=startup` without `-javaagent`, an
+  attach the JVM refused, Surefire's `useSystemClassLoader=false`, or a query that ran before the session opened, for
+  example from your own `LauncherSessionListener`), the session fails when it opens, naming the reason and the
+  `argLine` to add, so a suite never passes silently unaudited. A value other than those listed fails it too.
+- **A test run that is not audited.** For a separate unit-test execution or task that should not be audited, set
+  `modelquery.selectAudit.missingAgent=off` for it (for example in Surefire's `systemPropertyVariables`) instead of
+  removing the jar from its class path. `off` is applied before any attach, so nothing else is needed.
+- **Classes loaded before the agent.** Model classes are recognised from their class-file annotations and hooked as
+  they load, never retransformed. A model loaded before the agent attached is listed under `MODELS NOT OBSERVED` and
+  its reads are not recorded; neither a startup nor a session-open attach normally leaves one.
+
+### IDE runs
+
+IntelliJ IDEA and Eclipse run JUnit on the test class path, so the audit attaches itself there with no setup and the
+JDK prints its dynamic-agent warning. To attach at startup instead, add the jar's
+`-javaagent:<path to model-query-select-audit.jar>` to the JUnit run configuration template's VM options; an IDE
+cannot resolve Maven's `${io.github.rey5137:model-query-select-audit:jar}` property. To run unaudited from the IDE, add
+`-Dmodelquery.selectAudit.missingAgent=off` there.
+
+If you switch the audit on or off with a Maven profile, note that Maven turns off a POM's `activeByDefault` profiles as
+soon as any other profile of that POM is active, including one activated by a property condition such as
+`<property><name>!skipSelectAudit</name></property>`, which is active whenever the property is unset. The settings
+above usually make such a profile unnecessary.
+
 - **Test scope only.** Without `model-query-select-audit` on the classpath, `model-query-jpa` uses a no-op observer
   that changes neither SQL nor results. If the audit jar is accidentally placed on the runtime classpath outside JUnit,
   it logs one warning and does nothing, and the executor keeps no rows for it.
@@ -229,7 +278,8 @@ marks a class as instrumented before retransforming it and clears that mark only
 after the first `ClassFormatError` on a spy or mock of an annotated record, a subsequent `mock(...)` of the same record
 silently returns an uninstrumented instance that is not a mock. (JDK 25 fixes the rebuilt `Record` attribute.)
 
-With `model-query-select-audit` attached at startup, the audit agent transforms model records as they load using a
+With `model-query-select-audit` attached at startup or when the session opens, the audit agent transforms model
+records as they load using a
 retransform-capable transformer (`RedefinitionStrategy.RETRANSFORMATION`, `TypeStrategy.DECORATE`,
 `disableClassFormatChanges()`). Because the class was modified at load time by a retransform-capable agent, HotSpot
 caches the original class file bytes and hands them to later retransforms (such as Mockito's inline mock maker) instead
@@ -257,8 +307,9 @@ coexist in either order.
 ## Surefire `useSystemClassLoader=false`
 
 Surefire's isolated class loader (`useSystemClassLoader=false`) loads the audit classes a second time, apart from the
-copy the agent attached to. The session then fails with "agent not installed" although the agent is attached. Keep
-the default `useSystemClassLoader=true` (not reproduced in this build).
+copy the agent attached to. The session then fails with "agent not installed" although the agent is attached, whether
+by `-javaagent` or when the session opens. Keep the default `useSystemClassLoader=true` (not reproduced in this
+build).
 
 ## What the audit does not see
 
